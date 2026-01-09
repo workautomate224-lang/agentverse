@@ -1,5 +1,8 @@
 # AgentVerse - Claude Session Memory
 
+**GitHub Repository:** https://github.com/sweiloon/agentverse
+**IMPORTANT:** Always push to `https://github.com/sweiloon/agentverse.git` - NOT ai-voice-chat-pwa!
+
 **Last Updated:** 2026-01-09
 **Current Phase:** ALL PHASES COMPLETE ✅ (96/96 tasks = 100%)
 **Current Focus:** Project complete! Remediation items (P9-001a-e) require human review before production.
