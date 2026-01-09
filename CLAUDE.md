@@ -81,6 +81,73 @@ These remediation items were identified during P9-001 security audit and should 
 
 ---
 
+## 3.5) Deployment Status (PAUSED)
+
+**Last Updated:** 2026-01-09
+**Status:** Paused - Railway trial expired, waiting for upgrade
+
+### Infrastructure Ready ✅
+| Service | Provider | Status | Details |
+|---------|----------|--------|---------|
+| Database | Supabase PostgreSQL | ✅ Ready | `aws-1-ap-south-1.pooler.supabase.com:5432` |
+| Redis | Upstash | ✅ Ready | `welcomed-boar-9893.upstash.io:6379` (TLS) |
+| GitHub Repo | GitHub | ✅ Ready | `sweiloon/agentverse` (public) |
+| Frontend | Vercel | ✅ Deployed | `web-lilac-eight-56.vercel.app` |
+| Backend API | Railway | ⏸️ Paused | Trial expired - needs upgrade ($5/month) |
+
+### Railway Project Details
+- **Project Name:** unique-mercy
+- **Project URL:** https://railway.com/project/814d1dba-157a-4609-a1ec-ef55f10719e3
+- **Issue:** Trial expired - requires Hobby plan upgrade ($5/month)
+
+### Environment Variables (Already Configured in Railway)
+```bash
+DATABASE_URL=postgresql+asyncpg://postgres.rrmanrmilwjnahplpukg:[PASSWORD]@aws-1-ap-south-1.pooler.supabase.com:5432/postgres
+REDIS_URL=rediss://default:[PASSWORD]@welcomed-boar-9893.upstash.io:6379
+SECRET_KEY=[GENERATED]
+OPENROUTER_API_KEY=[YOUR_KEY]
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+DEFAULT_MODEL=openai/gpt-4o-mini
+CORS_ORIGINS=["http://localhost:3000","http://localhost:3002","https://web-lilac-eight-56.vercel.app"]
+ENVIRONMENT=production
+DEBUG=false
+```
+
+### Steps to Continue Deployment (When Ready)
+1. **Upgrade Railway** to Hobby plan ($5/month)
+   - Go to: https://railway.com/workspace/upgrade
+   - Select Hobby plan
+
+2. **Delete misconfigured service** (`@agentverse/web`)
+   - The auto-detected service has wrong configuration
+   - Go to service settings → Delete service
+
+3. **Create new service from GitHub**
+   - Click "Create" → "GitHub Repo"
+   - Select `sweiloon/agentverse`
+   - **IMPORTANT Settings:**
+     - Root Directory: `apps/api`
+     - Builder: Dockerfile
+     - Railway Config File: `railway.json` (relative path, NOT `/apps/api/railway.json`)
+     - Leave Build/Start commands empty (Dockerfile handles this)
+
+4. **Copy environment variables** from old service to new service
+
+5. **Generate domain** once deployed
+   - Settings → Networking → Generate Domain
+
+6. **Update frontend** with API URL
+   - Add new Railway domain to `CORS_ORIGINS`
+   - Update `NEXT_PUBLIC_API_URL` in Vercel
+
+### Alternative: Render.com
+If Railway doesn't work, Render has:
+- Free tier available ($0/month, 512MB RAM)
+- `render.yaml` already configured in `apps/api/`
+- Email verified for `magicpattern@gmail.com`
+
+---
+
 ## 4) Critical Invariants
 
 1. **Fork-not-mutate:** Any change to outcomes creates a new Node; parent Node is NEVER modified
@@ -193,7 +260,23 @@ agentverse/
 
 ## 9) Session Log
 
-### 2026-01-09 (Current Session - LLM Router Implementation)
+### 2026-01-09 (Current Session - Deployment Attempt)
+- **Deployment Infrastructure Setup:**
+  - Supabase PostgreSQL ✅ - Database ready with migrations run
+  - Upstash Redis ✅ - Connected and tested
+  - GitHub repo ✅ - `sweiloon/agentverse` pushed
+  - Vercel frontend ✅ - `web-lilac-eight-56.vercel.app` deployed
+- **Railway Deployment Attempt:**
+  - Created project "unique-mercy"
+  - Service auto-detected as `@agentverse/web` (wrong - frontend instead of API)
+  - Multiple build failures: "Dockerfile does not exist" due to path configuration issues
+  - Root cause: Railway Config File set to `/apps/api/railway.json` caused path doubling with Root Directory `/apps/api`
+  - Attempted UI fixes but combobox didn't allow direct text editing
+  - **Trial expired** - Railway requires Hobby plan upgrade ($5/month) to continue
+- **Decision:** Paused deployment until Railway upgrade
+- **Documentation:** Added Section 3.5 to CLAUDE.md with full deployment instructions for later
+
+### 2026-01-09 (Earlier - LLM Router Implementation)
 - **GAP-P0-001: LLM Router Implementation ✅**
   - **SPEC_COVERAGE.md:** Created comprehensive spec coverage audit
   - **GAPS.md:** Created prioritized gaps report with P0/P1/P2 priorities

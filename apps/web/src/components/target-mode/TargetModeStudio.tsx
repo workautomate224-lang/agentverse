@@ -16,6 +16,15 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   useTargetPersonas,
   useTargetPlan,
@@ -23,6 +32,7 @@ import {
   useExpandTargetCluster,
   useBranchPathToNode,
   useNodes,
+  useCreateTargetPersona,
 } from '@/hooks/useApi';
 import {
   TargetPersona,
@@ -49,6 +59,8 @@ export function TargetModeStudio({ projectId }: TargetModeStudioProps) {
   const [selectedPathId, setSelectedPathId] = useState<string | null>(null);
   const [parentNodeId, setParentNodeId] = useState<string | null>(null);
   const [showCreateTarget, setShowCreateTarget] = useState(false);
+  const [newTargetName, setNewTargetName] = useState('');
+  const [newTargetGoal, setNewTargetGoal] = useState('');
 
   // Planner config
   const [plannerConfig, setPlannerConfig] = useState({
@@ -60,7 +72,7 @@ export function TargetModeStudio({ projectId }: TargetModeStudioProps) {
   });
 
   // API hooks
-  const { data: personas, isLoading: loadingPersonas } = useTargetPersonas({
+  const { data: personas, isLoading: loadingPersonas, refetch: refetchPersonas } = useTargetPersonas({
     project_id: projectId,
   });
   const { data: plan, isLoading: loadingPlan } = useTargetPlan(activePlanId ?? undefined);
@@ -68,6 +80,7 @@ export function TargetModeStudio({ projectId }: TargetModeStudioProps) {
   const runPlanner = useRunTargetPlanner();
   const expandCluster = useExpandTargetCluster();
   const branchToNode = useBranchPathToNode();
+  const createTargetPersona = useCreateTargetPersona();
 
   // Get root node for branching
   const rootNode = useMemo(() => {
@@ -250,6 +263,84 @@ export function TargetModeStudio({ projectId }: TargetModeStudioProps) {
           </div>
         </div>
       )}
+
+      {/* Create Target Dialog */}
+      <Dialog open={showCreateTarget} onOpenChange={setShowCreateTarget}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Target Persona</DialogTitle>
+            <DialogDescription>
+              Define a target persona for goal-driven simulation. The planner will find optimal paths to achieve this persona&apos;s objectives.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <label htmlFor="target-name" className="text-sm font-medium text-white/80">
+                Target Name
+              </label>
+              <Input
+                id="target-name"
+                placeholder="e.g., Early Adopter, Price Sensitive Consumer"
+                value={newTargetName}
+                onChange={(e) => setNewTargetName(e.target.value)}
+                className="bg-white/5 border-white/20 text-white placeholder:text-white/40"
+              />
+            </div>
+            <div className="grid gap-2">
+              <label htmlFor="target-goal" className="text-sm font-medium text-white/80">
+                Goal / Desired Outcome
+              </label>
+              <Input
+                id="target-goal"
+                placeholder="e.g., Achieve 80% purchase intent for EV"
+                value={newTargetGoal}
+                onChange={(e) => setNewTargetGoal(e.target.value)}
+                className="bg-white/5 border-white/20 text-white placeholder:text-white/40"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowCreateTarget(false);
+                setNewTargetName('');
+                setNewTargetGoal('');
+              }}
+              className="border-white/20 hover:bg-white/10"
+            >
+              CANCEL
+            </Button>
+            <Button
+              onClick={async () => {
+                try {
+                  const result = await createTargetPersona.mutateAsync({
+                    name: newTargetName,
+                    description: newTargetGoal,
+                    domain: 'general',
+                  });
+                  setSelectedTargetId(result.target_id);
+                  refetchPersonas();
+                  setShowCreateTarget(false);
+                  setNewTargetName('');
+                  setNewTargetGoal('');
+                } catch {
+                  // Error handled by mutation
+                }
+              }}
+              disabled={!newTargetName || !newTargetGoal || createTargetPersona.isPending}
+              className="bg-cyan-500 hover:bg-cyan-600 text-black"
+            >
+              {createTargetPersona.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Plus className="h-4 w-4 mr-2" />
+              )}
+              {createTargetPersona.isPending ? 'CREATING...' : 'CREATE TARGET'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

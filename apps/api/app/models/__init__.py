@@ -2,6 +2,7 @@
 Database models
 """
 
+from app.models.tenant import Tenant
 from app.models.user import User
 from app.models.simulation import (
     Project,
@@ -89,6 +90,8 @@ from app.models.prediction import (
     CalibrationStatus,
 )
 # Universe Map Models (project.md §6.7)
+from app.models.project_spec import ProjectSpec
+from app.models.run_config import RunConfig
 from app.models.node import (
     Node,
     Edge,
@@ -120,6 +123,8 @@ from app.models.llm import (
 )
 
 __all__ = [
+    # Tenant
+    "Tenant",
     # User
     "User",
     # Simulation
@@ -196,6 +201,8 @@ __all__ = [
     "EventType",
     "CalibrationStatus",
     # Universe Map (project.md §6.7)
+    "ProjectSpec",
+    "RunConfig",
     "Node",
     "Edge",
     "NodeCluster",

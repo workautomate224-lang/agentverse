@@ -2267,11 +2267,21 @@ class ApiClient {
 
   async createProjectSpecRun(projectId: string, data: {
     node_id?: string;
+    seeds?: number[];
+    auto_start?: boolean;
     config_overrides?: Partial<CreateRunConfigInput>;
-  }): Promise<SpecRun> {
-    return this.request<SpecRun>(`/api/v1/project-specs/${projectId}/runs`, {
+  }): Promise<{ run_id: string; node_id: string; project_id: string; status: string; task_id?: string }> {
+    // Build query params for create-run endpoint
+    const params = new URLSearchParams();
+    if (data.seeds && data.seeds.length > 0) {
+      data.seeds.forEach(seed => params.append('seeds', String(seed)));
+    }
+    if (data.auto_start) {
+      params.set('auto_start', 'true');
+    }
+    const query = params.toString();
+    return this.request(`/api/v1/project-specs/${projectId}/create-run${query ? `?${query}` : ''}`, {
       method: 'POST',
-      body: JSON.stringify(data),
     });
   }
 

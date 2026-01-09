@@ -23,8 +23,17 @@ class ModelConfig(BaseModel):
     description: str = ""
 
 
-# Available models via OpenRouter
+# Available models via OpenRouter - Updated 2026-01
 AVAILABLE_MODELS = {
+    # === FREE / BUDGET MODELS ===
+    "free": ModelConfig(
+        model="xiaomi/mimo-v2-flash:free",
+        cost_per_1k_input_tokens=0.0,
+        cost_per_1k_output_tokens=0.0,
+        max_tokens=500,
+        temperature=0.7,
+        description="Free model for testing and development",
+    ),
     "fast": ModelConfig(
         model="openai/gpt-4o-mini",
         cost_per_1k_input_tokens=0.00015,
@@ -33,29 +42,64 @@ AVAILABLE_MODELS = {
         temperature=0.7,
         description="Fast and cost-effective for high-volume simulations",
     ),
+    # === BALANCED MODELS ===
     "balanced": ModelConfig(
-        model="anthropic/claude-3-haiku-20240307",
-        cost_per_1k_input_tokens=0.00025,
-        cost_per_1k_output_tokens=0.00125,
+        model="deepseek/deepseek-v3.2",
+        cost_per_1k_input_tokens=0.00027,
+        cost_per_1k_output_tokens=0.0011,
         max_tokens=750,
         temperature=0.7,
-        description="Good balance of quality and cost",
+        description="DeepSeek V3.2 - excellent quality at low cost",
     ),
-    "quality": ModelConfig(
-        model="anthropic/claude-3-5-sonnet-20241022",
+    "qwen": ModelConfig(
+        model="qwen/qwen3-max",
+        cost_per_1k_input_tokens=0.0004,
+        cost_per_1k_output_tokens=0.0016,
+        max_tokens=750,
+        temperature=0.7,
+        description="Qwen3 Max - strong multilingual capabilities",
+    ),
+    # === QUALITY MODELS ===
+    "grok": ModelConfig(
+        model="x-ai/grok-4.1-fast",
         cost_per_1k_input_tokens=0.003,
         cost_per_1k_output_tokens=0.015,
         max_tokens=1000,
         temperature=0.7,
-        description="High quality for complex scenarios",
+        description="Grok 4.1 Fast - 2M context window with reasoning",
     ),
-    "premium": ModelConfig(
+    "gemini": ModelConfig(
+        model="google/gemini-3-pro-preview",
+        cost_per_1k_input_tokens=0.00125,
+        cost_per_1k_output_tokens=0.005,
+        max_tokens=1000,
+        temperature=0.7,
+        description="Gemini 3 Pro Preview - Google's latest model",
+    ),
+    "quality": ModelConfig(
         model="openai/gpt-4o",
         cost_per_1k_input_tokens=0.0025,
         cost_per_1k_output_tokens=0.01,
         max_tokens=1000,
         temperature=0.7,
-        description="Premium quality for critical simulations",
+        description="GPT-4o - high quality for complex scenarios",
+    ),
+    # === PREMIUM / FRONTIER MODELS ===
+    "premium": ModelConfig(
+        model="openai/gpt-5.2",
+        cost_per_1k_input_tokens=0.005,
+        cost_per_1k_output_tokens=0.015,
+        max_tokens=2000,
+        temperature=0.7,
+        description="GPT-5.2 - OpenAI's latest frontier model",
+    ),
+    "opus": ModelConfig(
+        model="anthropic/claude-opus-4.5",
+        cost_per_1k_input_tokens=0.015,
+        cost_per_1k_output_tokens=0.075,
+        max_tokens=2000,
+        temperature=0.7,
+        description="Claude Opus 4.5 - Anthropic's most capable model",
     ),
 }
 

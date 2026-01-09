@@ -481,10 +481,19 @@ export default function SettingsPage() {
                     Default AI Model
                   </label>
                   <select className="w-full px-3 py-2 bg-white/5 border border-white/10 text-xs font-mono text-white focus:outline-none focus:border-white/30">
-                    <option value="gpt-4o-mini">GPT-4o Mini (Recommended)</option>
-                    <option value="gpt-4o">GPT-4o</option>
-                    <option value="gpt-4-turbo">GPT-4 Turbo</option>
-                    <option value="claude-3-sonnet">Claude 3 Sonnet</option>
+                    <optgroup label="Latest Models">
+                      <option value="openai/gpt-5.2">GPT-5.2 (Latest)</option>
+                      <option value="anthropic/claude-opus-4.5">Claude Opus 4.5</option>
+                      <option value="deepseek/deepseek-v3.2">DeepSeek V3.2</option>
+                      <option value="x-ai/grok-4.1-fast">Grok 4.1 Fast</option>
+                      <option value="qwen/qwen3-max">Qwen3 Max</option>
+                      <option value="google/gemini-3-pro-preview">Gemini 3 Pro Preview</option>
+                    </optgroup>
+                    <optgroup label="Budget Models">
+                      <option value="openai/gpt-4o-mini">GPT-4o Mini (Recommended)</option>
+                      <option value="openai/gpt-4o">GPT-4o</option>
+                      <option value="xiaomi/mimo-v2-flash:free">MiMo V2 Flash (Free)</option>
+                    </optgroup>
                   </select>
                 </div>
 

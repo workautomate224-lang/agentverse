@@ -19,6 +19,7 @@ Key Responsibilities:
 4. Query results and telemetry
 """
 
+import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -58,6 +59,15 @@ class SimulationMode(str, Enum):
 @dataclass
 class RunConfigInput:
     """Input for creating a run configuration."""
+    # Fields from runs.py endpoint
+    run_mode: str = "society"  # society | individual
+    max_ticks: int = 100
+    agent_batch_size: int = 100
+    society_mode: Optional[Dict[str, Any]] = None
+    engine_version: str = "1.0.0"
+    ruleset_version: str = "1.0.0"
+    dataset_version: str = "1.0.0"
+    # Additional internal fields
     horizon: int = 1000
     tick_rate: int = 1
     seed_strategy: str = "single"
@@ -74,11 +84,15 @@ class CreateRunInput:
     """Input for creating a simulation run."""
     project_id: str
     tenant_id: str
-    triggered_by: TriggeredBy
     node_id: Optional[str] = None  # If None, creates root node
     config: Optional[RunConfigInput] = None
     parent_node_id: Optional[str] = None  # For forking
     scenario_patch: Optional[Dict[str, Any]] = None  # For forking
+    # Fields from runs.py endpoint
+    label: Optional[str] = None
+    seeds: Optional[List[int]] = None
+    user_id: Optional[str] = None
+    triggered_by: Optional[TriggeredBy] = None
 
 
 @dataclass
@@ -152,10 +166,16 @@ class SimulationOrchestrator:
                 raise ValueError(f"Node not found: {input.node_id}")
         elif input.parent_node_id:
             # Fork from parent node (C1: fork-not-mutate)
+            from app.services.node_service import EdgeIntervention, InterventionType
             fork_input = ForkNodeInput(
                 parent_node_id=uuid.UUID(input.parent_node_id),
+                project_id=uuid.UUID(input.project_id),
                 tenant_id=uuid.UUID(input.tenant_id),
-                scenario_patch=input.scenario_patch,
+                intervention=EdgeIntervention(
+                    intervention_type=InterventionType.VARIABLE_DELTA,
+                    variable_deltas=input.scenario_patch,
+                ),
+                label=input.label,
             )
             node, edge = await self.node_service.fork_node(fork_input)
         else:
@@ -163,7 +183,8 @@ class SimulationOrchestrator:
             node_input = CreateNodeInput(
                 project_id=uuid.UUID(input.project_id),
                 tenant_id=uuid.UUID(input.tenant_id),
-                scenario_patch=input.scenario_patch,
+                is_baseline=True,
+                label="Baseline",
             )
             node = await self.node_service.create_root_node(node_input)
 
@@ -193,17 +214,17 @@ class SimulationOrchestrator:
                 "id": run_config_id,
                 "project_id": uuid.UUID(input.project_id),
                 "tenant_id": uuid.UUID(input.tenant_id),
-                "versions": {"engine": "1.0.0", "ruleset": "1.0.0"},
-                "seed_config": {
+                "versions": json.dumps({"engine": "1.0.0", "ruleset": "1.0.0"}),
+                "seed_config": json.dumps({
                     "strategy": config.seed_strategy,
                     "primary_seed": config.primary_seed,
                     "count": config.seed_count,
-                },
+                }),
                 "horizon": config.horizon,
                 "tick_rate": config.tick_rate,
-                "scheduler_profile": {},
-                "logging_profile": {"keyframe_interval": config.keyframe_interval},
-                "scenario_patch": config.scenario_patch,
+                "scheduler_profile": json.dumps({}),
+                "logging_profile": json.dumps({"keyframe_interval": config.keyframe_interval}),
+                "scenario_patch": json.dumps(config.scenario_patch) if config.scenario_patch else None,
                 "max_execution_time_ms": config.max_execution_time_ms,
                 "max_agents": config.max_agents,
                 "created_at": datetime.utcnow(),
@@ -218,7 +239,7 @@ class SimulationOrchestrator:
             tenant_id=uuid.UUID(input.tenant_id),
             node_id=node.id,
             run_config_ref=run_config_id,
-            triggered_by=input.triggered_by.value,
+            triggered_by=input.triggered_by.value if input.triggered_by else "user",
             status=RunStatus.QUEUED.value,
             actual_seed=config.primary_seed,
             timing={},
@@ -409,23 +430,82 @@ class SimulationOrchestrator:
 
         return node, runs
 
+    async def list_runs(
+        self,
+        tenant_id: uuid.UUID,
+        project_id: Optional[str] = None,
+        node_id: Optional[str] = None,
+        status: Optional[str] = None,
+        skip: int = 0,
+        limit: int = 20,
+    ) -> List[Run]:
+        """
+        List runs with optional filtering.
+
+        Args:
+            tenant_id: Tenant ID for filtering
+            project_id: Optional project ID filter
+            node_id: Optional node ID filter
+            status: Optional status filter
+            skip: Pagination offset
+            limit: Pagination limit
+
+        Returns:
+            List of Run objects
+        """
+        query = select(Run).where(Run.tenant_id == tenant_id)
+
+        if project_id:
+            query = query.where(Run.project_id == uuid.UUID(project_id))
+        if node_id:
+            query = query.where(Run.node_id == uuid.UUID(node_id))
+        if status:
+            query = query.where(Run.status == status)
+
+        query = query.order_by(Run.created_at.desc()).offset(skip).limit(limit)
+
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def get_run(
+        self,
+        run_id: str,
+        tenant_id: uuid.UUID,
+    ) -> Optional[Run]:
+        """
+        Get a single run by ID.
+
+        Args:
+            run_id: Run UUID string
+            tenant_id: Tenant ID for filtering
+
+        Returns:
+            Run object or None if not found
+        """
+        query = select(Run).where(
+            Run.id == uuid.UUID(run_id),
+            Run.tenant_id == tenant_id,
+        )
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()
+
     async def get_universe_map(
         self,
         project_id: str,
         tenant_id: str,
         max_depth: Optional[int] = None,
-        include_outcomes: bool = True,
+        explored_only: bool = False,
     ):
         """
         Get the Universe Map for a project.
 
-        Returns the full node graph with optional outcome data.
+        Returns the full node graph with node and edge objects.
         """
-        return await self.node_service.get_universe_map_state(
+        return await self.node_service.get_universe_map_data(
             project_id=uuid.UUID(project_id),
             tenant_id=uuid.UUID(tenant_id),
             max_depth=max_depth,
-            include_clusters=True,
+            explored_only=explored_only,
         )
 
     async def compare_nodes(

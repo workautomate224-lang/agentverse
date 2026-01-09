@@ -28,7 +28,7 @@ import { Button } from '@/components/ui/button';
 import { UniverseMapCanvas } from './UniverseMapCanvas';
 import { UniverseMapControls } from './UniverseMapControls';
 import { NodeCard } from './NodeCard';
-import { CompareView, AskDrawer } from '@/components/nodes';
+import { CompareView, AskDrawer, ForkTuneDrawer } from '@/components/nodes';
 import {
   useUniverseMap,
   useNodes,
@@ -74,6 +74,10 @@ export const UniverseMap = memo(function UniverseMap({
 
   // Ask drawer state
   const [askDrawerOpen, setAskDrawerOpen] = useState(false);
+
+  // Fork drawer state
+  const [forkDrawerOpen, setForkDrawerOpen] = useState(false);
+  const [forkNodeId, setForkNodeId] = useState<string | null>(null);
 
   // Fetch universe map data
   const {
@@ -212,22 +216,13 @@ export const UniverseMap = memo(function UniverseMap({
   }, []);
 
   // Handle fork
+  // Open fork drawer for variable tuning
   const handleFork = useCallback(
-    async (nodeId: string) => {
-      try {
-        const result = await forkNode.mutateAsync({
-          parent_node_id: nodeId,
-          label: `Fork of ${nodeId.slice(0, 8)}`,
-        });
-        if (result?.node?.node_id) {
-          setSelectedNodeId(result.node.node_id);
-          refetchNodes();
-        }
-      } catch {
-        // Error handled by mutation
-      }
+    (nodeId: string) => {
+      setForkNodeId(nodeId);
+      setForkDrawerOpen(true);
     },
-    [forkNode, refetchNodes]
+    []
   );
 
   // Handle path analysis
@@ -490,7 +485,6 @@ export const UniverseMap = memo(function UniverseMap({
                     size="sm"
                     className="w-full"
                     onClick={() => handleFork(selectedNode.node_id)}
-                    disabled={forkNode.isPending}
                   >
                     <GitBranch className="w-3 h-3 mr-1" />
                     Fork This Node
@@ -545,6 +539,25 @@ export const UniverseMap = memo(function UniverseMap({
           refetchNodes();
         }}
       />
+
+      {/* Fork Tune Drawer */}
+      {forkNodeId && (
+        <ForkTuneDrawer
+          nodeId={forkNodeId}
+          projectId={projectId}
+          open={forkDrawerOpen}
+          onOpenChange={(open) => {
+            setForkDrawerOpen(open);
+            if (!open) setForkNodeId(null);
+          }}
+          onForkCreated={(newNodeId: string) => {
+            setSelectedNodeId(newNodeId);
+            setForkDrawerOpen(false);
+            setForkNodeId(null);
+            refetchNodes();
+          }}
+        />
+      )}
     </div>
   );
 });

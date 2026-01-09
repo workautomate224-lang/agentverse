@@ -172,6 +172,18 @@ class UniverseMapState:
         }
 
 
+@dataclass
+class UniverseMapData:
+    """Full universe map data for API responses."""
+    project_id: str
+    root_node_id: str
+    nodes: List[Any]  # List of Node SQLAlchemy objects
+    edges: List[Any]  # List of Edge SQLAlchemy objects
+    total_nodes: int
+    explored_nodes: int
+    max_depth: int
+
+
 # =============================================================================
 # Create/Fork Input DTOs
 # =============================================================================
@@ -336,12 +348,23 @@ class NodeService:
 
     async def get_node(
         self,
-        node_id: uuid.UUID,
+        node_id: str | uuid.UUID,
+        tenant_id: Optional[uuid.UUID] = None,
         include_children: bool = False,
         include_runs: bool = False,
     ) -> Optional[Node]:
-        """Get a node by ID with optional relationships."""
-        query = select(Node).where(Node.id == node_id)
+        """Get a node by ID with optional relationships and tenant filtering."""
+        # Handle string or UUID input
+        try:
+            node_uuid = uuid.UUID(str(node_id)) if isinstance(node_id, str) else node_id
+        except ValueError:
+            return None
+
+        query = select(Node).where(Node.id == node_uuid)
+
+        # Filter by tenant if provided (for multi-tenancy)
+        if tenant_id:
+            query = query.where(Node.tenant_id == tenant_id)
 
         if include_children:
             query = query.options(selectinload(Node.children))
@@ -373,6 +396,43 @@ class NodeService:
             query = query.where(Node.cluster_id.is_(None))
 
         query = query.order_by(Node.depth, Node.created_at).limit(limit).offset(offset)
+
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def list_nodes(
+        self,
+        project_id: str,
+        tenant_id: uuid.UUID,
+        explored_only: bool = False,
+        depth: Optional[int] = None,
+        skip: int = 0,
+        limit: int = 50,
+    ) -> List[Node]:
+        """
+        List nodes for a project with filtering options.
+
+        This method is called by the API endpoint and provides
+        filtering by explored state and depth.
+        """
+        try:
+            project_uuid = uuid.UUID(project_id)
+        except ValueError:
+            return []
+
+        conditions = [
+            Node.project_id == project_uuid,
+            Node.tenant_id == tenant_id,
+        ]
+
+        if explored_only:
+            conditions.append(Node.is_explored == True)
+
+        if depth is not None:
+            conditions.append(Node.depth == depth)
+
+        query = select(Node).where(and_(*conditions))
+        query = query.order_by(Node.depth, Node.created_at).offset(skip).limit(limit)
 
         result = await self.db.execute(query)
         return list(result.scalars().all())
@@ -486,6 +546,64 @@ class NodeService:
     async def get_incoming_edges(self, node_id: uuid.UUID) -> List[Edge]:
         """Get edges coming into a node."""
         query = select(Edge).where(Edge.to_node_id == node_id)
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def get_edges(
+        self,
+        node_id: str,
+        tenant_id: uuid.UUID,
+        direction: str = "outgoing",
+    ) -> List[Edge]:
+        """Get edges connected to a node with direction filtering."""
+        try:
+            node_uuid = uuid.UUID(node_id)
+        except ValueError:
+            return []
+
+        if direction == "outgoing":
+            query = select(Edge).where(
+                and_(
+                    Edge.from_node_id == node_uuid,
+                    Edge.tenant_id == tenant_id,
+                )
+            )
+        elif direction == "incoming":
+            query = select(Edge).where(
+                and_(
+                    Edge.to_node_id == node_uuid,
+                    Edge.tenant_id == tenant_id,
+                )
+            )
+        else:  # both
+            query = select(Edge).where(
+                and_(
+                    (Edge.from_node_id == node_uuid) | (Edge.to_node_id == node_uuid),
+                    Edge.tenant_id == tenant_id,
+                )
+            )
+
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def get_children(
+        self,
+        node_id: str,
+        tenant_id: uuid.UUID,
+    ) -> List[Node]:
+        """Get all child nodes of a given node."""
+        try:
+            node_uuid = uuid.UUID(node_id)
+        except ValueError:
+            return []
+
+        query = select(Node).where(
+            and_(
+                Node.parent_node_id == node_uuid,
+                Node.tenant_id == tenant_id,
+            )
+        ).order_by(Node.created_at)
+
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
@@ -778,6 +896,56 @@ class NodeService:
             visible_clusters=visible_clusters,
             probability_threshold=probability_threshold,
             show_low_confidence=show_low_confidence,
+        )
+
+    async def get_universe_map_data(
+        self,
+        project_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        max_depth: Optional[int] = None,
+        explored_only: bool = False,
+    ) -> Optional[UniverseMapData]:
+        """
+        Get full universe map data with node and edge objects for API responses.
+
+        Returns None if project has no nodes.
+        """
+        # Get root node
+        root = await self.get_root_node(project_id, tenant_id)
+        if not root:
+            return None
+
+        # Get all nodes
+        all_nodes = await self.get_nodes_by_project(
+            project_id, tenant_id,
+            include_clustered=True,
+            limit=10000,  # Large limit to get all nodes
+        )
+
+        # Filter by max_depth if specified
+        if max_depth is not None:
+            all_nodes = [n for n in all_nodes if n.depth <= max_depth]
+
+        # Filter to explored only if requested
+        if explored_only:
+            all_nodes = [n for n in all_nodes if n.is_explored]
+
+        # Get all edges
+        all_edges = await self.get_edges_by_project(project_id, tenant_id)
+
+        # Calculate stats
+        total_nodes = len(all_nodes)
+        explored_nodes = sum(1 for n in all_nodes if n.is_explored)
+        max_depth_actual = max((n.depth for n in all_nodes), default=0)
+
+        return UniverseMapData(
+            project_id=str(project_id),
+            root_node_id=str(root.id),
+            nodes=all_nodes,
+            edges=all_edges,
+            total_nodes=total_nodes,
+            explored_nodes=explored_nodes,
+            max_depth=max_depth_actual,
         )
 
     # -------------------------------------------------------------------------

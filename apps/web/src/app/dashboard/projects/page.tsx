@@ -15,12 +15,12 @@ import {
   Copy,
   Terminal,
 } from 'lucide-react';
-import { useProjects, useDeleteProject, useDuplicateProject } from '@/hooks/useApi';
-import { Project } from '@/lib/api';
+import { useProjectSpecs, useDeleteProjectSpec, useDuplicateProjectSpec } from '@/hooks/useApi';
+import { ProjectSpec } from '@/lib/api';
 
 export default function ProjectsPage() {
   const [searchQuery, setSearchQuery] = useState('');
-  const { data: projects, isLoading, error, refetch } = useProjects({ search: searchQuery || undefined });
+  const { data: projects, isLoading, error, refetch } = useProjectSpecs({ search: searchQuery || undefined });
 
   return (
     <div className="min-h-screen bg-black p-6">
@@ -125,10 +125,10 @@ export default function ProjectsPage() {
   );
 }
 
-function ProjectCard({ project, onDelete }: { project: Project; onDelete: () => void }) {
+function ProjectCard({ project, onDelete }: { project: ProjectSpec; onDelete: () => void }) {
   const [showMenu, setShowMenu] = useState(false);
-  const deleteProject = useDeleteProject();
-  const duplicateProject = useDuplicateProject();
+  const deleteProject = useDeleteProjectSpec();
+  const duplicateProject = useDuplicateProjectSpec();
 
   const handleDelete = async () => {
     if (confirm('Delete this project?')) {

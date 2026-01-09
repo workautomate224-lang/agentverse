@@ -34,10 +34,21 @@ from app.models.user import User
 # ============================================================================
 
 class NodeConfidenceSchema(BaseModel):
-    """Node confidence per project.md §6.7."""
-    mean: float = Field(ge=0.0, le=1.0)
-    std: float = Field(ge=0.0)
-    sample_count: int = Field(ge=0)
+    """Node confidence per project.md §6.7.
+
+    Supports both:
+    - Statistical metrics (mean, std, sample_count) from aggregated runs
+    - Semantic metrics (confidence_level, confidence_score, factors) from initial creation
+    """
+    # Statistical fields (from aggregated runs)
+    mean: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    std: Optional[float] = Field(default=None, ge=0.0)
+    sample_count: Optional[int] = Field(default=None, ge=0)
+
+    # Semantic fields (from initial node creation)
+    confidence_level: Optional[str] = Field(default="medium")
+    confidence_score: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    factors: Optional[List[dict]] = Field(default_factory=list)
 
 
 class AggregatedOutcomeSchema(BaseModel):
@@ -124,7 +135,7 @@ class UniverseMapResponse(BaseModel):
     project_id: str
     nodes: List[NodeResponse]
     edges: List[EdgeResponse]
-    root_node_id: str
+    root_node_id: Optional[str] = None  # None for projects with no nodes yet
     total_nodes: int
     explored_nodes: int
     max_depth: int
@@ -207,13 +218,13 @@ async def list_nodes(
 
     return [
         NodeResponse(
-            node_id=node.node_id,
-            project_id=node.project_id,
-            parent_id=node.parent_id,
+            node_id=str(node.id),
+            project_id=str(node.project_id),
+            parent_id=str(node.parent_node_id) if node.parent_node_id else None,
             depth=node.depth,
             label=node.label,
             is_explored=node.is_explored,
-            is_pruned=node.is_pruned,
+            is_pruned=False,  # Model doesn't have is_pruned yet
             aggregated_outcome=(
                 AggregatedOutcomeSchema(**node.aggregated_outcome)
                 if node.aggregated_outcome else None
@@ -222,11 +233,11 @@ async def list_nodes(
                 NodeConfidenceSchema(**node.confidence)
                 if node.confidence else None
             ),
-            run_refs=node.run_refs or [],
-            cluster_id=node.cluster_id,
-            is_cluster_rep=node.is_cluster_rep,
-            created_at=node.created_at,
-            explored_at=node.explored_at,
+            run_refs=[str(ref) if isinstance(ref, dict) else ref for ref in (node.run_refs or [])],
+            cluster_id=str(node.cluster_id) if node.cluster_id else None,
+            is_cluster_rep=node.is_cluster_representative,
+            created_at=node.created_at.isoformat() if node.created_at else "",
+            explored_at=node.updated_at.isoformat() if node.is_explored and node.updated_at else None,
         )
         for node in nodes
     ]
@@ -257,13 +268,13 @@ async def get_node(
         )
 
     return NodeResponse(
-        node_id=node.node_id,
-        project_id=node.project_id,
-        parent_id=node.parent_id,
+        node_id=str(node.id),
+        project_id=str(node.project_id),
+        parent_id=str(node.parent_node_id) if node.parent_node_id else None,
         depth=node.depth,
         label=node.label,
         is_explored=node.is_explored,
-        is_pruned=node.is_pruned,
+        is_pruned=False,  # Node model doesn't have is_pruned yet
         aggregated_outcome=(
             AggregatedOutcomeSchema(**node.aggregated_outcome)
             if node.aggregated_outcome else None
@@ -272,11 +283,11 @@ async def get_node(
             NodeConfidenceSchema(**node.confidence)
             if node.confidence else None
         ),
-        run_refs=node.run_refs or [],
-        cluster_id=node.cluster_id,
-        is_cluster_rep=node.is_cluster_rep,
-        created_at=node.created_at,
-        explored_at=node.explored_at,
+        run_refs=[str(ref.get("run_id", ref)) if isinstance(ref, dict) else str(ref) for ref in (node.run_refs or [])],
+        cluster_id=str(node.cluster_id) if node.cluster_id else None,
+        is_cluster_rep=node.is_cluster_representative,
+        created_at=node.created_at.isoformat() if node.created_at else "",
+        explored_at=node.updated_at.isoformat() if node.is_explored and node.updated_at else None,
     )
 
 
@@ -377,13 +388,13 @@ async def get_node_children(
 
     return [
         NodeResponse(
-            node_id=node.node_id,
-            project_id=node.project_id,
-            parent_id=node.parent_id,
+            node_id=str(node.id),
+            project_id=str(node.project_id),
+            parent_id=str(node.parent_node_id) if node.parent_node_id else None,
             depth=node.depth,
             label=node.label,
             is_explored=node.is_explored,
-            is_pruned=node.is_pruned,
+            is_pruned=False,  # Node model doesn't have is_pruned
             aggregated_outcome=(
                 AggregatedOutcomeSchema(**node.aggregated_outcome)
                 if node.aggregated_outcome else None
@@ -392,9 +403,11 @@ async def get_node_children(
                 NodeConfidenceSchema(**node.confidence)
                 if node.confidence else None
             ),
-            run_refs=node.run_refs or [],
-            created_at=node.created_at,
-            explored_at=node.explored_at,
+            run_refs=[str(ref.get("run_id", ref)) if isinstance(ref, dict) else str(ref) for ref in (node.run_refs or [])],
+            cluster_id=str(node.cluster_id) if node.cluster_id else None,
+            is_cluster_rep=node.is_cluster_representative,
+            created_at=node.created_at.isoformat() if node.created_at else "",
+            explored_at=node.updated_at.isoformat() if node.is_explored and node.updated_at else None,
         )
         for node in children
     ]
@@ -425,14 +438,14 @@ async def get_node_edges(
 
     return [
         EdgeResponse(
-            edge_id=edge.edge_id,
-            parent_id=edge.parent_id,
-            child_id=edge.child_id,
-            intervention=edge.intervention,
-            intervention_label=edge.intervention_label,
-            outcome_delta=edge.outcome_delta,
-            significance_score=edge.significance_score,
-            created_at=edge.created_at,
+            edge_id=str(edge.id),
+            parent_id=str(edge.from_node_id),
+            child_id=str(edge.to_node_id),
+            intervention=edge.intervention or {},
+            intervention_label=edge.explanation.get("short_label") if edge.explanation else None,
+            outcome_delta=None,  # Edge model doesn't have outcome_delta
+            significance_score=edge.weight,
+            created_at=edge.created_at.isoformat() if edge.created_at else "",
             explanation=edge.explanation,
         )
         for edge in edges
@@ -472,21 +485,27 @@ async def get_universe_map(
         explored_only=explored_only,
     )
 
+    # Return empty universe map for projects with no nodes (valid state for new projects)
     if not universe_map:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Project {project_id} not found or has no nodes",
+        return UniverseMapResponse(
+            project_id=project_id,
+            nodes=[],
+            edges=[],
+            root_node_id=None,
+            total_nodes=0,
+            explored_nodes=0,
+            max_depth=0,
         )
 
     nodes = [
         NodeResponse(
-            node_id=node.node_id,
-            project_id=node.project_id,
-            parent_id=node.parent_id,
+            node_id=str(node.id),
+            project_id=str(node.project_id),
+            parent_id=str(node.parent_node_id) if node.parent_node_id else None,
             depth=node.depth,
             label=node.label,
             is_explored=node.is_explored,
-            is_pruned=node.is_pruned,
+            is_pruned=False,  # Node model doesn't have is_pruned
             aggregated_outcome=(
                 AggregatedOutcomeSchema(**node.aggregated_outcome)
                 if node.aggregated_outcome else None
@@ -495,25 +514,25 @@ async def get_universe_map(
                 NodeConfidenceSchema(**node.confidence)
                 if node.confidence else None
             ),
-            run_refs=node.run_refs or [],
-            cluster_id=node.cluster_id,
-            is_cluster_rep=node.is_cluster_rep,
-            created_at=node.created_at,
-            explored_at=node.explored_at,
+            run_refs=[str(ref.get("run_id", ref)) if isinstance(ref, dict) else str(ref) for ref in (node.run_refs or [])],
+            cluster_id=str(node.cluster_id) if node.cluster_id else None,
+            is_cluster_rep=node.is_cluster_representative,
+            created_at=node.created_at.isoformat() if node.created_at else "",
+            explored_at=node.updated_at.isoformat() if node.is_explored and node.updated_at else None,
         )
         for node in universe_map.nodes
     ]
 
     edges = [
         EdgeResponse(
-            edge_id=edge.edge_id,
-            parent_id=edge.parent_id,
-            child_id=edge.child_id,
-            intervention=edge.intervention,
-            intervention_label=edge.intervention_label,
-            outcome_delta=edge.outcome_delta,
-            significance_score=edge.significance_score,
-            created_at=edge.created_at,
+            edge_id=str(edge.id),
+            parent_id=str(edge.from_node_id),
+            child_id=str(edge.to_node_id),
+            intervention=edge.intervention or {},
+            intervention_label=edge.explanation.get("short_label") if edge.explanation else None,
+            outcome_delta=None,  # Edge model doesn't have outcome_delta
+            significance_score=edge.weight,
+            created_at=edge.created_at.isoformat() if edge.created_at else "",
             explanation=edge.explanation,
         )
         for edge in universe_map.edges
@@ -568,32 +587,37 @@ async def analyze_path(
 
     path = [
         NodeResponse(
-            node_id=node.node_id,
-            project_id=node.project_id,
-            parent_id=node.parent_id,
+            node_id=str(node.id),
+            project_id=str(node.project_id),
+            parent_id=str(node.parent_node_id) if node.parent_node_id else None,
             depth=node.depth,
             label=node.label,
             is_explored=node.is_explored,
-            is_pruned=node.is_pruned,
+            is_pruned=False,
             aggregated_outcome=(
                 AggregatedOutcomeSchema(**node.aggregated_outcome)
                 if node.aggregated_outcome else None
             ),
-            run_refs=node.run_refs or [],
-            created_at=node.created_at,
+            run_refs=[str(ref.get("run_id", ref)) if isinstance(ref, dict) else str(ref) for ref in (node.run_refs or [])],
+            cluster_id=str(node.cluster_id) if node.cluster_id else None,
+            is_cluster_rep=node.is_cluster_representative,
+            created_at=node.created_at.isoformat() if node.created_at else "",
+            explored_at=node.updated_at.isoformat() if node.is_explored and node.updated_at else None,
         )
         for node in analysis.path
     ]
 
     edges = [
         EdgeResponse(
-            edge_id=edge.edge_id,
-            parent_id=edge.parent_id,
-            child_id=edge.child_id,
-            intervention=edge.intervention,
-            intervention_label=edge.intervention_label,
-            outcome_delta=edge.outcome_delta,
-            created_at=edge.created_at,
+            edge_id=str(edge.id),
+            parent_id=str(edge.from_node_id),
+            child_id=str(edge.to_node_id),
+            intervention=edge.intervention or {},
+            intervention_label=edge.explanation.get("short_label") if edge.explanation else None,
+            outcome_delta=None,
+            significance_score=edge.weight,
+            created_at=edge.created_at.isoformat() if edge.created_at else "",
+            explanation=edge.explanation,
         )
         for edge in analysis.edges
     ]
@@ -645,13 +669,13 @@ async def compare_nodes(
 
     def node_to_response(node) -> NodeResponse:
         return NodeResponse(
-            node_id=node.node_id,
-            project_id=node.project_id,
-            parent_id=node.parent_id,
+            node_id=str(node.id),
+            project_id=str(node.project_id),
+            parent_id=str(node.parent_node_id) if node.parent_node_id else None,
             depth=node.depth,
             label=node.label,
             is_explored=node.is_explored,
-            is_pruned=node.is_pruned,
+            is_pruned=False,
             aggregated_outcome=(
                 AggregatedOutcomeSchema(**node.aggregated_outcome)
                 if node.aggregated_outcome else None
@@ -660,8 +684,11 @@ async def compare_nodes(
                 NodeConfidenceSchema(**node.confidence)
                 if node.confidence else None
             ),
-            run_refs=node.run_refs or [],
-            created_at=node.created_at,
+            run_refs=[str(ref.get("run_id", ref)) if isinstance(ref, dict) else str(ref) for ref in (node.run_refs or [])],
+            cluster_id=str(node.cluster_id) if node.cluster_id else None,
+            is_cluster_rep=node.is_cluster_representative,
+            created_at=node.created_at.isoformat() if node.created_at else "",
+            explored_at=node.updated_at.isoformat() if node.is_explored and node.updated_at else None,
         )
 
     return NodeComparisonResponse(
@@ -710,13 +737,16 @@ async def prune_node(
     await db.commit()
 
     return NodeResponse(
-        node_id=node.node_id,
-        project_id=node.project_id,
-        parent_id=node.parent_id,
+        node_id=str(node.id),
+        project_id=str(node.project_id),
+        parent_id=str(node.parent_node_id) if node.parent_node_id else None,
         depth=node.depth,
         label=node.label,
         is_explored=node.is_explored,
-        is_pruned=node.is_pruned,
-        run_refs=node.run_refs or [],
-        created_at=node.created_at,
+        is_pruned=False,
+        run_refs=[str(ref.get("run_id", ref)) if isinstance(ref, dict) else str(ref) for ref in (node.run_refs or [])],
+        cluster_id=str(node.cluster_id) if node.cluster_id else None,
+        is_cluster_rep=node.is_cluster_representative,
+        created_at=node.created_at.isoformat() if node.created_at else "",
+        explored_at=node.updated_at.isoformat() if node.is_explored and node.updated_at else None,
     )

@@ -496,7 +496,7 @@ Respond in JSON format:
         """Map sub-effects to concrete environment/perception variables."""
 
         domain = context.get("domain", "general")
-        variable_catalog = context.get("variable_catalog", self._default_variable_catalog())
+        variable_catalog = context.get("variable_catalog") or self._default_variable_catalog()
 
         # Build a description of available variables
         var_descriptions = []

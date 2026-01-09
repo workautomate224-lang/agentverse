@@ -12,8 +12,9 @@ Provides:
 
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Optional, Dict
 from uuid import UUID
+import threading
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
@@ -34,6 +35,11 @@ from app.services.export_controls import (
 )
 
 router = APIRouter()
+
+# In-memory cache for exports (temporary until DB persistence is added)
+# Key: export_id, Value: dict with result, created_at, tenant_id
+_export_cache: Dict[str, dict] = {}
+_export_cache_lock = threading.Lock()
 
 
 # =============================================================================
@@ -213,6 +219,18 @@ async def create_export(
             detail=result.error_message or "Export failed",
         )
 
+    # Store in cache for later retrieval
+    created_at = datetime.utcnow()
+    with _export_cache_lock:
+        _export_cache[result.export_id] = {
+            "result": result,
+            "created_at": created_at,
+            "tenant_id": ctx.tenant_id if ctx else None,
+            "project_id": request.project_id,
+            "resource_type": request.resource_type,
+            "format": request.format,
+        }
+
     return ExportResponseSchema(
         export_id=result.export_id,
         status="completed",
@@ -221,7 +239,7 @@ async def create_export(
         redacted_field_count=result.redacted_field_count,
         download_url=f"/api/v1/exports/{result.export_id}/download" if result.data else None,
         metadata=result.metadata,
-        created_at=datetime.utcnow(),
+        created_at=created_at,
     )
 
 
@@ -247,11 +265,33 @@ async def get_export(
             detail="Authentication required",
         )
 
-    # In a full implementation, this would query a database/cache
-    # For now, return a not found since exports are synchronous
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail=f"Export {export_id} not found or expired",
+    # Look up export in cache
+    with _export_cache_lock:
+        cached = _export_cache.get(export_id)
+
+    if not cached:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Export {export_id} not found or expired",
+        )
+
+    # Verify tenant access
+    if cached.get("tenant_id") and ctx.tenant_id != cached.get("tenant_id"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Export {export_id} not found or expired",
+        )
+
+    result: ExportResult = cached["result"]
+    return ExportResponseSchema(
+        export_id=result.export_id,
+        status="completed",
+        format=result.format.value,
+        record_count=result.record_count,
+        redacted_field_count=result.redacted_field_count,
+        download_url=f"/api/v1/exports/{result.export_id}/download" if result.data else None,
+        metadata=result.metadata,
+        created_at=cached["created_at"],
     )
 
 
@@ -276,10 +316,55 @@ async def download_export(
             detail="Authentication required",
         )
 
-    # In a full implementation, this would retrieve from storage
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail=f"Export {export_id} not found or expired",
+    # Look up export in cache
+    with _export_cache_lock:
+        cached = _export_cache.get(export_id)
+
+    if not cached:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Export {export_id} not found or expired",
+        )
+
+    # Verify tenant access
+    if cached.get("tenant_id") and ctx.tenant_id != cached.get("tenant_id"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Export {export_id} not found or expired",
+        )
+
+    result: ExportResult = cached["result"]
+
+    if not result.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Export {export_id} has no data available",
+        )
+
+    # Determine content type and filename based on format
+    content_type_map = {
+        ExportFormat.JSON: "application/json",
+        ExportFormat.CSV: "text/csv",
+        ExportFormat.PARQUET: "application/vnd.apache.parquet",
+        ExportFormat.EXCEL: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }
+    extension_map = {
+        ExportFormat.JSON: ".json",
+        ExportFormat.CSV: ".csv",
+        ExportFormat.PARQUET: ".parquet",
+        ExportFormat.EXCEL: ".xlsx",
+    }
+
+    content_type = content_type_map.get(result.format, "application/octet-stream")
+    extension = extension_map.get(result.format, ".bin")
+    filename = f"export_{export_id}{extension}"
+
+    return Response(
+        content=result.data,
+        media_type=content_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
     )
 
 
@@ -308,8 +393,44 @@ async def list_exports(
             detail="Authentication required",
         )
 
-    # In a full implementation, this would query a database
-    return []
+    # Filter exports from cache by tenant
+    with _export_cache_lock:
+        tenant_exports = [
+            (export_id, data)
+            for export_id, data in _export_cache.items()
+            if data.get("tenant_id") == ctx.tenant_id or data.get("tenant_id") is None
+        ]
+
+    # Apply resource_type filter
+    if resource_type:
+        tenant_exports = [
+            (export_id, data)
+            for export_id, data in tenant_exports
+            if data.get("resource_type") == resource_type
+        ]
+
+    # Sort by created_at descending (newest first)
+    tenant_exports.sort(key=lambda x: x[1]["created_at"], reverse=True)
+
+    # Apply pagination
+    paginated = tenant_exports[offset:offset + limit]
+
+    # Build response
+    result = []
+    for export_id, data in paginated:
+        export_result: ExportResult = data["result"]
+        result.append(
+            ExportListItemSchema(
+                export_id=export_id,
+                resource_type=data.get("resource_type", "unknown"),
+                format=export_result.format.value,
+                status="completed",
+                record_count=export_result.record_count,
+                created_at=data["created_at"],
+            )
+        )
+
+    return result
 
 
 @router.get(

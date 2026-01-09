@@ -27,7 +27,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.session import Base
 
 if TYPE_CHECKING:
-    from app.models.simulation import Project
+    from app.models.project_spec import ProjectSpec
+    from app.models.run_config import RunConfig
 
 
 class InterventionType(str, Enum):
@@ -185,6 +186,11 @@ class Node(Base):
     runs: Mapped[List["Run"]] = relationship(
         "Run",
         back_populates="node"
+    )
+    project: Mapped["ProjectSpec"] = relationship(
+        "ProjectSpec",
+        back_populates="nodes",
+        foreign_keys=[project_id]
     )
 
     def __repr__(self) -> str:
@@ -484,6 +490,16 @@ class Run(Base):
 
     # Relationships
     node: Mapped["Node"] = relationship("Node", back_populates="runs")
+    project: Mapped["ProjectSpec"] = relationship(
+        "ProjectSpec",
+        back_populates="runs",
+        foreign_keys=[project_id]
+    )
+    run_config: Mapped["RunConfig"] = relationship(
+        "RunConfig",
+        back_populates="runs",
+        foreign_keys=[run_config_ref]
+    )
 
     def __repr__(self) -> str:
         return f"<Run {self.id} status={self.status}>"

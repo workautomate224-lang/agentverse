@@ -124,7 +124,7 @@ function calculateInterventionMagnitude(
 }
 
 interface ForkTuneDrawerProps {
-  node: SpecNode;
+  nodeId: string;
   projectId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -133,7 +133,7 @@ interface ForkTuneDrawerProps {
 }
 
 export function ForkTuneDrawer({
-  node,
+  nodeId,
   projectId,
   open,
   onOpenChange,
@@ -227,7 +227,7 @@ export function ForkTuneDrawer({
     // Build scenario patch from changed values
     const scenarioPatch: ScenarioPatch = {
       environment_overrides: changedValues,
-      patch_description: forkLabel || `Variable tuning fork from ${node.node_id.slice(0, 8)}`,
+      patch_description: forkLabel || `Variable tuning fork from ${nodeId.slice(0, 8)}`,
     };
 
     // Determine intervention type based on changes
@@ -239,7 +239,7 @@ export function ForkTuneDrawer({
     try {
       // Create the fork
       const newNode = await forkNode.mutateAsync({
-        parent_node_id: node.node_id,
+        parent_node_id: nodeId,
         label: forkLabel || undefined,
         description: `Fork with ${changeCount} variable change(s)`,
         scenario_patch: Object.keys(changedValues).length > 0 ? scenarioPatch : undefined,
@@ -265,7 +265,7 @@ export function ForkTuneDrawer({
   }, [
     changedValues,
     forkLabel,
-    node.node_id,
+    nodeId,
     intervention.level,
     changeCount,
     autoStartRun,
@@ -306,7 +306,7 @@ export function ForkTuneDrawer({
                     Fork & Tune
                   </Dialog.Title>
                   <Dialog.Description className="text-[10px] font-mono text-white/40">
-                    Forking from Node {node.node_id.slice(0, 8)}
+                    Forking from Node {nodeId.slice(0, 8)}
                   </Dialog.Description>
                 </div>
               </div>

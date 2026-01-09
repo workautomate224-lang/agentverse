@@ -8,7 +8,6 @@ import {
   ArrowRight,
   FolderKanban,
   Users,
-  FileText,
   Play,
   BarChart3,
   CheckCircle,
@@ -19,9 +18,17 @@ import {
   ChevronDown,
   ChevronUp,
   Zap,
-  Database,
   Brain,
   Globe,
+  GitBranch,
+  MessageSquare,
+  Settings2,
+  Shield,
+  PlayCircle,
+  Map,
+  Compass,
+  Layers,
+  Search,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -30,131 +37,204 @@ const steps = [
     id: 1,
     title: 'Create a Project',
     icon: FolderKanban,
-    description: 'Start by creating a project to organize your simulations',
+    description: 'Define your prediction goal and configure the simulation',
     details: [
-      'Go to Projects section and click "NEW PROJECT"',
-      'Give your project a name (e.g., "Q4 Product Launch Analysis")',
-      'Add a description to help you remember the purpose',
-      'Select a domain (e.g., Marketing, Political, Consumer)',
-      'Projects help you organize multiple scenarios and simulations',
+      'Go to Projects and click "CREATE PROJECT"',
+      'Enter your prediction goal (e.g., "What will be the public response to our new product launch?")',
+      'Select a Prediction Core: Collective (group behavior), Target (individual paths), or Hybrid (both)',
+      'Choose a domain template (Consumer, Political, Health, Financial) or start blank',
+      'Configure output metrics: Reliability Report, Telemetry, Exports',
     ],
-    tip: 'Use descriptive names that indicate the goal of your research',
+    tip: 'Start with "Collective" mode for aggregate predictions, use "Target" for individual decision modeling',
     link: '/dashboard/projects/new',
     linkText: 'Create Project',
   },
   {
     id: 2,
-    title: 'Create a Scenario',
-    icon: FileText,
-    description: 'Define what you want to simulate within your project',
+    title: 'Set Up Personas',
+    icon: Users,
+    description: 'Build your agent population from various sources',
     details: [
-      'Open your project and click "NEW SCENARIO"',
-      'Provide context for the simulation (background information)',
-      'Add questions you want to ask the AI personas',
-      'Set the population size (number of personas to simulate)',
-      'Configure demographics to match your target audience',
+      'Go to the Personas Studio in your project',
+      'Choose a data source: Domain Template, Upload CSV, AI Generation, or Deep Search',
+      'Configure demographics to match your target population',
+      'Review and validate persona distributions',
+      'Personas represent the agents that will participate in your simulations',
     ],
-    tip: 'Be specific with your context - the more detail, the better the simulation',
+    tip: 'Use "Deep Search" for AI-powered persona research based on real-world data',
+    link: '/dashboard/personas',
+    linkText: 'Personas Studio',
+  },
+  {
+    id: 3,
+    title: 'Run Baseline Simulation',
+    icon: Play,
+    description: 'Create your root node with initial world state',
+    details: [
+      'Open your project and click "Run Baseline" on the Overview page',
+      'Configure society rules (Conformity, Media Influence, Social Network effects)',
+      'Set simulation horizon (number of ticks/steps)',
+      'The baseline creates your Root Node - the starting point for all branches',
+      'All future "what-if" scenarios fork from this baseline',
+    ],
+    tip: 'The baseline represents your "current state" - future branches explore alternative outcomes',
     link: '/dashboard/projects',
     linkText: 'View Projects',
   },
   {
-    id: 3,
-    title: 'Generate Personas',
-    icon: Users,
-    description: 'Create AI personas that represent your target audience',
-    details: [
-      'Go to Personas section and click "CREATE PERSONAS"',
-      'Choose your data source: AI Generated, File Upload, or AI Research',
-      'Select the region and target demographics',
-      'Specify the number of personas to generate (10-10,000)',
-      'Our AI creates realistic personas based on census data',
-    ],
-    tip: 'AI Generated personas use real census data for authenticity',
-    link: '/dashboard/personas/new',
-    linkText: 'Create Personas',
-  },
-  {
     id: 4,
-    title: 'Run Simulation',
-    icon: Play,
-    description: 'Execute your scenario with the generated personas',
+    title: 'Explore the Universe Map',
+    icon: Map,
+    description: 'Visualize and navigate your branching scenario tree',
     details: [
-      'From the scenario, click "RUN" to start',
-      'Select the number of agents to simulate',
-      'Choose the AI model for responses',
-      'Monitor real-time progress as agents respond',
-      'Each agent answers based on their unique persona profile',
+      'Open Universe Map from your project tabs',
+      'See your Root Node and all branched scenarios as a tree',
+      'Click nodes to inspect outcomes, probability, and confidence',
+      'Use pan/zoom to navigate complex scenario trees',
+      'Compare 2-4 nodes side-by-side for detailed analysis',
     ],
-    tip: 'Start with 50-100 agents to test, then scale up for final results',
-    link: '/dashboard/simulations/new',
-    linkText: 'New Simulation',
+    tip: 'Each node represents an immutable snapshot - changes create new branches, never modify history',
+    link: '/dashboard/projects',
+    linkText: 'Open Project',
   },
   {
     id: 5,
-    title: 'Analyze Results',
-    icon: BarChart3,
-    description: 'View aggregated insights from your simulation',
+    title: 'Ask "What If" Questions',
+    icon: MessageSquare,
+    description: 'Use natural language to create branching scenarios',
     details: [
-      'Go to Results to see completed simulations',
-      'View response distribution charts and statistics',
-      'Analyze demographic breakdowns by age, income, region',
-      'Review individual agent responses for qualitative insights',
-      'Export data for further analysis',
+      'Click "Ask" button in Universe Map',
+      'Enter a natural language prompt (e.g., "What if a competitor launches a similar product?")',
+      'The Event Compiler analyzes intent and decomposes into sub-effects',
+      'Review generated scenario clusters and their probabilities',
+      'Select scenarios to branch into new nodes',
     ],
-    tip: 'Compare results across different demographic segments',
-    link: '/dashboard/results',
-    linkText: 'View Results',
+    tip: 'The Ask feature uses AI to translate your questions into concrete simulation variables',
+    link: '/dashboard/projects',
+    linkText: 'Try Ask',
+  },
+  {
+    id: 6,
+    title: 'Fork & Tune Variables',
+    icon: GitBranch,
+    description: 'Manually adjust simulation variables to explore scenarios',
+    details: [
+      'Click "Fork & Tune" on any node in Universe Map',
+      'Adjust variables by category: Economy, Media, Social, Trust',
+      'Use sliders or numeric inputs for precise control',
+      'See intervention magnitude indicator (small/medium/large)',
+      'Click "Run Fork" to create a new branch with your changes',
+    ],
+    tip: 'Small interventions often reveal more about system behavior than dramatic changes',
+    link: '/dashboard/projects',
+    linkText: 'Fork Node',
+  },
+  {
+    id: 7,
+    title: 'Review Reliability',
+    icon: Shield,
+    description: 'Assess prediction confidence and calibration',
+    details: [
+      'Open Reliability tab in your project',
+      'View overall reliability grade and component scores',
+      'Check Calibration: How accurate are probability estimates?',
+      'Check Stability: How consistent across random seeds?',
+      'Check Sensitivity: Which variables have biggest impact?',
+      'Check Drift: Has data distribution shifted?',
+    ],
+    tip: 'Re-run reliability analysis after major changes to ensure prediction quality',
+    link: '/dashboard/calibration',
+    linkText: 'Calibration Lab',
+  },
+  {
+    id: 8,
+    title: 'Watch 2D Replay',
+    icon: PlayCircle,
+    description: 'Visualize simulation dynamics over time',
+    details: [
+      'Open 2D Replay tab from any completed run',
+      'Use play/pause/seek controls to navigate time',
+      'Toggle layers: Emotion, Stance, Influence, Exposure',
+      'Filter by region or persona segment',
+      'Click any agent to see their state history and events',
+      'Important: Replay is READ-ONLY - it never triggers new simulations',
+    ],
+    tip: 'Watch how opinions shift through the population over time to understand dynamics',
+    link: '/dashboard/projects',
+    linkText: 'Open Replay',
   },
 ];
 
-const productTypes = [
+const predictionCores = [
   {
-    type: 'Predict',
-    icon: TrendingUp,
-    description: 'Forecast outcomes like elections, product launches, or market trends',
-    useCases: ['Election predictions', 'Product adoption rates', 'Market sentiment analysis'],
-  },
-  {
-    type: 'Insight',
-    icon: Lightbulb,
-    description: 'Gather qualitative feedback and understand audience perspectives',
-    useCases: ['Brand perception', 'Feature preferences', 'Customer pain points'],
-  },
-  {
-    type: 'Simulate',
+    type: 'Collective (Society Mode)',
     icon: Users,
-    description: 'Model behavior patterns and decision-making processes',
-    useCases: ['User journey simulation', 'A/B testing scenarios', 'Policy impact analysis'],
+    description: 'Simulate population-level behavior using rule-based agent dynamics',
+    useCases: ['Market sentiment', 'Public opinion shifts', 'Adoption patterns', 'Social contagion'],
+    when: 'When you care about aggregate outcomes, not individual decisions',
+  },
+  {
+    type: 'Target Mode',
+    icon: Target,
+    description: 'Model individual decision paths for specific persona archetypes',
+    useCases: ['Customer journey mapping', 'Decision tree analysis', 'Behavioral intervention design'],
+    when: 'When you need to understand WHY individuals make specific choices',
+  },
+  {
+    type: 'Hybrid Mode',
+    icon: Compass,
+    description: 'Combine key actors (target-style) with population context (society-style)',
+    useCases: ['Influencer impact analysis', 'Leadership decisions', 'Key stakeholder modeling'],
+    when: 'When both individual actors AND population dynamics matter',
   },
 ];
 
 const features = [
   {
+    icon: Map,
+    title: 'Universe Map',
+    description: 'Branching scenario tree - explore multiple futures from any point, never mutating history',
+  },
+  {
     icon: Brain,
-    title: 'AI-Powered Personas',
-    description: 'Generate realistic personas backed by census data and behavioral research',
+    title: 'LLM Event Compiler',
+    description: 'Ask "what if" in natural language, AI translates to simulation variables',
   },
   {
-    icon: Database,
-    title: 'Census-Backed Data',
-    description: 'Personas reflect real demographic distributions from official sources',
+    icon: Layers,
+    title: 'Telemetry & Replay',
+    description: 'Time-series data with 2D visualization of agent states, emotions, and interactions',
   },
   {
-    icon: Globe,
-    title: 'Multi-Region Support',
-    description: 'Create personas for US, UK, EU, and other major regions',
+    icon: Shield,
+    title: 'Reliability Tracking',
+    description: 'Calibration, stability, sensitivity, and drift detection for trustworthy predictions',
   },
   {
-    icon: Zap,
-    title: 'Scalable Simulations',
-    description: 'Run simulations with 10 to 10,000 AI agents simultaneously',
+    icon: GitBranch,
+    title: 'Fork & Tune',
+    description: 'Create alternative scenarios by adjusting variables and running new simulations',
+  },
+  {
+    icon: Search,
+    title: 'Deep Search',
+    description: 'AI-powered persona research using real-world data and census information',
+  },
+  {
+    icon: Settings2,
+    title: 'Admin Model Controls',
+    description: 'Configure AI models per feature, track costs, manage fallback chains',
+  },
+  {
+    icon: BarChart3,
+    title: 'Exports & Reports',
+    description: 'Export nodes, comparisons, reliability reports, and telemetry snapshots',
   },
 ];
 
 export default function GuidePage() {
   const [expandedStep, setExpandedStep] = useState<number | null>(1);
-  const [activeSection, setActiveSection] = useState<'workflow' | 'products' | 'features'>('workflow');
+  const [activeSection, setActiveSection] = useState<'workflow' | 'cores' | 'features'>('workflow');
 
   return (
     <div className="min-h-screen bg-black p-6">
@@ -169,25 +249,26 @@ export default function GuidePage() {
 
         <div className="flex items-center gap-2 mb-1">
           <Terminal className="w-4 h-4 text-white/60" />
-          <span className="text-xs font-mono text-white/40 uppercase tracking-wider">Platform Guide</span>
+          <span className="text-xs font-mono text-white/40 uppercase tracking-wider">Platform Handbook</span>
         </div>
-        <h1 className="text-2xl font-mono font-bold text-white">How AgentVerse Works</h1>
+        <h1 className="text-2xl font-mono font-bold text-white">AgentVerse User Guide</h1>
         <p className="text-sm font-mono text-white/50 mt-2 max-w-2xl">
-          AgentVerse is an AI-powered simulation platform that creates realistic synthetic personas
-          to help you predict outcomes, gather insights, and understand your audience.
+          AgentVerse is a <span className="text-cyan-400">Future Predictive AI Platform</span> that creates reversible,
+          on-demand simulations producing auditable predictions. Explore branching scenarios,
+          ask "what if" questions, and visualize population dynamics.
         </p>
       </div>
 
       {/* Section Tabs */}
       <div className="flex gap-2 mb-8">
         {[
-          { id: 'workflow', label: 'WORKFLOW', icon: Play },
-          { id: 'products', label: 'PRODUCT TYPES', icon: Target },
-          { id: 'features', label: 'FEATURES', icon: Zap },
+          { id: 'workflow', label: '8-STEP WORKFLOW', icon: Play },
+          { id: 'cores', label: 'PREDICTION CORES', icon: Target },
+          { id: 'features', label: 'KEY FEATURES', icon: Zap },
         ].map((section) => (
           <button
             key={section.id}
-            onClick={() => setActiveSection(section.id as any)}
+            onClick={() => setActiveSection(section.id as 'workflow' | 'cores' | 'features')}
             className={cn(
               'flex items-center gap-2 px-4 py-2 text-xs font-mono transition-colors',
               activeSection === section.id
@@ -205,9 +286,9 @@ export default function GuidePage() {
       {activeSection === 'workflow' && (
         <div className="space-y-4">
           <div className="bg-white/5 border border-white/10 p-4 mb-6">
-            <h2 className="text-sm font-mono font-bold text-white uppercase mb-2">5-Step Workflow</h2>
+            <h2 className="text-sm font-mono font-bold text-white uppercase mb-2">Complete Workflow</h2>
             <p className="text-xs font-mono text-white/50">
-              Follow these steps to create your first simulation and gather insights
+              From project creation to insight extraction - follow these steps for your first prediction
             </p>
           </div>
 
@@ -221,7 +302,7 @@ export default function GuidePage() {
                 key={step.id}
                 className={cn(
                   'bg-white/5 border transition-all',
-                  isExpanded ? 'border-white/30' : 'border-white/10'
+                  isExpanded ? 'border-cyan-400/30' : 'border-white/10'
                 )}
               >
                 <button
@@ -232,7 +313,7 @@ export default function GuidePage() {
                     <div className={cn(
                       'w-10 h-10 flex items-center justify-center font-mono font-bold text-sm',
                       isCompleted ? 'bg-green-500/20 text-green-400' :
-                      isExpanded ? 'bg-white text-black' : 'bg-white/10 text-white/60'
+                      isExpanded ? 'bg-cyan-400 text-black' : 'bg-white/10 text-white/60'
                     )}>
                       {isCompleted ? <CheckCircle className="w-5 h-5" /> : step.id}
                     </div>
@@ -257,16 +338,16 @@ export default function GuidePage() {
                       <div className="space-y-2 mt-4">
                         {step.details.map((detail, idx) => (
                           <div key={idx} className="flex items-start gap-2">
-                            <span className="text-white/30 text-xs font-mono mt-0.5">{idx + 1}.</span>
+                            <span className="text-cyan-400/60 text-xs font-mono mt-0.5">{idx + 1}.</span>
                             <span className="text-xs font-mono text-white/70">{detail}</span>
                           </div>
                         ))}
                       </div>
 
-                      <div className="bg-white/5 border border-white/10 p-3">
+                      <div className="bg-cyan-400/5 border border-cyan-400/20 p-3">
                         <div className="flex items-center gap-2 mb-1">
-                          <Lightbulb className="w-3 h-3 text-yellow-400" />
-                          <span className="text-[10px] font-mono text-yellow-400 uppercase">Pro Tip</span>
+                          <Lightbulb className="w-3 h-3 text-cyan-400" />
+                          <span className="text-[10px] font-mono text-cyan-400 uppercase">Pro Tip</span>
                         </div>
                         <p className="text-xs font-mono text-white/60">{step.tip}</p>
                       </div>
@@ -298,46 +379,69 @@ export default function GuidePage() {
         </div>
       )}
 
-      {/* Product Types Section */}
-      {activeSection === 'products' && (
+      {/* Prediction Cores Section */}
+      {activeSection === 'cores' && (
         <div className="space-y-4">
           <div className="bg-white/5 border border-white/10 p-4 mb-6">
-            <h2 className="text-sm font-mono font-bold text-white uppercase mb-2">Product Types</h2>
+            <h2 className="text-sm font-mono font-bold text-white uppercase mb-2">Prediction Cores</h2>
             <p className="text-xs font-mono text-white/50">
-              Choose the right product type based on your research goals
+              Choose the right simulation mode based on your prediction needs
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {productTypes.map((product) => {
-              const ProductIcon = product.icon;
+            {predictionCores.map((core) => {
+              const CoreIcon = core.icon;
               return (
-                <div key={product.type} className="bg-white/5 border border-white/10 p-6">
+                <div key={core.type} className="bg-white/5 border border-white/10 p-6">
                   <div className="flex items-center gap-3 mb-4">
-                    <div className="w-10 h-10 bg-white/10 flex items-center justify-center">
-                      <ProductIcon className="w-5 h-5 text-white/60" />
+                    <div className="w-10 h-10 bg-cyan-400/10 flex items-center justify-center">
+                      <CoreIcon className="w-5 h-5 text-cyan-400" />
                     </div>
-                    <h3 className="font-mono font-bold text-white text-lg">{product.type}</h3>
+                    <h3 className="font-mono font-bold text-white text-sm">{core.type}</h3>
                   </div>
-                  <p className="text-xs font-mono text-white/60 mb-4">{product.description}</p>
-                  <div className="space-y-2">
-                    <p className="text-[10px] font-mono text-white/40 uppercase">Use Cases:</p>
-                    {product.useCases.map((useCase, idx) => (
-                      <div key={idx} className="flex items-center gap-2">
-                        <div className="w-1 h-1 bg-white/40" />
-                        <span className="text-xs font-mono text-white/50">{useCase}</span>
-                      </div>
-                    ))}
+                  <p className="text-xs font-mono text-white/60 mb-4">{core.description}</p>
+
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-[10px] font-mono text-white/40 uppercase mb-2">Use Cases:</p>
+                      {core.useCases.map((useCase, idx) => (
+                        <div key={idx} className="flex items-center gap-2">
+                          <div className="w-1 h-1 bg-cyan-400/40" />
+                          <span className="text-xs font-mono text-white/50">{useCase}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="pt-3 border-t border-white/10">
+                      <p className="text-[10px] font-mono text-cyan-400/60 uppercase mb-1">When to use:</p>
+                      <p className="text-xs font-mono text-white/50">{core.when}</p>
+                    </div>
                   </div>
                 </div>
               );
             })}
           </div>
 
+          <div className="mt-6 bg-white/5 border border-white/10 p-4">
+            <h3 className="text-sm font-mono font-bold text-white mb-2">Quick Decision Guide</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-mono">
+              <div className="text-white/60">
+                <span className="text-cyan-400">Collective:</span> "What will the market think?"
+              </div>
+              <div className="text-white/60">
+                <span className="text-cyan-400">Target:</span> "How will this person decide?"
+              </div>
+              <div className="text-white/60">
+                <span className="text-cyan-400">Hybrid:</span> "How will this leader affect the crowd?"
+              </div>
+            </div>
+          </div>
+
           <div className="mt-6">
-            <Link href="/dashboard/products/new">
+            <Link href="/dashboard/projects/new">
               <Button>
-                Create Your First Product
+                Create Your First Project
                 <ArrowRight className="w-3 h-3 ml-2" />
               </Button>
             </Link>
@@ -349,9 +453,9 @@ export default function GuidePage() {
       {activeSection === 'features' && (
         <div className="space-y-4">
           <div className="bg-white/5 border border-white/10 p-4 mb-6">
-            <h2 className="text-sm font-mono font-bold text-white uppercase mb-2">Platform Features</h2>
+            <h2 className="text-sm font-mono font-bold text-white uppercase mb-2">Key Features</h2>
             <p className="text-xs font-mono text-white/50">
-              What makes AgentVerse powerful
+              Core capabilities of the AgentVerse platform
             </p>
           </div>
 
@@ -361,8 +465,8 @@ export default function GuidePage() {
               return (
                 <div key={feature.title} className="bg-white/5 border border-white/10 p-6">
                   <div className="flex items-start gap-4">
-                    <div className="w-10 h-10 bg-white/10 flex items-center justify-center flex-shrink-0">
-                      <FeatureIcon className="w-5 h-5 text-white/60" />
+                    <div className="w-10 h-10 bg-cyan-400/10 flex items-center justify-center flex-shrink-0">
+                      <FeatureIcon className="w-5 h-5 text-cyan-400" />
                     </div>
                     <div>
                       <h3 className="font-mono font-bold text-white text-sm mb-2">{feature.title}</h3>
@@ -375,17 +479,42 @@ export default function GuidePage() {
           </div>
 
           <div className="bg-white/5 border border-white/10 p-6 mt-6">
-            <h3 className="font-mono font-bold text-white text-sm mb-4">Quick Start Checklist</h3>
+            <h3 className="font-mono font-bold text-white text-sm mb-4">Core Principles</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {[
+                { label: 'Fork-Not-Mutate', desc: 'Nodes are immutable - changes create new branches' },
+                { label: 'On-Demand Execution', desc: 'Simulations run explicitly, not continuously' },
+                { label: 'Read-Only Replay', desc: '2D visualization never triggers new simulations' },
+                { label: 'Auditable Artifacts', desc: 'All predictions are versioned and traceable' },
+                { label: 'LLMs as Compilers', desc: 'AI translates prompts, rules execute deterministically' },
+                { label: 'Multi-Tenant', desc: 'Isolated data per organization with role-based access' },
+              ].map((principle, idx) => (
+                <div key={idx} className="flex items-start gap-3">
+                  <div className="w-5 h-5 border border-cyan-400/30 flex items-center justify-center text-[10px] font-mono text-cyan-400/60 flex-shrink-0">
+                    {idx + 1}
+                  </div>
+                  <div>
+                    <span className="text-xs font-mono text-white font-bold">{principle.label}</span>
+                    <p className="text-[11px] font-mono text-white/40">{principle.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-cyan-400/5 border border-cyan-400/20 p-6 mt-6">
+            <h3 className="font-mono font-bold text-cyan-400 text-sm mb-4">Quick Start Checklist</h3>
             <div className="space-y-3">
               {[
-                'Create your first project',
-                'Generate 100 personas for your target market',
-                'Set up a scenario with 3-5 questions',
-                'Run a test simulation with 50 agents',
-                'Analyze results and iterate',
+                'Create your first project with a clear prediction goal',
+                'Select the appropriate Prediction Core (Collective/Target/Hybrid)',
+                'Import or generate your persona population',
+                'Run a baseline simulation to create your Root Node',
+                'Use "Ask" to explore what-if scenarios',
+                'Review Reliability metrics before acting on predictions',
               ].map((item, idx) => (
                 <div key={idx} className="flex items-center gap-3">
-                  <div className="w-5 h-5 border border-white/20 flex items-center justify-center text-[10px] font-mono text-white/40">
+                  <div className="w-5 h-5 border border-cyan-400/30 flex items-center justify-center text-[10px] font-mono text-cyan-400">
                     {idx + 1}
                   </div>
                   <span className="text-xs font-mono text-white/60">{item}</span>
@@ -401,9 +530,9 @@ export default function GuidePage() {
         <div className="flex items-center justify-between text-[10px] font-mono text-white/30">
           <div className="flex items-center gap-1">
             <Terminal className="w-3 h-3" />
-            <span>GUIDE MODULE</span>
+            <span>USER HANDBOOK</span>
           </div>
-          <span>AGENTVERSE v1.0.0</span>
+          <span>AGENTVERSE v1.0.0 - Future Predictive AI Platform</span>
         </div>
       </div>
     </div>

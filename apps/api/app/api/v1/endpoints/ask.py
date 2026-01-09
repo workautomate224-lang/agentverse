@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, get_db
+from app.api.deps import get_current_user, get_db, require_tenant, TenantContext
 from app.models.user import User
 from app.services.event_compiler import (
     EventCompiler,
@@ -213,6 +213,7 @@ async def compile_prompt(
     request: AskCompileRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    tenant_ctx: TenantContext = Depends(require_tenant),
 ):
     """
     Compile a natural language "What if..." prompt into event scripts.
@@ -238,7 +239,7 @@ async def compile_prompt(
     }
 
     # Get compiler
-    compiler = EventCompiler(model_tier=request.model_tier)
+    compiler = EventCompiler(db=db)
 
     # Compile the prompt
     try:
@@ -246,11 +247,14 @@ async def compile_prompt(
             prompt=request.prompt,
             project_context=project_context,
             db=db,
-            tenant_id=current_user.tenant_id,
+            tenant_id=tenant_ctx.tenant_id,
             max_scenarios=request.max_scenarios,
             clustering_enabled=request.clustering_enabled,
         )
     except Exception as e:
+        import traceback
+        error_traceback = traceback.format_exc()
+        print(f"Ask Compile Error: {str(e)}\nTraceback:\n{error_traceback}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Compilation failed: {str(e)}"
@@ -265,7 +269,7 @@ async def compile_prompt(
             events, bundle = await compiler.persist_compilation(
                 result=result,
                 db=db,
-                tenant_id=current_user.tenant_id,
+                tenant_id=tenant_ctx.tenant_id,
                 project_id=request.project_id,
             )
             created_event_ids = [str(e.id) for e in events]

@@ -80,17 +80,23 @@ const PREDICTION_CORES = [
   },
 ] as const;
 
-// Domain hints
+// Domain hints - aligned with backend schema (marketing, political, finance, custom)
 const DOMAIN_HINTS = [
-  { id: 'market', label: 'Market Research' },
-  { id: 'political', label: 'Political Analysis' },
-  { id: 'social', label: 'Social Trends' },
-  { id: 'consumer', label: 'Consumer Behavior' },
-  { id: 'finance', label: 'Financial Decisions' },
-  { id: 'health', label: 'Health & Wellness' },
-  { id: 'technology', label: 'Technology Adoption' },
-  { id: 'custom', label: 'Custom Domain' },
+  { id: 'marketing', label: 'Market Research', backendValue: 'marketing' },
+  { id: 'political', label: 'Political Analysis', backendValue: 'political' },
+  { id: 'finance', label: 'Financial Decisions', backendValue: 'finance' },
+  { id: 'consumer', label: 'Consumer Behavior', backendValue: 'marketing' },
+  { id: 'social', label: 'Social Trends', backendValue: 'custom' },
+  { id: 'health', label: 'Health & Wellness', backendValue: 'custom' },
+  { id: 'technology', label: 'Technology Adoption', backendValue: 'custom' },
+  { id: 'custom', label: 'Custom Domain', backendValue: 'custom' },
 ];
+
+// Map frontend domain to backend-compatible value
+const getDomainBackendValue = (domain: string): string => {
+  const hint = DOMAIN_HINTS.find(d => d.id === domain);
+  return hint?.backendValue || 'custom';
+};
 
 // Persona source options
 const PERSONA_SOURCES = [
@@ -264,7 +270,7 @@ export default function CreateProjectWizardPage() {
       const project = await createProjectSpec.mutateAsync({
         name: projectName,
         description: formData.goal,
-        domain: formData.domain || 'custom',
+        domain: getDomainBackendValue(formData.domain),
         settings: {
           default_horizon: 100,
           default_tick_rate: 1,

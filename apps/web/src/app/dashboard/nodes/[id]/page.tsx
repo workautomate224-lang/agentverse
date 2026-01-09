@@ -637,7 +637,7 @@ export default function NodeDetailPage() {
       {/* Fork & Tune Drawer */}
       {node && (
         <ForkTuneDrawer
-          node={node as SpecNode}
+          nodeId={node.node_id}
           projectId={node.project_id}
           open={forkDrawerOpen}
           onOpenChange={setForkDrawerOpen}

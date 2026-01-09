@@ -2272,11 +2272,17 @@ export function useCreateProjectSpecRun() {
   return useMutation({
     mutationFn: (params: {
       projectId: string;
-      data: { node_id?: string; config_overrides?: Partial<CreateRunConfigInput> };
+      data: {
+        node_id?: string;
+        seeds?: number[];
+        auto_start?: boolean;
+        config_overrides?: Partial<CreateRunConfigInput>;
+      };
     }) => api.createProjectSpecRun(params.projectId, params.data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['runs'] });
       queryClient.invalidateQueries({ queryKey: ['projectSpecs'] });
+      queryClient.invalidateQueries({ queryKey: ['nodes'] });
     },
   });
 }

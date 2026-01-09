@@ -151,7 +151,7 @@ router = APIRouter()
 
 
 @router.post(
-    "/",
+    "",
     response_model=RunResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create a new simulation run",
@@ -212,18 +212,18 @@ async def create_run(
         await db.commit()
 
         return RunResponse(
-            run_id=run.run_id,
-            node_id=run.node_id,
-            project_id=run.project_id,
+            run_id=str(run.id),
+            node_id=str(run.node_id),
+            project_id=str(run.project_id),
             label=run.label,
             status=run.status,
-            config=run.config,
-            seeds=run.seeds,
-            created_at=run.created_at,
-            started_at=run.started_at,
-            completed_at=run.completed_at,
-            ticks_completed=run.ticks_completed,
-            agents_processed=run.agents_processed,
+            config=run.outputs.get("config", {}) if run.outputs else {},
+            seeds=[run.actual_seed] if run.actual_seed else [],
+            created_at=run.created_at.isoformat() if run.created_at else None,
+            started_at=run.timing.get("started_at") if run.timing else None,
+            completed_at=run.timing.get("completed_at") if run.timing else None,
+            ticks_completed=run.timing.get("ticks_executed", 0) if run.timing else 0,
+            agents_processed=run.timing.get("agents_processed", 0) if run.timing else 0,
             task_id=task_id_str,
         )
     except ValueError as e:
@@ -240,7 +240,7 @@ async def create_run(
 
 
 @router.get(
-    "/",
+    "",
     response_model=List[RunResponse],
     summary="List simulation runs",
 )
@@ -279,20 +279,20 @@ async def list_runs(
 
     return [
         RunResponse(
-            run_id=run.run_id,
-            node_id=run.node_id,
-            project_id=run.project_id,
+            run_id=str(run.id),
+            node_id=str(run.node_id),
+            project_id=str(run.project_id),
             label=run.label,
             status=run.status,
-            config=run.config,
-            seeds=run.seeds,
-            created_at=run.created_at,
-            started_at=run.started_at,
-            completed_at=run.completed_at,
-            aggregated_outcome=run.aggregated_outcome,
-            telemetry_ref=run.telemetry_ref,
-            ticks_completed=run.ticks_completed,
-            agents_processed=run.agents_processed,
+            config=run.outputs.get("config", {}) if run.outputs else {},
+            seeds=[run.actual_seed] if run.actual_seed else [],
+            created_at=run.created_at.isoformat() if run.created_at else None,
+            started_at=run.timing.get("started_at") if run.timing else None,
+            completed_at=run.timing.get("completed_at") if run.timing else None,
+            aggregated_outcome=run.outputs.get("outcomes") if run.outputs else None,
+            telemetry_ref=run.outputs.get("telemetry_ref") if run.outputs else None,
+            ticks_completed=run.timing.get("ticks_executed", 0) if run.timing else 0,
+            agents_processed=run.timing.get("agents_processed", 0) if run.timing else 0,
         )
         for run in runs
     ]
@@ -322,28 +322,36 @@ async def get_run(
             detail=f"Run {run_id} not found",
         )
 
+    timing = run.timing or {}
+    outputs = run.outputs or {}
+
     duration = None
-    if run.started_at and run.completed_at:
-        start = datetime.fromisoformat(run.started_at)
-        end = datetime.fromisoformat(run.completed_at)
-        duration = (end - start).total_seconds()
+    started_at = timing.get("started_at")
+    completed_at = timing.get("completed_at")
+    if started_at and completed_at:
+        try:
+            start = datetime.fromisoformat(started_at)
+            end = datetime.fromisoformat(completed_at)
+            duration = (end - start).total_seconds()
+        except (ValueError, TypeError):
+            pass
 
     return RunResponse(
-        run_id=run.run_id,
-        node_id=run.node_id,
-        project_id=run.project_id,
+        run_id=str(run.id),
+        node_id=str(run.node_id),
+        project_id=str(run.project_id),
         label=run.label,
         status=run.status,
-        config=run.config,
-        seeds=run.seeds,
-        created_at=run.created_at,
-        started_at=run.started_at,
-        completed_at=run.completed_at,
-        aggregated_outcome=run.aggregated_outcome,
-        telemetry_ref=run.telemetry_ref,
-        reliability_ref=run.reliability_ref,
-        ticks_completed=run.ticks_completed,
-        agents_processed=run.agents_processed,
+        config=outputs.get("config", {}),
+        seeds=[run.actual_seed] if run.actual_seed else [],
+        created_at=run.created_at.isoformat() if run.created_at else None,
+        started_at=started_at,
+        completed_at=completed_at,
+        aggregated_outcome=outputs.get("outcomes"),
+        telemetry_ref=outputs.get("telemetry_ref"),
+        reliability_ref=outputs.get("reliability_ref"),
+        ticks_completed=timing.get("ticks_executed", 0),
+        agents_processed=timing.get("agents_processed", 0),
         duration_seconds=duration,
     )
 
@@ -393,18 +401,18 @@ async def start_run(
         run = await orchestrator.get_run(run_id, tenant_ctx.tenant_id)
 
         return RunResponse(
-            run_id=run.run_id,
-            node_id=run.node_id,
-            project_id=run.project_id,
+            run_id=str(run.id),
+            node_id=str(run.node_id),
+            project_id=str(run.project_id),
             label=run.label,
             status=run.status,
-            config=run.config,
-            seeds=run.seeds,
-            created_at=run.created_at,
-            started_at=run.started_at,
-            completed_at=run.completed_at,
-            ticks_completed=run.ticks_completed,
-            agents_processed=run.agents_processed,
+            config=run.outputs.get("config", {}) if run.outputs else {},
+            seeds=[run.actual_seed] if run.actual_seed else [],
+            created_at=run.created_at.isoformat() if run.created_at else None,
+            started_at=run.timing.get("started_at") if run.timing else None,
+            completed_at=run.timing.get("completed_at") if run.timing else None,
+            ticks_completed=run.timing.get("ticks_executed", 0) if run.timing else 0,
+            agents_processed=run.timing.get("agents_processed", 0) if run.timing else 0,
             task_id=task_id,
         )
     except Exception as e:
@@ -458,18 +466,18 @@ async def cancel_run(
         run = await orchestrator.get_run(run_id, tenant_ctx.tenant_id)
 
         return RunResponse(
-            run_id=run.run_id,
-            node_id=run.node_id,
-            project_id=run.project_id,
+            run_id=str(run.id),
+            node_id=str(run.node_id),
+            project_id=str(run.project_id),
             label=run.label,
             status=run.status,
-            config=run.config,
-            seeds=run.seeds,
-            created_at=run.created_at,
-            started_at=run.started_at,
-            completed_at=run.completed_at,
-            ticks_completed=run.ticks_completed,
-            agents_processed=run.agents_processed,
+            config=run.outputs.get("config", {}) if run.outputs else {},
+            seeds=[run.actual_seed] if run.actual_seed else [],
+            created_at=run.created_at.isoformat() if run.created_at else None,
+            started_at=run.timing.get("started_at") if run.timing else None,
+            completed_at=run.timing.get("completed_at") if run.timing else None,
+            ticks_completed=run.timing.get("ticks_executed", 0) if run.timing else 0,
+            agents_processed=run.timing.get("agents_processed", 0) if run.timing else 0,
         )
     except Exception as e:
         await db.rollback()
@@ -695,18 +703,18 @@ async def create_batch_runs(
 
     return [
         RunResponse(
-            run_id=run.run_id,
-            node_id=run.node_id,
-            project_id=run.project_id,
+            run_id=str(run.id),
+            node_id=str(run.node_id),
+            project_id=str(run.project_id),
             label=run.label,
             status=run.status,
-            config=run.config,
-            seeds=run.seeds,
-            created_at=run.created_at,
-            started_at=run.started_at,
-            completed_at=run.completed_at,
-            ticks_completed=run.ticks_completed,
-            agents_processed=run.agents_processed,
+            config=run.outputs.get("config", {}) if run.outputs else {},
+            seeds=[run.actual_seed] if run.actual_seed else [],
+            created_at=run.created_at.isoformat() if run.created_at else None,
+            started_at=run.timing.get("started_at") if run.timing else None,
+            completed_at=run.timing.get("completed_at") if run.timing else None,
+            ticks_completed=run.timing.get("ticks_executed", 0) if run.timing else 0,
+            agents_processed=run.timing.get("agents_processed", 0) if run.timing else 0,
         )
         for run in results
     ]

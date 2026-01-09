@@ -18,6 +18,7 @@ import {
   FlaskConical,
   ListTodo,
   ShieldCheck,
+  BookOpen,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -32,6 +33,7 @@ const navigation: { name: string; href: string; icon: LucideIcon; roleRequired?:
 ];
 
 const secondaryNavigation: { name: string; href: string; icon: LucideIcon }[] = [
+  { name: 'Guide', href: '/dashboard/guide', icon: BookOpen },
   { name: 'Settings', href: '/dashboard/settings', icon: Settings },
 ];
 
