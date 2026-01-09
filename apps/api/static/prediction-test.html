@@ -1,0 +1,1334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Future Predictive AI Platform - Test Console</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+            background: #000;
+            color: #fff;
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            margin-bottom: 30px;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            color: #22d3ee;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .subtitle {
+            color: rgba(255,255,255,0.5);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .auth-status {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .status-badge {
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+        }
+
+        .status-badge.authenticated {
+            background: rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+
+        .status-badge.unauthenticated {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .tab {
+            padding: 10px 20px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: rgba(255,255,255,0.7);
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+            font-size: 0.85rem;
+        }
+
+        .tab:hover {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+        }
+
+        .tab.active {
+            background: rgba(34, 211, 238, 0.1);
+            border-color: #22d3ee;
+            color: #22d3ee;
+        }
+
+        .panel {
+            display: none;
+            background: rgba(255,255,255,0.02);
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: 25px;
+            border-radius: 8px;
+        }
+
+        .panel.active {
+            display: block;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: rgba(255,255,255,0.7);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 12px 15px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: #fff;
+            font-family: inherit;
+            font-size: 0.9rem;
+            border-radius: 4px;
+            transition: border-color 0.2s;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #22d3ee;
+        }
+
+        input::placeholder {
+            color: rgba(255,255,255,0.3);
+        }
+
+        button {
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #22d3ee 0%, #06b6d4 100%);
+            border: none;
+            color: #000;
+            font-family: inherit;
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(34, 211, 238, 0.3);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        button.secondary {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+        }
+
+        button.secondary:hover {
+            background: rgba(255,255,255,0.2);
+            box-shadow: none;
+        }
+
+        button.danger {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .card {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: 20px;
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+
+        .card:hover {
+            border-color: rgba(34, 211, 238, 0.3);
+            background: rgba(255,255,255,0.05);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 15px;
+        }
+
+        .card-title {
+            font-size: 1.1rem;
+            color: #fff;
+        }
+
+        .badge {
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .badge-pending { background: rgba(234, 179, 8, 0.2); color: #eab308; }
+        .badge-running { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
+        .badge-completed { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+        .badge-failed { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .badge-election { background: rgba(168, 85, 247, 0.2); color: #a855f7; }
+        .badge-consumer { background: rgba(34, 211, 238, 0.2); color: #22d3ee; }
+        .badge-market { background: rgba(245, 158, 11, 0.2); color: #f59e0b; }
+
+        .card-meta {
+            color: rgba(255,255,255,0.5);
+            font-size: 0.8rem;
+        }
+
+        .progress-bar {
+            height: 6px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 3px;
+            margin: 15px 0;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #22d3ee, #06b6d4);
+            transition: width 0.3s;
+            border-radius: 3px;
+        }
+
+        .log {
+            background: #0a0a0a;
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: 15px;
+            border-radius: 4px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-size: 0.8rem;
+            margin-top: 20px;
+        }
+
+        .log-entry {
+            padding: 5px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .log-entry.success { color: #22c55e; }
+        .log-entry.error { color: #ef4444; }
+        .log-entry.info { color: #3b82f6; }
+
+        .chart-container {
+            background: rgba(255,255,255,0.02);
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+
+        .results-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .results-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .metric-card {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .metric-value {
+            font-size: 2rem;
+            color: #22d3ee;
+            font-weight: 600;
+        }
+
+        .metric-label {
+            color: rgba(255,255,255,0.5);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-top: 5px;
+        }
+
+        .category-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .color-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .slider-container input[type="range"] {
+            flex: 1;
+            -webkit-appearance: none;
+            height: 6px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 3px;
+            border: none;
+        }
+
+        .slider-container input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #22d3ee;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .slider-value {
+            min-width: 50px;
+            text-align: right;
+            color: #22d3ee;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .flex-row {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .flex-row > * {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .section-title {
+            color: #22d3ee;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin: 25px 0 15px 0;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        #categories-list {
+            margin-bottom: 15px;
+        }
+
+        .category-input-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            align-items: center;
+        }
+
+        .category-input-row input[type="text"] {
+            flex: 1;
+        }
+
+        .category-input-row input[type="color"] {
+            width: 50px;
+            height: 38px;
+            padding: 2px;
+            cursor: pointer;
+        }
+
+        .remove-btn {
+            padding: 8px 12px;
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #ef4444;
+            font-size: 1rem;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        .detail-section {
+            margin-top: 30px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        th {
+            color: rgba(255,255,255,0.5);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .sse-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .sse-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ef4444;
+        }
+
+        .sse-dot.connected {
+            background: #22c55e;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <h1>Future Predictive AI Platform</h1>
+                <div class="subtitle">Test Console v1.0</div>
+            </div>
+            <div class="auth-status">
+                <span id="auth-status" class="status-badge unauthenticated">Not Authenticated</span>
+                <button id="logout-btn" class="secondary hidden" onclick="logout()">Logout</button>
+            </div>
+        </header>
+
+        <div class="tabs">
+            <button class="tab active" onclick="showTab('auth')">Authentication</button>
+            <button class="tab" onclick="showTab('create')">Create Prediction</button>
+            <button class="tab" onclick="showTab('list')">Predictions List</button>
+            <button class="tab" onclick="showTab('detail')">Prediction Detail</button>
+            <button class="tab" onclick="showTab('analytics')">Analytics</button>
+        </div>
+
+        <!-- Authentication Panel -->
+        <div id="auth-panel" class="panel active">
+            <div class="flex-row">
+                <div class="card">
+                    <h3 style="margin-bottom: 20px; color: #22d3ee;">Register</h3>
+                    <form id="register-form" onsubmit="register(event)">
+                        <div class="form-group">
+                            <label>Full Name</label>
+                            <input type="text" id="reg-name" placeholder="John Doe" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Email</label>
+                            <input type="email" id="reg-email" placeholder="john@example.com" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Password</label>
+                            <input type="password" id="reg-password" placeholder="Min 8 characters" required>
+                        </div>
+                        <button type="submit">Register</button>
+                    </form>
+                </div>
+
+                <div class="card">
+                    <h3 style="margin-bottom: 20px; color: #22d3ee;">Login</h3>
+                    <form id="login-form" onsubmit="login(event)">
+                        <div class="form-group">
+                            <label>Email</label>
+                            <input type="email" id="login-email" placeholder="john@example.com" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Password</label>
+                            <input type="password" id="login-password" placeholder="Your password" required>
+                        </div>
+                        <button type="submit">Login</button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="log" id="auth-log">
+                <div class="log-entry info">Ready to authenticate...</div>
+            </div>
+        </div>
+
+        <!-- Create Prediction Panel -->
+        <div id="create-panel" class="panel">
+            <form id="prediction-form" onsubmit="createPrediction(event)">
+                <div class="section-title">Basic Information</div>
+                <div class="flex-row">
+                    <div class="form-group">
+                        <label>Prediction Name</label>
+                        <input type="text" id="pred-name" placeholder="2024 Election Forecast" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Scenario Type</label>
+                        <select id="pred-scenario">
+                            <option value="election">Election Prediction</option>
+                            <option value="consumer">Consumer Behavior</option>
+                            <option value="market">Market Analysis</option>
+                            <option value="social">Social Dynamics</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea id="pred-desc" rows="2" placeholder="Describe your prediction scenario..."></textarea>
+                </div>
+
+                <div class="section-title">Categories</div>
+                <div id="categories-list">
+                    <div class="category-input-row">
+                        <input type="text" placeholder="Category name (e.g., Party A)" value="Party A">
+                        <input type="color" value="#FF6B6B">
+                        <button type="button" class="remove-btn" onclick="removeCategory(this)">×</button>
+                    </div>
+                    <div class="category-input-row">
+                        <input type="text" placeholder="Category name (e.g., Party B)" value="Party B">
+                        <input type="color" value="#4ECDC4">
+                        <button type="button" class="remove-btn" onclick="removeCategory(this)">×</button>
+                    </div>
+                </div>
+                <button type="button" class="secondary" onclick="addCategory()">+ Add Category</button>
+
+                <div class="section-title">Agent Configuration</div>
+                <div class="flex-row">
+                    <div class="form-group">
+                        <label>Number of Agents</label>
+                        <div class="slider-container">
+                            <input type="range" id="agent-count" min="100" max="10000" value="1000" oninput="updateSlider('agent-count')">
+                            <span class="slider-value" id="agent-count-value">1000</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section-title">Behavioral Economics Parameters</div>
+                <div class="flex-row">
+                    <div class="form-group">
+                        <label>Loss Aversion (lambda)</label>
+                        <div class="slider-container">
+                            <input type="range" id="loss-aversion" min="1" max="3" step="0.1" value="2.25" oninput="updateSlider('loss-aversion')">
+                            <span class="slider-value" id="loss-aversion-value">2.25</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Status Quo Bias</label>
+                        <div class="slider-container">
+                            <input type="range" id="status-quo" min="0" max="1" step="0.1" value="0.3" oninput="updateSlider('status-quo')">
+                            <span class="slider-value" id="status-quo-value">0.3</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex-row">
+                    <div class="form-group">
+                        <label>Bandwagon Effect</label>
+                        <div class="slider-container">
+                            <input type="range" id="bandwagon" min="0" max="1" step="0.1" value="0.2" oninput="updateSlider('bandwagon')">
+                            <span class="slider-value" id="bandwagon-value">0.2</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Social Influence Weight</label>
+                        <div class="slider-container">
+                            <input type="range" id="social-influence" min="0" max="1" step="0.1" value="0.15" oninput="updateSlider('social-influence')">
+                            <span class="slider-value" id="social-influence-value">0.15</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section-title">Simulation Settings</div>
+                <div class="flex-row">
+                    <div class="form-group">
+                        <label>Simulation Steps</label>
+                        <div class="slider-container">
+                            <input type="range" id="num-steps" min="10" max="100" value="30" oninput="updateSlider('num-steps')">
+                            <span class="slider-value" id="num-steps-value">30</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Monte Carlo Runs</label>
+                        <div class="slider-container">
+                            <input type="range" id="monte-carlo" min="5" max="100" value="50" oninput="updateSlider('monte-carlo')">
+                            <span class="slider-value" id="monte-carlo-value">50</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex-row">
+                    <div class="form-group">
+                        <label>Confidence Level</label>
+                        <select id="confidence-level">
+                            <option value="0.90">90%</option>
+                            <option value="0.95" selected>95%</option>
+                            <option value="0.99">99%</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Social Network Type</label>
+                        <select id="network-type">
+                            <option value="small_world">Small World</option>
+                            <option value="scale_free">Scale Free</option>
+                            <option value="random">Random</option>
+                            <option value="complete">Complete</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="section-title">Advanced Options</div>
+                <div class="flex-row">
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="enable-marl"> Enable MARL Training
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="use-calibration"> Use Calibration
+                        </label>
+                    </div>
+                </div>
+
+                <div class="actions">
+                    <button type="submit">Start Prediction</button>
+                    <button type="button" class="secondary" onclick="resetForm()">Reset Form</button>
+                </div>
+            </form>
+
+            <div class="log" id="create-log">
+                <div class="log-entry info">Configure your prediction and click Start...</div>
+            </div>
+        </div>
+
+        <!-- Predictions List Panel -->
+        <div id="list-panel" class="panel">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h3 style="color: #22d3ee;">Your Predictions</h3>
+                <button onclick="loadPredictions()">Refresh</button>
+            </div>
+
+            <div id="predictions-grid" class="grid">
+                <div class="card" style="text-align: center; padding: 40px;">
+                    <div style="color: rgba(255,255,255,0.3);">No predictions yet</div>
+                    <div style="color: rgba(255,255,255,0.2); font-size: 0.8rem; margin-top: 10px;">Create your first prediction to get started</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Prediction Detail Panel -->
+        <div id="detail-panel" class="panel">
+            <div id="detail-content">
+                <div style="text-align: center; padding: 40px; color: rgba(255,255,255,0.3);">
+                    Select a prediction from the list to view details
+                </div>
+            </div>
+        </div>
+
+        <!-- Analytics Panel -->
+        <div id="analytics-panel" class="panel">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h3 style="color: #22d3ee;">Prediction Analytics</h3>
+                <button onclick="loadAnalytics()">Refresh Analytics</button>
+            </div>
+
+            <div id="analytics-content">
+                <div class="results-grid">
+                    <div class="metric-card">
+                        <div class="metric-value" id="total-predictions">--</div>
+                        <div class="metric-label">Total Predictions</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" id="completed-predictions">--</div>
+                        <div class="metric-label">Completed</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" id="avg-accuracy">--</div>
+                        <div class="metric-label">Avg Accuracy</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" id="total-agents">--</div>
+                        <div class="metric-label">Total Agents Simulated</div>
+                    </div>
+                </div>
+
+                <div class="chart-container">
+                    <canvas id="accuracy-chart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const API_BASE = 'http://localhost:8000/api/v1';
+        let authToken = localStorage.getItem('auth_token');
+        let currentPredictionId = null;
+        let eventSource = null;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            updateAuthStatus();
+            if (authToken) {
+                loadPredictions();
+            }
+        });
+
+        // Tab Management
+        function showTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+
+            event.target.classList.add('active');
+            document.getElementById(`${tabName}-panel`).classList.add('active');
+
+            if (tabName === 'list' && authToken) {
+                loadPredictions();
+            }
+            if (tabName === 'analytics' && authToken) {
+                loadAnalytics();
+            }
+        }
+
+        // Auth Functions
+        function updateAuthStatus() {
+            const statusEl = document.getElementById('auth-status');
+            const logoutBtn = document.getElementById('logout-btn');
+
+            if (authToken) {
+                statusEl.textContent = 'Authenticated';
+                statusEl.className = 'status-badge authenticated';
+                logoutBtn.classList.remove('hidden');
+            } else {
+                statusEl.textContent = 'Not Authenticated';
+                statusEl.className = 'status-badge unauthenticated';
+                logoutBtn.classList.add('hidden');
+            }
+        }
+
+        async function register(e) {
+            e.preventDefault();
+            const log = document.getElementById('auth-log');
+
+            try {
+                log.innerHTML += '<div class="log-entry info">Registering user...</div>';
+
+                const response = await fetch(`${API_BASE}/auth/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        full_name: document.getElementById('reg-name').value,
+                        email: document.getElementById('reg-email').value,
+                        password: document.getElementById('reg-password').value
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    log.innerHTML += '<div class="log-entry success">Registration successful! Please login.</div>';
+                    document.getElementById('login-email').value = document.getElementById('reg-email').value;
+                } else {
+                    log.innerHTML += `<div class="log-entry error">Registration failed: ${data.detail || JSON.stringify(data)}</div>`;
+                }
+            } catch (err) {
+                log.innerHTML += `<div class="log-entry error">Error: ${err.message}</div>`;
+            }
+            log.scrollTop = log.scrollHeight;
+        }
+
+        async function login(e) {
+            e.preventDefault();
+            const log = document.getElementById('auth-log');
+
+            try {
+                log.innerHTML += '<div class="log-entry info">Logging in...</div>';
+
+                const response = await fetch(`${API_BASE}/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: document.getElementById('login-email').value,
+                        password: document.getElementById('login-password').value
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    authToken = data.access_token;
+                    localStorage.setItem('auth_token', authToken);
+                    updateAuthStatus();
+                    log.innerHTML += '<div class="log-entry success">Login successful!</div>';
+                    loadPredictions();
+                } else {
+                    log.innerHTML += `<div class="log-entry error">Login failed: ${data.detail || JSON.stringify(data)}</div>`;
+                }
+            } catch (err) {
+                log.innerHTML += `<div class="log-entry error">Error: ${err.message}</div>`;
+            }
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function logout() {
+            authToken = null;
+            localStorage.removeItem('auth_token');
+            updateAuthStatus();
+            document.getElementById('auth-log').innerHTML += '<div class="log-entry info">Logged out.</div>';
+        }
+
+        // Slider Updates
+        function updateSlider(id) {
+            const slider = document.getElementById(id);
+            document.getElementById(`${id}-value`).textContent = slider.value;
+        }
+
+        // Category Management
+        function addCategory() {
+            const list = document.getElementById('categories-list');
+            const colors = ['#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8'];
+            const color = colors[list.children.length % colors.length];
+
+            const row = document.createElement('div');
+            row.className = 'category-input-row';
+            row.innerHTML = `
+                <input type="text" placeholder="Category name">
+                <input type="color" value="${color}">
+                <button type="button" class="remove-btn" onclick="removeCategory(this)">×</button>
+            `;
+            list.appendChild(row);
+        }
+
+        function removeCategory(btn) {
+            const list = document.getElementById('categories-list');
+            if (list.children.length > 2) {
+                btn.parentElement.remove();
+            }
+        }
+
+        function getCategories() {
+            const rows = document.querySelectorAll('#categories-list .category-input-row');
+            return Array.from(rows).map(row => ({
+                name: row.querySelector('input[type="text"]').value,
+                color: row.querySelector('input[type="color"]').value
+            })).filter(c => c.name.trim());
+        }
+
+        // Create Prediction
+        async function createPrediction(e) {
+            e.preventDefault();
+            const log = document.getElementById('create-log');
+
+            if (!authToken) {
+                log.innerHTML += '<div class="log-entry error">Please login first!</div>';
+                return;
+            }
+
+            const categories = getCategories();
+            if (categories.length < 2) {
+                log.innerHTML += '<div class="log-entry error">Please add at least 2 categories</div>';
+                return;
+            }
+
+            const payload = {
+                name: document.getElementById('pred-name').value,
+                description: document.getElementById('pred-desc').value,
+                scenario_type: document.getElementById('pred-scenario').value,
+                config: {
+                    categories: categories,
+                    agent_config: {
+                        count: parseInt(document.getElementById('agent-count').value),
+                        behavioral_params: {
+                            loss_aversion: parseFloat(document.getElementById('loss-aversion').value),
+                            status_quo_bias: parseFloat(document.getElementById('status-quo').value),
+                            bandwagon_effect: parseFloat(document.getElementById('bandwagon').value),
+                            social_influence_weight: parseFloat(document.getElementById('social-influence').value)
+                        }
+                    },
+                    num_steps: parseInt(document.getElementById('num-steps').value),
+                    monte_carlo_runs: parseInt(document.getElementById('monte-carlo').value),
+                    confidence_level: parseFloat(document.getElementById('confidence-level').value),
+                    social_network_type: document.getElementById('network-type').value,
+                    enable_marl: document.getElementById('enable-marl').checked,
+                    use_calibration: document.getElementById('use-calibration').checked
+                }
+            };
+
+            try {
+                log.innerHTML += '<div class="log-entry info">Creating prediction...</div>';
+                log.innerHTML += `<div class="log-entry info">Payload: ${JSON.stringify(payload, null, 2)}</div>`;
+
+                const response = await fetch(`${API_BASE}/predictions/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    log.innerHTML += `<div class="log-entry success">Prediction created! ID: ${data.id}</div>`;
+                    currentPredictionId = data.id;
+
+                    // Start SSE stream
+                    startSSEStream(data.id);
+
+                    // Refresh list
+                    loadPredictions();
+                } else {
+                    log.innerHTML += `<div class="log-entry error">Failed: ${data.detail || JSON.stringify(data)}</div>`;
+                }
+            } catch (err) {
+                log.innerHTML += `<div class="log-entry error">Error: ${err.message}</div>`;
+            }
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function resetForm() {
+            document.getElementById('prediction-form').reset();
+            document.getElementById('create-log').innerHTML = '<div class="log-entry info">Form reset. Configure your prediction...</div>';
+        }
+
+        // SSE Stream
+        function startSSEStream(predictionId) {
+            const log = document.getElementById('create-log');
+
+            if (eventSource) {
+                eventSource.close();
+            }
+
+            log.innerHTML += '<div class="log-entry info">Connecting to SSE stream...</div>';
+
+            eventSource = new EventSource(`${API_BASE}/predictions/${predictionId}/stream`);
+
+            eventSource.onopen = () => {
+                log.innerHTML += '<div class="log-entry success">SSE connected! Receiving updates...</div>';
+            };
+
+            eventSource.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                log.innerHTML += `<div class="log-entry info">Progress: ${data.progress}% - Step ${data.current_step}/${data.total_steps}</div>`;
+
+                if (data.status === 'completed') {
+                    log.innerHTML += '<div class="log-entry success">Prediction completed!</div>';
+                    eventSource.close();
+                    loadPredictions();
+                    loadPredictionDetail(predictionId);
+                } else if (data.status === 'failed') {
+                    log.innerHTML += `<div class="log-entry error">Prediction failed: ${data.error}</div>`;
+                    eventSource.close();
+                }
+                log.scrollTop = log.scrollHeight;
+            };
+
+            eventSource.onerror = (err) => {
+                log.innerHTML += '<div class="log-entry error">SSE connection error</div>';
+                eventSource.close();
+            };
+        }
+
+        // Load Predictions
+        async function loadPredictions() {
+            if (!authToken) return;
+
+            const grid = document.getElementById('predictions-grid');
+
+            try {
+                const response = await fetch(`${API_BASE}/predictions/`, {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.predictions && data.predictions.length > 0) {
+                    grid.innerHTML = data.predictions.map(p => `
+                        <div class="card" onclick="loadPredictionDetail('${p.id}')">
+                            <div class="card-header">
+                                <div class="card-title">${p.name}</div>
+                                <span class="badge badge-${p.status}">${p.status}</span>
+                            </div>
+                            <div style="margin-bottom: 10px;">
+                                <span class="badge badge-${p.scenario_type}">${p.scenario_type}</span>
+                            </div>
+                            <div class="card-meta">
+                                ${p.config?.agent_config?.count || '?'} agents &bull;
+                                ${p.config?.monte_carlo_runs || '?'} MC runs
+                            </div>
+                            ${p.status === 'running' ? `
+                                <div class="progress-bar">
+                                    <div class="progress-fill" style="width: ${p.progress || 0}%"></div>
+                                </div>
+                            ` : ''}
+                            <div class="card-meta" style="margin-top: 10px;">
+                                Created: ${new Date(p.created_at).toLocaleString()}
+                            </div>
+                            <div class="actions">
+                                ${p.status === 'running' ? `
+                                    <button class="danger" onclick="cancelPrediction('${p.id}', event)">Cancel</button>
+                                ` : ''}
+                                <button class="secondary" onclick="loadPredictionDetail('${p.id}'); showTab('detail'); event.stopPropagation();">View</button>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    grid.innerHTML = `
+                        <div class="card" style="text-align: center; padding: 40px;">
+                            <div style="color: rgba(255,255,255,0.3);">No predictions yet</div>
+                            <div style="color: rgba(255,255,255,0.2); font-size: 0.8rem; margin-top: 10px;">Create your first prediction to get started</div>
+                        </div>
+                    `;
+                }
+            } catch (err) {
+                grid.innerHTML = `<div class="card" style="color: #ef4444;">Error loading predictions: ${err.message}</div>`;
+            }
+        }
+
+        // Load Prediction Detail
+        async function loadPredictionDetail(id) {
+            currentPredictionId = id;
+            const content = document.getElementById('detail-content');
+
+            try {
+                const [predResponse, resultsResponse] = await Promise.all([
+                    fetch(`${API_BASE}/predictions/${id}`, {
+                        headers: { 'Authorization': `Bearer ${authToken}` }
+                    }),
+                    fetch(`${API_BASE}/predictions/${id}/results`, {
+                        headers: { 'Authorization': `Bearer ${authToken}` }
+                    })
+                ]);
+
+                const prediction = await predResponse.json();
+                let results = null;
+                if (resultsResponse.ok) {
+                    results = await resultsResponse.json();
+                }
+
+                content.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <div>
+                            <h2 style="color: #22d3ee; margin-bottom: 5px;">${prediction.name}</h2>
+                            <span class="badge badge-${prediction.status}">${prediction.status}</span>
+                            <span class="badge badge-${prediction.scenario_type}">${prediction.scenario_type}</span>
+                        </div>
+                        ${prediction.status === 'running' ? `
+                            <div class="sse-status">
+                                <span class="sse-dot connected"></span>
+                                <span>Live</span>
+                            </div>
+                        ` : ''}
+                    </div>
+
+                    ${prediction.description ? `<p style="color: rgba(255,255,255,0.7); margin-bottom: 20px;">${prediction.description}</p>` : ''}
+
+                    <div class="results-grid">
+                        <div class="metric-card">
+                            <div class="metric-value">${prediction.config?.agent_config?.count || '-'}</div>
+                            <div class="metric-label">Agents</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value">${prediction.config?.monte_carlo_runs || '-'}</div>
+                            <div class="metric-label">Monte Carlo Runs</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value">${prediction.config?.num_steps || '-'}</div>
+                            <div class="metric-label">Steps</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value">${Math.round((prediction.config?.confidence_level || 0.95) * 100)}%</div>
+                            <div class="metric-label">Confidence Level</div>
+                        </div>
+                    </div>
+
+                    ${results && results.category_distributions ? `
+                        <div class="detail-section">
+                            <div class="section-title">Results</div>
+                            <div class="chart-container">
+                                <canvas id="results-chart"></canvas>
+                            </div>
+
+                            <table style="margin-top: 20px;">
+                                <thead>
+                                    <tr>
+                                        <th>Category</th>
+                                        <th>Predicted %</th>
+                                        <th>95% CI</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${Object.entries(results.category_distributions).map(([name, value]) => `
+                                        <tr>
+                                            <td>${name}</td>
+                                            <td>${(value * 100).toFixed(1)}%</td>
+                                            <td>${results.confidence_intervals && results.confidence_intervals[name]
+                                                ? `[${(results.confidence_intervals[name][0] * 100).toFixed(1)}%, ${(results.confidence_intervals[name][1] * 100).toFixed(1)}%]`
+                                                : '-'}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    ` : prediction.status === 'completed' ? `
+                        <div class="detail-section">
+                            <div style="text-align: center; padding: 40px; color: rgba(255,255,255,0.3);">
+                                Results data not available
+                            </div>
+                        </div>
+                    ` : prediction.status === 'running' ? `
+                        <div class="detail-section">
+                            <div class="section-title">Progress</div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${prediction.progress || 0}%"></div>
+                            </div>
+                            <div style="text-align: center; color: rgba(255,255,255,0.5); margin-top: 10px;">
+                                ${prediction.progress || 0}% complete
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    <div class="detail-section">
+                        <div class="section-title">Configuration</div>
+                        <pre style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 4px; overflow-x: auto; font-size: 0.8rem; color: rgba(255,255,255,0.7);">${JSON.stringify(prediction.config, null, 2)}</pre>
+                    </div>
+                `;
+
+                // Render chart if we have results
+                if (results && results.category_distributions) {
+                    setTimeout(() => renderResultsChart(results), 100);
+                }
+
+            } catch (err) {
+                content.innerHTML = `<div style="color: #ef4444;">Error loading prediction: ${err.message}</div>`;
+            }
+
+            // Switch to detail tab
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            document.querySelector('.tab:nth-child(4)').classList.add('active');
+            document.getElementById('detail-panel').classList.add('active');
+        }
+
+        function renderResultsChart(results) {
+            const ctx = document.getElementById('results-chart');
+            if (!ctx) return;
+
+            const labels = Object.keys(results.category_distributions);
+            const values = Object.values(results.category_distributions).map(v => v * 100);
+            const colors = results.categories?.map(c => c.color) ||
+                ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD'];
+
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Predicted Distribution (%)',
+                        data: values,
+                        backgroundColor: colors.slice(0, labels.length),
+                        borderColor: colors.slice(0, labels.length).map(c => c),
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            ticks: { color: 'rgba(255,255,255,0.5)' },
+                            grid: { color: 'rgba(255,255,255,0.1)' }
+                        },
+                        x: {
+                            ticks: { color: 'rgba(255,255,255,0.5)' },
+                            grid: { color: 'rgba(255,255,255,0.1)' }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Cancel Prediction
+        async function cancelPrediction(id, event) {
+            event.stopPropagation();
+
+            try {
+                const response = await fetch(`${API_BASE}/predictions/${id}/cancel`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+
+                if (response.ok) {
+                    loadPredictions();
+                }
+            } catch (err) {
+                console.error('Error cancelling prediction:', err);
+            }
+        }
+
+        // Load Analytics
+        async function loadAnalytics() {
+            if (!authToken) return;
+
+            try {
+                const [overviewResponse, accuracyResponse] = await Promise.all([
+                    fetch(`${API_BASE}/predictions/analytics/overview`, {
+                        headers: { 'Authorization': `Bearer ${authToken}` }
+                    }),
+                    fetch(`${API_BASE}/predictions/analytics/accuracy`, {
+                        headers: { 'Authorization': `Bearer ${authToken}` }
+                    })
+                ]);
+
+                if (overviewResponse.ok) {
+                    const overview = await overviewResponse.json();
+                    document.getElementById('total-predictions').textContent = overview.total_predictions || 0;
+                    document.getElementById('completed-predictions').textContent = overview.completed_predictions || 0;
+                    document.getElementById('total-agents').textContent = (overview.total_agents_simulated || 0).toLocaleString();
+                }
+
+                if (accuracyResponse.ok) {
+                    const accuracy = await accuracyResponse.json();
+                    document.getElementById('avg-accuracy').textContent =
+                        accuracy.average_accuracy ? `${(accuracy.average_accuracy * 100).toFixed(1)}%` : '--';
+
+                    // Render accuracy chart if we have history
+                    if (accuracy.history && accuracy.history.length > 0) {
+                        renderAccuracyChart(accuracy.history);
+                    }
+                }
+            } catch (err) {
+                console.error('Error loading analytics:', err);
+            }
+        }
+
+        function renderAccuracyChart(history) {
+            const ctx = document.getElementById('accuracy-chart');
+            if (!ctx) return;
+
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: history.map((_, i) => `Prediction ${i + 1}`),
+                    datasets: [{
+                        label: 'Accuracy',
+                        data: history.map(h => h.accuracy * 100),
+                        borderColor: '#22d3ee',
+                        backgroundColor: 'rgba(34, 211, 238, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            labels: { color: 'rgba(255,255,255,0.7)' }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            ticks: { color: 'rgba(255,255,255,0.5)' },
+                            grid: { color: 'rgba(255,255,255,0.1)' }
+                        },
+                        x: {
+                            ticks: { color: 'rgba(255,255,255,0.5)' },
+                            grid: { color: 'rgba(255,255,255,0.1)' }
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
