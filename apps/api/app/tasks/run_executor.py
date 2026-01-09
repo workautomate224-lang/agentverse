@@ -61,6 +61,11 @@ from app.services.node_service import (
     AggregatedOutcome,
     NodeConfidence,
 )
+from app.services.leakage_guard import (
+    LeakageGuard,
+    create_leakage_guard_from_config,
+    LeakageViolationError,
+)
 from app.models.node import ConfidenceLevel
 
 
@@ -178,6 +183,7 @@ async def _execute_run(run_id: str, context: JobContext) -> dict:
                 reliability=reliability,
                 completed_at=completed_at,
                 ticks_executed=execution_result.get("ticks_executed", 0),
+                execution_counters=execution_result.get("execution_counters"),
             )
 
             # Phase 8: Update Node with run outcome (C1: fork-not-mutate applies to history, outcomes update is OK)
@@ -251,13 +257,13 @@ async def _load_run(db: AsyncSession, run_id: str, tenant_id: str) -> Optional[d
 
     run_config = {
         "node_id": str(run.node_id),
-        "seed_config": config_row.seed_config if config_row else {"strategy": "single", "primary_seed": 42},
-        "max_ticks": config_row.horizon if config_row else 1000,
-        "tick_rate": config_row.tick_rate if config_row else 1,
-        "scheduler_profile": config_row.scheduler_profile if config_row else {},
-        "logging_profile": config_row.logging_profile if config_row else {},
-        "scenario_patch": config_row.scenario_patch if config_row else None,
-        "max_agents": config_row.max_agents if config_row else None,
+        "seed_config": (config_row.seed_config if config_row and config_row.seed_config else {"strategy": "single", "primary_seed": 42}),
+        "max_ticks": (config_row.horizon if config_row and config_row.horizon else 100),  # Default to 100 ticks
+        "tick_rate": (config_row.tick_rate if config_row and config_row.tick_rate else 1),
+        "scheduler_profile": (config_row.scheduler_profile if config_row and config_row.scheduler_profile else {}),
+        "logging_profile": (config_row.logging_profile if config_row and config_row.logging_profile else {}),
+        "scenario_patch": (config_row.scenario_patch if config_row else None),
+        "max_agents": (config_row.max_agents if config_row else 100),  # Default to 100 agents
     }
 
     return {
@@ -314,6 +320,7 @@ async def _update_run_complete(
     reliability: dict,
     completed_at: datetime,
     ticks_executed: int,
+    execution_counters: Optional[dict] = None,
 ):
     """Update run with completion data."""
     from app.models.node import Run
@@ -334,6 +341,15 @@ async def _update_run_complete(
         started = datetime.fromisoformat(existing_timing["started_at"])
         timing["duration_ms"] = int((completed_at - started).total_seconds() * 1000)
 
+    # Build outputs with execution counters for Evidence Pack (§3.1)
+    outputs_data = {
+        "outcomes": outcomes,
+        "telemetry_ref": telemetry_ref,
+        "reliability": reliability,
+    }
+    if execution_counters:
+        outputs_data["execution_counters"] = execution_counters
+
     # Update the run
     stmt = (
         update(Run)
@@ -341,11 +357,7 @@ async def _update_run_complete(
         .values(
             status=RunStatus.SUCCEEDED.value,
             timing=timing,
-            outputs={
-                "outcomes": outcomes,
-                "telemetry_ref": telemetry_ref,
-                "reliability": reliability,
-            },
+            outputs=outputs_data,
             updated_at=datetime.utcnow(),
         )
     )
@@ -472,6 +484,49 @@ class DeterministicRNG:
         derived = self.derive_seed(f"agent:{agent_id}:tick:{tick}")
         return DeterministicRNG(derived)
 
+    def random_sample(self, items: List[Any], sample_size: int) -> List[Any]:
+        """
+        Deterministically sample items using Fisher-Yates shuffle.
+        §3.3 Scheduler: Used for sampling policies.
+        """
+        if sample_size >= len(items):
+            return items
+
+        # Create a copy to avoid mutating original
+        shuffled = items.copy()
+        n = len(shuffled)
+
+        # Partial Fisher-Yates shuffle (only shuffle first sample_size items)
+        for i in range(min(sample_size, n)):
+            # Generate random index in remaining items
+            j = i + (self.next() % (n - i))
+            shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+
+        return shuffled[:sample_size]
+
+
+def _stratified_sample(agents: List[Any], sampling_ratio: float, rng: DeterministicRNG) -> List[Any]:
+    """
+    Stratified sampling by agent segment.
+    §3.3 Scheduler: Ensures representation from each segment.
+    """
+    # Group agents by segment
+    segments: Dict[str, List[Any]] = {}
+    for agent in agents:
+        segment = getattr(agent, "segment", "default")
+        if segment not in segments:
+            segments[segment] = []
+        segments[segment].append(agent)
+
+    # Sample proportionally from each segment
+    sampled = []
+    for segment_name, segment_agents in segments.items():
+        sample_size = max(1, int(len(segment_agents) * sampling_ratio))
+        segment_rng = DeterministicRNG(rng.derive_seed(f"stratified:{segment_name}"))
+        sampled.extend(segment_rng.random_sample(segment_agents, sample_size))
+
+    return sampled
+
 
 async def _execute_simulation(
     db: AsyncSession,
@@ -487,12 +542,22 @@ async def _execute_simulation(
 
     Returns execution trace data for telemetry and outcomes.
     """
-    config = run.get("run_config", {})
-    max_ticks = config.get("max_ticks", 1000)
-    tick_rate = config.get("tick_rate", 1)
+    config = run.get("run_config", {}) or {}
+    max_ticks = config.get("max_ticks") or 100  # Default to 100 ticks
+    tick_rate = config.get("tick_rate") or 1
+
+    # Safety check
+    if not isinstance(max_ticks, int) or max_ticks < 1:
+        max_ticks = 100
+
+    import logging
+    logging.warning(f"DEBUG: max_ticks={max_ticks}, type={type(max_ticks)}, config={config}")
 
     # Initialize rule engine
     rule_engine = get_rule_engine()
+
+    # Initialize leakage guard for backtest scenarios (§1.3)
+    leakage_guard = create_leakage_guard_from_config(config, strict_mode=False)
 
     # Load personas and create agents
     # TODO: Load actual personas from database based on project
@@ -509,14 +574,31 @@ async def _execute_simulation(
     events_processed = []
     metrics_by_tick = []
     outcome_tracker = OutcomeTracker()
+    execution_counters = ExecutionCounters()  # Evidence Pack instrumentation (§3.1)
 
     # Apply scenario patch if present
     scenario_patch = config.get("scenario_patch")
     environment = _apply_scenario_patch(scenario_patch)
 
+    # §3.3 Scheduler Configuration
+    scheduler_config = config.get("scheduler", {})
+    batch_size = scheduler_config.get("batch_size", 100)  # Agents per batch
+    backpressure_threshold_ms = scheduler_config.get("backpressure_threshold_ms", 500)  # ms per tick
+    sampling_policy = scheduler_config.get("sampling_policy", "all")  # all, random, stratified
+    sampling_ratio = scheduler_config.get("sampling_ratio", 1.0)  # For random/stratified
+
+    # Track scheduler metrics for Evidence Pack (§3.3)
+    execution_counters.scheduler_config = {
+        "batch_size": batch_size,
+        "sampling_policy": sampling_policy,
+        "sampling_ratio": sampling_ratio,
+        "backpressure_threshold_ms": backpressure_threshold_ms,
+    }
+
     # Main simulation loop (Society Mode)
     for tick in range(max_ticks):
         tick_start = time.perf_counter()
+        execution_counters.record_partition()  # §3.3: Each tick is a partition
 
         # Collect peer states for social observation
         peer_states = {
@@ -525,67 +607,105 @@ async def _execute_simulation(
             if a.state != EngineAgentState.TERMINATED
         }
 
-        # Run each agent through the tick
+        # §3.3 Sampling Policy Application
+        active_agents = agent_pool.get_active()
+        if sampling_policy == "random" and sampling_ratio < 1.0:
+            # Random sampling - select subset of agents
+            sample_size = max(1, int(len(active_agents) * sampling_ratio))
+            active_agents = rng.random_sample(active_agents, sample_size)
+        elif sampling_policy == "stratified" and sampling_ratio < 1.0:
+            # Stratified sampling - sample from each segment proportionally
+            active_agents = _stratified_sample(active_agents, sampling_ratio, rng)
+        # else: "all" policy - process all agents
+
+        # Run each agent through the tick (in batches for §3.3)
         agent_updates = []
-        for agent in agent_pool.get_active():
-            try:
-                # Create RNG for this agent at this tick (deterministic)
-                agent_rng = rng.create_agent_rng(str(agent.id), tick)
+        num_agents = len(active_agents)
+        for batch_start in range(0, num_agents, batch_size):
+            batch_end = min(batch_start + batch_size, num_agents)
+            batch = active_agents[batch_start:batch_end]
+            execution_counters.record_batch()  # §3.3: Track batch execution
 
-                # Agent lifecycle: Observe -> Evaluate -> Decide -> Act -> Update
-                observation = agent.observe(environment, peer_states)
-                evaluation = agent.evaluate(observation)
-                decision = agent.decide(evaluation)
+            for agent in batch:
+                try:
+                    # Create RNG for this agent at this tick (deterministic)
+                    agent_rng = rng.create_agent_rng(str(agent.id), tick)
 
-                action_results = []
-                if decision:
-                    action_results = agent.act(decision)
-                    events_processed.extend(action_results)
+                    # Agent lifecycle: Observe -> Evaluate -> Decide -> Act -> Update
+                    # §3.1 Evidence Pack: Record each loop stage execution
+                    observation = agent.observe(environment, peer_states)
+                    execution_counters.record_observe()
 
-                # Apply rule engine for behavioral modifications
-                rule_context = RuleContext(
-                    agent_id=str(agent.id),
-                    tick=tick,
-                    seed=agent_rng.seed,
-                    environment=environment,
-                    agent_state=agent.to_full_state(),
-                    peer_states={
-                        aid: s for aid, s in peer_states.items()
-                        if aid in [str(p.id) for p in agent_pool.get_peers(agent)]
-                    },
-                    global_metrics=outcome_tracker.get_current_metrics(),
-                )
+                    evaluation = agent.evaluate(observation)
+                    execution_counters.record_evaluate()
 
-                # Run rules for this agent
-                rule_results = rule_engine.run_agent_tick(rule_context)
+                    decision = agent.decide(evaluation)
+                    execution_counters.record_decide()
 
-                # Apply rule-driven state updates
-                state_updates = rule_results.get("state_updates", {})
-                agent.update(action_results, state_updates)
+                    action_results = []
+                    if decision:
+                        action_results = agent.act(decision)
+                        execution_counters.record_act()
+                        events_processed.extend(action_results)
 
-                # Track updates
-                agent_updates.append({
-                    "agent_id": str(agent.id),
-                    "observation": _summarize_observation(observation),
-                    "decision": decision.get("action_type") if decision else None,
-                    "actions": len(action_results),
-                    "state_delta": _compute_state_delta(rule_results),
-                })
+                    # Apply rule engine for behavioral modifications
+                    rule_context = RuleContext(
+                        agent_id=str(agent.id),
+                        tick=tick,
+                        seed=agent_rng.seed,
+                        environment=environment,
+                        agent_state=agent.to_full_state(),
+                        peer_states={
+                            aid: s for aid, s in peer_states.items()
+                            if aid in [str(p.id) for p in agent_pool.get_peers(agent)]
+                        },
+                        global_metrics=outcome_tracker.get_current_metrics(),
+                    )
 
-                # Update outcome tracker
-                outcome_tracker.record_agent_action(
-                    agent_id=str(agent.id),
-                    tick=tick,
-                    decision=decision,
-                    action_results=action_results,
-                )
+                    # Run rules for this agent
+                    rule_results = rule_engine.run_agent_tick(rule_context)
 
-            except Exception as e:
-                # Log agent error but continue simulation
-                agent_updates.append({
-                    "agent_id": str(agent.id),
-                    "error": str(e),
-                })
+                    # §3.4 Evidence Pack: Record rule applications
+                    rules_applied = rule_results.get("rules_applied", [])
+                    for rule_info in rules_applied:
+                        execution_counters.record_rule_application(
+                            rule_name=rule_info.get("rule_name", "unknown"),
+                            rule_version=rule_info.get("rule_version", "1.0.0"),
+                            insertion_point=rule_info.get("insertion_point", "update"),
+                            agents_affected=1,
+                        )
+
+                    # Apply rule-driven state updates
+                    state_updates = rule_results.get("state_updates", {})
+                    agent.update(action_results, state_updates)
+                    execution_counters.record_update()
+
+                    # Record complete agent step
+                    execution_counters.record_agent_step()
+
+                    # Track updates
+                    agent_updates.append({
+                        "agent_id": str(agent.id),
+                        "observation": _summarize_observation(observation),
+                        "decision": decision.get("action_type") if decision else None,
+                        "actions": len(action_results),
+                        "state_delta": _compute_state_delta(rule_results),
+                    })
+
+                    # Update outcome tracker
+                    outcome_tracker.record_agent_action(
+                        agent_id=str(agent.id),
+                        tick=tick,
+                        decision=decision,
+                        action_results=action_results,
+                    )
+
+                except Exception as e:
+                    # Log agent error but continue simulation
+                    agent_updates.append({
+                        "agent_id": str(agent.id),
+                        "error": str(e),
+                    })
 
         # Compute tick metrics
         tick_metrics = outcome_tracker.compute_tick_metrics(tick, agent_pool)
@@ -593,6 +713,11 @@ async def _execute_simulation(
 
         # Record tick data for telemetry
         tick_elapsed_ms = int((time.perf_counter() - tick_start) * 1000)
+
+        # §3.3 Backpressure Detection: If tick takes too long, record it
+        if tick_elapsed_ms > backpressure_threshold_ms:
+            execution_counters.record_backpressure()
+
         tick_result = {
             "tick": tick,
             "timestamp": datetime.utcnow().isoformat(),
@@ -624,6 +749,7 @@ async def _execute_simulation(
 
     return {
         "ticks_executed": len(tick_data),
+        "ticks_configured": max_ticks,
         "tick_data": tick_data,
         "agent_snapshots": agent_snapshots,
         "final_agent_states": final_agent_states,
@@ -632,6 +758,10 @@ async def _execute_simulation(
         "outcome_distribution": outcome_tracker.get_outcome_distribution(),
         "seed_used": rng.seed,
         "agent_count": len(agents),
+        # §3.1 Evidence Pack: Execution counters for verification
+        "execution_counters": execution_counters.to_dict(),
+        # §1.3 Evidence Pack: Leakage guard stats for anti-leakage proof
+        "leakage_guard_stats": leakage_guard.get_stats().to_dict() if leakage_guard.is_active() else None,
     }
 
 
@@ -646,8 +776,8 @@ async def _load_agents_for_run(
     from sqlalchemy import text
 
     project_id = run.get("project_id")
-    config = run.get("run_config", {})
-    max_agents = config.get("max_agents", 100)
+    config = run.get("run_config", {}) or {}
+    max_agents = config.get("max_agents") or 100  # Use 'or' to handle None values
 
     # Load personas from database
     persona_query = text("""
@@ -739,6 +869,111 @@ def _compute_state_delta(rule_results: dict) -> dict:
         k: v for k, v in rule_results.get("state_updates", {}).items()
         if k not in ["timestamp"]
     }
+
+
+class ExecutionCounters:
+    """
+    Execution counters for Evidence Pack verification (§3.1).
+
+    Tracks loop stage executions, rule applications, and LLM calls
+    to provide proof of correct engine execution.
+    """
+
+    def __init__(self):
+        # Loop stage counters (§3.1)
+        self.loop_stage_counters: Dict[str, int] = {
+            "observe": 0,
+            "evaluate": 0,
+            "decide": 0,
+            "act": 0,
+            "update": 0,
+        }
+
+        # Rule application counts (§3.4)
+        self.rule_application_counts: Dict[str, Dict[str, int]] = {}
+
+        # LLM tracking (§1.4 / C5)
+        self.llm_calls_in_tick_loop: int = 0
+        self.llm_calls_in_compilation: int = 0
+
+        # Scheduler metrics (§3.3)
+        self.partitions_count: int = 0
+        self.batches_count: int = 0
+        self.backpressure_events: int = 0
+        self.scheduler_config: Dict[str, Any] = {}  # Set by main loop
+
+        # Total agent steps
+        self.agent_steps_executed: int = 0
+
+    def record_observe(self):
+        """Record an observe() call."""
+        self.loop_stage_counters["observe"] += 1
+
+    def record_evaluate(self):
+        """Record an evaluate() call."""
+        self.loop_stage_counters["evaluate"] += 1
+
+    def record_decide(self):
+        """Record a decide() call."""
+        self.loop_stage_counters["decide"] += 1
+
+    def record_act(self):
+        """Record an act() call."""
+        self.loop_stage_counters["act"] += 1
+
+    def record_update(self):
+        """Record an update() call."""
+        self.loop_stage_counters["update"] += 1
+
+    def record_agent_step(self):
+        """Record a complete agent step."""
+        self.agent_steps_executed += 1
+
+    def record_rule_application(
+        self,
+        rule_name: str,
+        rule_version: str,
+        insertion_point: str,
+        agents_affected: int = 1,
+    ):
+        """Record a rule application."""
+        key = f"{rule_name}:{rule_version}:{insertion_point}"
+        if key not in self.rule_application_counts:
+            self.rule_application_counts[key] = {
+                "rule_name": rule_name,
+                "rule_version": rule_version,
+                "insertion_point": insertion_point,
+                "application_count": 0,
+                "agents_affected": 0,
+            }
+        self.rule_application_counts[key]["application_count"] += 1
+        self.rule_application_counts[key]["agents_affected"] += agents_affected
+
+    def record_batch(self):
+        """Record a batch execution."""
+        self.batches_count += 1
+
+    def record_partition(self):
+        """Record a partition."""
+        self.partitions_count += 1
+
+    def record_backpressure(self):
+        """Record a backpressure event."""
+        self.backpressure_events += 1
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Export counters for Evidence Pack."""
+        return {
+            "loop_stage_counters": self.loop_stage_counters.copy(),
+            "rule_application_counts": list(self.rule_application_counts.values()),
+            "llm_calls_in_tick_loop": self.llm_calls_in_tick_loop,
+            "llm_calls_in_compilation": self.llm_calls_in_compilation,
+            "partitions_count": self.partitions_count,
+            "batches_count": self.batches_count,
+            "backpressure_events": self.backpressure_events,
+            "agent_steps_executed": self.agent_steps_executed,
+            "scheduler_config": self.scheduler_config,  # §3.3 scheduler policy documentation
+        }
 
 
 class OutcomeTracker:

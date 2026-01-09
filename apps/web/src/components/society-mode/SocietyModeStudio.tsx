@@ -14,11 +14,9 @@ import {
   Play,
   Loader2,
   AlertCircle,
-  GitBranch,
   PlayCircle,
   Download,
   Save,
-  BarChart3,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -30,13 +28,7 @@ import {
   useRunConfigs,
   useProjectSpecStats,
 } from '@/hooks/useApi';
-import {
-  SpecRun,
-  SpecRunConfig,
-  SpecRunResults,
-  CreateRunConfigInput,
-  SchedulerProfile,
-} from '@/lib/api';
+import { SchedulerProfile } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { RunControlsPanel } from './RunControlsPanel';
 import { SocietyPopulationPanel } from './SocietyPopulationPanel';
@@ -111,22 +103,23 @@ export function SocietyModeStudio({ projectId }: SocietyModeStudioProps) {
   const handleRunSimulation = async () => {
     if (!rootNode) return;
 
-    const configOverrides: Partial<CreateRunConfigInput> = {
-      project_id: projectId,
-      horizon: runConfig.horizon,
-      tick_rate: runConfig.tick_rate,
-      scheduler_profile: runConfig.scheduler_profile as SchedulerProfile,
-      seed_config: {
-        strategy: 'single',
-        primary_seed: runConfig.seed ?? Math.floor(Math.random() * 1000000),
-      },
-    };
-
     try {
       const run = await createRun.mutateAsync({
+        project_id: projectId,
         node_id: rootNode.node_id,
-        config_overrides: configOverrides,
         label: `Society Mode Run - ${new Date().toISOString()}`,
+        config: {
+          run_mode: 'society',
+          max_ticks: runConfig.horizon,
+          agent_batch_size: runConfig.max_agents,
+          society_mode: {
+            rule_pack: runConfig.rule_pack,
+            tick_rate: runConfig.tick_rate,
+            scheduler_profile: runConfig.scheduler_profile,
+          },
+        },
+        seeds: [runConfig.seed ?? Math.floor(Math.random() * 1000000)],
+        auto_start: true,
       });
       setActiveRunId(run.run_id);
     } catch {

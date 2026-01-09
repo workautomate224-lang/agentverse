@@ -316,6 +316,7 @@ export function TargetModeStudio({ projectId }: TargetModeStudioProps) {
                 try {
                   const result = await createTargetPersona.mutateAsync({
                     name: newTargetName,
+                    project_id: projectId,
                     description: newTargetGoal,
                     domain: 'general',
                   });

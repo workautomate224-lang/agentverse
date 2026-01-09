@@ -29,7 +29,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.node import Node, Edge, Run, RunStatus, NodeCluster, TriggeredBy
+from app.models.node import Node, Edge, Run, RunStatus, NodeCluster, TriggeredBy, InterventionType
 from app.services.node_service import (
     NodeService,
     get_node_service,
@@ -37,6 +37,8 @@ from app.services.node_service import (
     ForkNodeInput,
     AggregatedOutcome,
     NodeConfidence,
+    EdgeIntervention,
+    EdgeExplanation,
 )
 from app.services.telemetry import (
     TelemetryService,
@@ -262,20 +264,24 @@ class SimulationOrchestrator:
         """
         from app.tasks.run_executor import execute_run
 
-        # Create job context
+        # Create job context with a default user_id
         context = create_job_context(
             tenant_id=tenant_id,
-            user_id=None,  # Could be passed in
+            user_id=tenant_id,  # Use tenant_id as fallback for user_id
             priority=priority,
         )
 
         # Submit to queue
-        task = execute_run.apply_async(
-            args=[str(run.id), context.to_dict()],
-            priority=priority.value,
-        )
-
-        return task.id
+        try:
+            task = execute_run.apply_async(
+                args=[str(run.id), context.to_dict()],
+                priority=priority.value,
+            )
+            return task.id
+        except Exception as e:
+            import logging
+            logging.error(f"Failed to submit task: {e}, type(execute_run)={type(execute_run)}, priority={priority}, priority.value={priority.value}")
+            raise
 
     async def create_and_start_run(
         self,
@@ -398,12 +404,44 @@ class SimulationOrchestrator:
 
         Enforces C1: Fork-not-mutate.
         """
+        # Get parent node to retrieve project_id
+        parent_node = await self.node_service.get_node(
+            uuid.UUID(parent_node_id),
+            uuid.UUID(tenant_id),
+        )
+        if not parent_node:
+            raise ValueError(f"Parent node {parent_node_id} not found")
+
+        # Build EdgeIntervention from dict
+        intervention_data = intervention or scenario_patch or {}
+        intervention_type_str = intervention_data.get("intervention_type", "variable_delta")
+        try:
+            intervention_type = InterventionType(intervention_type_str)
+        except ValueError:
+            # Default to VARIABLE_DELTA for manual interventions
+            intervention_type = InterventionType.VARIABLE_DELTA
+
+        edge_intervention = EdgeIntervention(
+            intervention_type=intervention_type,
+            variable_deltas=intervention_data.get("variable_deltas") or intervention_data.get("environment_overrides"),
+            nl_query=intervention_data.get("nl_query") or intervention_data.get("nl_description"),
+        )
+
+        # Build EdgeExplanation from string
+        edge_explanation = None
+        if explanation:
+            edge_explanation = EdgeExplanation(
+                short_label=explanation[:50] if len(explanation) > 50 else explanation,
+                explanation_text=explanation,
+            )
+
         input = ForkNodeInput(
             parent_node_id=uuid.UUID(parent_node_id),
+            project_id=parent_node.project_id,
             tenant_id=uuid.UUID(tenant_id),
-            scenario_patch=scenario_patch,
-            intervention=intervention,
-            explanation=explanation,
+            intervention=edge_intervention,
+            explanation=edge_explanation,
+            label=explanation,
         )
         return await self.node_service.fork_node(input)
 

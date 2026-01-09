@@ -126,6 +126,10 @@ class TenantAwareTask(Task):
     - Configurable retries
     - Timeout handling
     - Error reporting
+
+    Note: Use bind=True in the @shared_task decorator when using this base class
+    to get access to self. Do NOT set bind=True as a class attribute as it
+    shadows Celery's bind() method.
     """
 
     abstract = True
@@ -134,9 +138,6 @@ class TenantAwareTask(Task):
     autoretry_for = (Exception,)
     max_retries = 3
     default_retry_delay = 60
-
-    # Bind to get access to self
-    bind = True
 
     def before_start(self, task_id: str, args: tuple, kwargs: dict):
         """Called before task execution."""

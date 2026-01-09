@@ -126,34 +126,45 @@ export function TargetPersonaPanel({
             Utility Profile
           </div>
           <div className="space-y-2">
-            {selectedPersona.utility_function.weights.map((w) => (
+            {/* Handle both utility_function.weights (full) and utility_dimensions (simplified) */}
+            {selectedPersona.utility_function?.weights?.map((w) => (
               <UtilityBar
                 key={w.dimension}
                 dimension={w.dimension}
                 weight={w.weight}
               />
-            ))}
+            )) ?? selectedPersona.utility_dimensions?.map((dim: string) => (
+              <UtilityBar
+                key={dim}
+                dimension={dim as UtilityDimension}
+                weight={0.25}
+              />
+            )) ?? (
+              <div className="text-xs text-white/40">No utility profile defined</div>
+            )}
           </div>
-          <div className="grid grid-cols-3 gap-2 text-xs mt-3">
-            <div className="p-2 bg-white/5 border border-white/10">
-              <div className="text-white/40">Risk Aversion</div>
-              <div className="font-medium">
-                {Math.round(selectedPersona.utility_function.risk_aversion * 100)}%
+          {selectedPersona.utility_function && (
+            <div className="grid grid-cols-3 gap-2 text-xs mt-3">
+              <div className="p-2 bg-white/5 border border-white/10">
+                <div className="text-white/40">Risk Aversion</div>
+                <div className="font-medium">
+                  {Math.round((selectedPersona.utility_function.risk_aversion ?? 0.5) * 100)}%
+                </div>
+              </div>
+              <div className="p-2 bg-white/5 border border-white/10">
+                <div className="text-white/40">Time Pref</div>
+                <div className="font-medium">
+                  {Math.round((selectedPersona.utility_function.time_preference ?? 0.5) * 100)}%
+                </div>
+              </div>
+              <div className="p-2 bg-white/5 border border-white/10">
+                <div className="text-white/40">Loss Aversion</div>
+                <div className="font-medium">
+                  {(selectedPersona.utility_function.loss_aversion ?? 2.0).toFixed(1)}x
+                </div>
               </div>
             </div>
-            <div className="p-2 bg-white/5 border border-white/10">
-              <div className="text-white/40">Time Pref</div>
-              <div className="font-medium">
-                {Math.round(selectedPersona.utility_function.time_preference * 100)}%
-              </div>
-            </div>
-            <div className="p-2 bg-white/5 border border-white/10">
-              <div className="text-white/40">Loss Aversion</div>
-              <div className="font-medium">
-                {selectedPersona.utility_function.loss_aversion.toFixed(1)}x
-              </div>
-            </div>
-          </div>
+          )}
         </div>
       )}
     </div>

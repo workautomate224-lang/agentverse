@@ -92,6 +92,15 @@ class RunConfig(Base):
     )
     max_agents: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
+    # Anti-leakage gate (§1.3)
+    # For backtests: prevents access to data after cutoff_time
+    cutoff_time: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    leakage_guard: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+
     # Metadata
     label: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -131,6 +140,8 @@ class RunConfig(Base):
             "scenario_patch": self.scenario_patch,
             "max_execution_time_ms": self.max_execution_time_ms,
             "max_agents": self.max_agents,
+            "cutoff_time": self.cutoff_time.isoformat() if self.cutoff_time else None,
+            "leakage_guard": self.leakage_guard,
             "label": self.label,
             "description": self.description,
             "is_template": self.is_template,

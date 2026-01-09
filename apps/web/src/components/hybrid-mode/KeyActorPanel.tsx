@@ -67,10 +67,10 @@ export function KeyActorPanel({
       <div className="space-y-2">
         {personas.map((persona) => {
           const isSelected = selectedIds.includes(persona.target_id);
-          const topDimensions = persona.utility_function.weights
-            .sort((a, b) => b.weight - a.weight)
+          const topDimensions = persona.utility_function?.weights
+            ?.sort((a, b) => b.weight - a.weight)
             .slice(0, 2)
-            .map(w => w.dimension);
+            .map(w => w.dimension) ?? persona.utility_dimensions?.slice(0, 2) ?? [];
 
           return (
             <button

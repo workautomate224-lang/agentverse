@@ -52,6 +52,14 @@ class TenantAuditAction(str, Enum):
     NODE_EXPAND = "node_expand"
     NODE_ARCHIVE = "node_archive"
 
+    # Target Mode operations (§4.4 Audit Trail)
+    TARGET_PERSONA_CREATE = "target_persona_create"
+    TARGET_PLAN_RUN = "target_plan_run"
+    TARGET_PLAN_COMPLETE = "target_plan_complete"
+    TARGET_CLUSTER_EXPAND = "target_cluster_expand"
+    TARGET_BRANCH_TO_NODE = "target_branch_to_node"
+    TARGET_VALIDATION = "target_validation"  # §4.3 Validation logging
+
     # Auth operations
     LOGIN = "login"
     LOGOUT = "logout"
@@ -69,6 +77,15 @@ class TenantAuditAction(str, Enum):
     # Export/Import
     EXPORT = "export"
     IMPORT = "import"
+
+    # Telemetry & Replay operations (§6.1 - proving read-only access)
+    TELEMETRY_QUERY = "telemetry_query"          # Query telemetry data
+    TELEMETRY_SLICE = "telemetry_slice"          # Get telemetry slice
+    TELEMETRY_KEYFRAME = "telemetry_keyframe"    # Get keyframe at tick
+    TELEMETRY_EVENTS = "telemetry_events"        # Query events by type
+    REPLAY_LOAD = "replay_load"                  # Load replay session
+    REPLAY_SEEK = "replay_seek"                  # Seek to tick in replay
+    REPLAY_EXPORT = "replay_export"              # Export replay data
 
     # System
     SYSTEM_EVENT = "system_event"
@@ -91,6 +108,9 @@ class AuditResourceType(str, Enum):
     MEMBERSHIP = "membership"
     SETTINGS = "settings"
     SYSTEM = "system"
+    # Target Mode resources (§4.4)
+    TARGET_PERSONA = "target_persona"
+    TARGET_PLAN = "target_plan"
 
 
 class AuditActorType(str, Enum):

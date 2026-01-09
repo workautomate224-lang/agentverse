@@ -132,6 +132,7 @@ class TargetPersonaCompiler:
 
         target = TargetPersona(
             target_id=target_id,
+            project_id=create_data.project_id,
             persona_id=create_data.persona_id,
             name=create_data.name,
             description=create_data.description,
@@ -530,6 +531,10 @@ class PathPlanner:
         pruned_paths: List[Path] = []
         prune_counts: Dict[str, int] = {}
 
+        # §4.2 Search counters for Evidence Pack
+        explored_states: set = set()  # Unique state vectors explored
+        expanded_nodes: int = 0  # Total node expansions
+
         # Priority queue: (negative_utility, path)
         beam: List[Tuple[float, Path]] = []
 
@@ -563,6 +568,10 @@ class PathPlanner:
             else:
                 current_state = initial_state.copy()
 
+            # §4.2 Track explored states (hash of state vector)
+            state_hash = hash(frozenset(current_state.variables.items()))
+            explored_states.add(state_hash)
+
             # Check hard constraints
             is_valid, violation = self.constraint_checker.check_hard_constraints(current_state)
             if not is_valid:
@@ -586,6 +595,9 @@ class PathPlanner:
             for action in available_actions:
                 if expansions >= 5:  # Limit branching factor
                     break
+
+                # §4.2 Track node expansion
+                expanded_nodes += 1
 
                 # Apply action
                 new_path, new_state = self._apply_action(current_path, action, current_state)
@@ -662,6 +674,9 @@ class PathPlanner:
             soft_constraints_applied=[c.name for c in self.constraint_checker._soft_constraints],
             paths_pruned_by_constraint=prune_counts,
             planning_time_ms=planning_time,
+            # §4.2 Search counters for Evidence Pack
+            explored_states_count=len(explored_states),
+            expanded_nodes_count=expanded_nodes,
             completed_at=datetime.utcnow(),
         )
 
@@ -1116,6 +1131,13 @@ class TargetModeService:
     def get_target(self, target_id: str) -> Optional[TargetPersona]:
         """Get a target persona."""
         return self._targets.get(target_id)
+
+    def list_targets(self, project_id: str) -> List[TargetPersona]:
+        """List all target personas for a project."""
+        return [
+            target for target in self._targets.values()
+            if target.project_id == project_id
+        ]
 
     def run_planner(self, request: TargetPlanRequest) -> PlanResult:
         """Run the path planner for a target."""

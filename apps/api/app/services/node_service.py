@@ -442,14 +442,22 @@ class NodeService:
         project_id: uuid.UUID,
         tenant_id: uuid.UUID,
     ) -> Optional[Node]:
-        """Get the root (baseline) node for a project."""
+        """Get the root (baseline) node for a project.
+
+        If multiple baseline nodes exist (e.g., from testing), returns the
+        most recently explored one, or the earliest created if none explored.
+        """
         query = select(Node).where(
             and_(
                 Node.project_id == project_id,
                 Node.tenant_id == tenant_id,
                 Node.is_baseline == True,
             )
-        )
+        ).order_by(
+            # Prefer explored nodes first, then most recently created
+            Node.is_explored.desc(),
+            Node.created_at.desc(),
+        ).limit(1)
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
 
@@ -1011,6 +1019,233 @@ class NodeService:
             comparison["nodes"].append(node_data)
 
         return comparison
+
+    # -------------------------------------------------------------------------
+    # Probability Normalization & Verification (§2.4)
+    # -------------------------------------------------------------------------
+
+    async def normalize_sibling_probabilities(
+        self,
+        parent_node_id: uuid.UUID,
+        tolerance: float = 0.001,
+    ) -> Dict[str, Any]:
+        """
+        Normalize child node probabilities to sum to parent's probability.
+        Reference: verification_checklist_v2.md §2.4 (Conditional Probability Correctness)
+
+        When a parent node is forked into multiple children, this ensures:
+        P(child_1 | parent) + P(child_2 | parent) + ... = P(parent)
+
+        Returns normalization report with before/after state.
+        """
+        parent = await self.get_node(parent_node_id)
+        if not parent:
+            raise ValueError(f"Parent node {parent_node_id} not found")
+
+        # Get all children
+        children = await self.get_child_nodes(parent.id)
+        if not children:
+            return {
+                "status": "no_children",
+                "parent_probability": parent.probability,
+                "children_count": 0,
+            }
+
+        # Calculate current sum
+        current_sum = sum(c.probability for c in children)
+
+        # Check if normalization needed
+        if abs(current_sum - parent.probability) <= tolerance:
+            return {
+                "status": "already_normalized",
+                "parent_probability": parent.probability,
+                "children_sum": current_sum,
+                "children_count": len(children),
+            }
+
+        # Normalize each child
+        before_state = []
+        after_state = []
+
+        for child in children:
+            before_state.append({
+                "node_id": str(child.id),
+                "probability": child.probability,
+            })
+
+            # Proportional normalization
+            if current_sum > 0:
+                normalized_prob = (child.probability / current_sum) * parent.probability
+            else:
+                # Equal distribution if all zeros
+                normalized_prob = parent.probability / len(children)
+
+            child.probability = normalized_prob
+            child.cumulative_probability = parent.cumulative_probability * normalized_prob
+
+            after_state.append({
+                "node_id": str(child.id),
+                "probability": normalized_prob,
+                "cumulative_probability": child.cumulative_probability,
+            })
+
+        await self.db.flush()
+
+        return {
+            "status": "normalized",
+            "parent_probability": parent.probability,
+            "before_sum": current_sum,
+            "after_sum": sum(c["probability"] for c in after_state),
+            "children_count": len(children),
+            "before": before_state,
+            "after": after_state,
+        }
+
+    async def verify_probability_consistency(
+        self,
+        project_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        tolerance: float = 0.001,
+    ) -> Dict[str, Any]:
+        """
+        Verify probability consistency across all nodes in a project.
+        Reference: verification_checklist_v2.md §2.4 (Conditional Probability Correctness)
+
+        Checks:
+        1. Root node probability is 1.0
+        2. Children probabilities sum to parent probability (within tolerance)
+        3. Cumulative probabilities are correctly computed
+
+        Returns verification report.
+        """
+        all_nodes = await self.get_nodes_by_project(project_id, tenant_id)
+
+        issues = []
+        stats = {
+            "total_nodes": len(all_nodes),
+            "verified_ok": 0,
+            "issues_found": 0,
+        }
+
+        # Build parent -> children mapping
+        nodes_by_id = {n.id: n for n in all_nodes}
+        children_by_parent = {}
+        root_nodes = []
+
+        for node in all_nodes:
+            if node.parent_node_id:
+                if node.parent_node_id not in children_by_parent:
+                    children_by_parent[node.parent_node_id] = []
+                children_by_parent[node.parent_node_id].append(node)
+            else:
+                root_nodes.append(node)
+
+        # Check 1: Root node probability should be 1.0
+        for root in root_nodes:
+            if abs(root.probability - 1.0) > tolerance:
+                issues.append({
+                    "type": "root_probability_not_one",
+                    "node_id": str(root.id),
+                    "expected": 1.0,
+                    "actual": root.probability,
+                })
+            else:
+                stats["verified_ok"] += 1
+
+        # Check 2: Children sum to parent probability
+        for parent_id, children in children_by_parent.items():
+            parent = nodes_by_id.get(parent_id)
+            if not parent:
+                continue
+
+            children_sum = sum(c.probability for c in children)
+            if abs(children_sum - parent.probability) > tolerance:
+                issues.append({
+                    "type": "children_sum_mismatch",
+                    "parent_node_id": str(parent_id),
+                    "parent_probability": parent.probability,
+                    "children_sum": children_sum,
+                    "difference": abs(children_sum - parent.probability),
+                    "children_count": len(children),
+                })
+            else:
+                stats["verified_ok"] += 1
+
+        # Check 3: Cumulative probability correctness
+        for node in all_nodes:
+            if node.parent_node_id:
+                parent = nodes_by_id.get(node.parent_node_id)
+                if parent:
+                    expected_cumulative = parent.cumulative_probability * node.probability
+                    if abs(node.cumulative_probability - expected_cumulative) > tolerance:
+                        issues.append({
+                            "type": "cumulative_probability_mismatch",
+                            "node_id": str(node.id),
+                            "expected": expected_cumulative,
+                            "actual": node.cumulative_probability,
+                        })
+            else:
+                # Root node: cumulative should equal probability
+                if abs(node.cumulative_probability - node.probability) > tolerance:
+                    issues.append({
+                        "type": "root_cumulative_mismatch",
+                        "node_id": str(node.id),
+                        "expected": node.probability,
+                        "actual": node.cumulative_probability,
+                    })
+
+        stats["issues_found"] = len(issues)
+        is_consistent = len(issues) == 0
+
+        return {
+            "is_consistent": is_consistent,
+            "tolerance": tolerance,
+            "stats": stats,
+            "issues": issues if issues else None,
+        }
+
+    async def get_sibling_probability_report(
+        self,
+        parent_node_id: uuid.UUID,
+    ) -> Dict[str, Any]:
+        """
+        Get probability report for siblings under a parent node.
+        Reference: verification_checklist_v2.md §2.4
+
+        Returns:
+            Dict with parent probability, children probabilities, and sum validation.
+        """
+        parent = await self.get_node(parent_node_id)
+        if not parent:
+            raise ValueError(f"Parent node {parent_node_id} not found")
+
+        children = await self.get_child_nodes(parent.id)
+
+        children_data = [
+            {
+                "node_id": str(c.id),
+                "label": c.label,
+                "probability": c.probability,
+                "cumulative_probability": c.cumulative_probability,
+                "is_explored": c.is_explored,
+            }
+            for c in children
+        ]
+
+        children_sum = sum(c.probability for c in children)
+        is_normalized = abs(children_sum - parent.probability) <= 0.001
+
+        return {
+            "parent": {
+                "node_id": str(parent.id),
+                "probability": parent.probability,
+            },
+            "children": children_data,
+            "children_count": len(children),
+            "children_sum": children_sum,
+            "is_normalized": is_normalized,
+            "difference": abs(children_sum - parent.probability),
+        }
 
 
 # =============================================================================

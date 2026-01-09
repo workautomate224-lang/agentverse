@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import type { SubmitRunInput, CreateRunConfigInput, SeedStrategy } from '@/lib/api';
+import type { SubmitRunInput, SeedStrategy } from '@/lib/api';
 
 // Form-specific input type (maps to SubmitRunInput + config_overrides)
 export interface RunFormInput {
@@ -116,34 +116,22 @@ export const RunCreateForm = memo(function RunCreateForm({
 
       if (!validate() || !nodeId) return;
 
-      // Build config overrides matching CreateRunConfigInput
-      const configOverrides: Partial<CreateRunConfigInput> = {
-        project_id: projectId,
-        seed_config: {
-          strategy: seedStrategy,
-          primary_seed: seed ?? Math.floor(Math.random() * 1000000000),
-          additional_seeds: seedStrategy === 'multi' ? [] : undefined,
-        },
-        horizon,
-        tick_rate: tickRate,
-        logging_profile: {
-          keyframe_interval_ticks: loggingLevel === 'detailed' || loggingLevel === 'debug' ? 1 : 10,
-          include_full_world_state: loggingLevel === 'debug',
-          include_agent_states: loggingLevel === 'detailed' || loggingLevel === 'debug',
-          include_aggregated_only: loggingLevel === 'minimal',
-          delta_sampling_rate: loggingLevel === 'minimal' ? 0 : 1,
-          track_key_agents: loggingLevel !== 'minimal',
-          aggregate_by_region: true,
-          aggregate_by_segment: true,
-        },
-        label: label || undefined,
-      };
-
-      // Build SubmitRunInput
+      // Build SubmitRunInput matching backend CreateRunRequest
       const input: SubmitRunInput = {
+        project_id: projectId,
         node_id: nodeId,
-        config_overrides: configOverrides,
         label: label || undefined,
+        config: {
+          run_mode: 'society',
+          max_ticks: horizon,
+          agent_batch_size: 100,
+          society_mode: {
+            tick_rate: tickRate,
+            logging_level: loggingLevel,
+          },
+        },
+        seeds: [seed ?? Math.floor(Math.random() * 1000000000)],
+        auto_start: autoStart,
       };
 
       onSubmit(input);
@@ -153,10 +141,10 @@ export const RunCreateForm = memo(function RunCreateForm({
       nodeId,
       label,
       seed,
-      seedStrategy,
       horizon,
       tickRate,
       loggingLevel,
+      autoStart,
       validate,
       onSubmit,
     ]

@@ -349,12 +349,15 @@ class AIResearchService:
         )
 
         # Call LLM via LLMRouter with DEEP_SEARCH profile
+        # Phase="compilation" for C5 compliance tracking (§1.4)
+        context = LLMRouterContext(phase="compilation")
         response = await self.llm_router.complete(
             profile_key="DEEP_SEARCH",
             messages=[
                 {"role": "system", "content": "You are an expert market researcher. Always respond with valid JSON only."},
                 {"role": "user", "content": prompt}
             ],
+            context=context,
             max_tokens_override=2000,
             temperature_override=0.7,
         )
@@ -394,12 +397,15 @@ class AIResearchService:
         )
 
         # Call LLM via LLMRouter with DEEP_SEARCH profile
+        # Phase="compilation" for C5 compliance tracking (§1.4)
+        context = LLMRouterContext(phase="compilation")
         response = await self.llm_router.complete(
             profile_key="DEEP_SEARCH",
             messages=[
                 {"role": "system", "content": "You are a demographic data analyst. Respond with valid JSON only."},
                 {"role": "user", "content": prompt}
             ],
+            context=context,
             max_tokens_override=1000,
             temperature_override=0.5,
         )
@@ -510,12 +516,15 @@ class AIResearchService:
             )
 
             # Call LLM via LLMRouter with PERSONA_ENRICHMENT profile
+            # Phase="compilation" for C5 compliance tracking (§1.4)
+            context = LLMRouterContext(phase="compilation")
             response = await self.llm_router.complete(
                 profile_key="PERSONA_ENRICHMENT",
                 messages=[
                     {"role": "system", "content": "Generate persona topic knowledge. Respond with valid JSON only."},
                     {"role": "user", "content": prompt}
                 ],
+                context=context,
                 max_tokens_override=500,
                 temperature_override=0.8,
             )

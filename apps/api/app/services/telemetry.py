@@ -622,6 +622,156 @@ class TelemetryService:
         """
         return await self.storage.get_signed_download_url(storage_ref, expires_in)
 
+    # ================================================================
+    # INTEGRITY OPERATIONS (§6.2 Telemetry Sufficiency & Integrity)
+    # ================================================================
+
+    def compute_telemetry_hash(self, blob: TelemetryBlob) -> str:
+        """
+        Compute SHA256 hash of telemetry data for integrity verification.
+        §6.2: telemetry_hash must be stable across queries.
+
+        Hash is computed from:
+        - run_id
+        - ticks_executed
+        - seed_used
+        - agent_count
+        - sorted keyframe ticks
+        - sorted delta metrics
+        - final_states hash
+
+        This ensures deterministic hash without including timestamps.
+        """
+        import hashlib
+        import json
+
+        # Build canonical representation (excluding timestamps for stability)
+        canonical = {
+            "run_id": blob.run_id,
+            "schema_version": blob.schema_version,
+            "ticks_executed": blob.ticks_executed,
+            "seed_used": blob.seed_used,
+            "agent_count": blob.agent_count,
+            "keyframe_ticks": sorted(k.tick for k in blob.keyframes),
+            "delta_count": len(blob.deltas),
+            "final_states_keys": sorted(blob.final_states.keys()),
+            "metrics_summary_keys": sorted(blob.metrics_summary.keys()) if blob.metrics_summary else [],
+        }
+
+        # Add aggregated metrics from deltas for verification
+        total_events = sum(len(d.events_triggered) for d in blob.deltas)
+        total_updates = sum(len(d.agent_updates) for d in blob.deltas)
+        canonical["total_events_triggered"] = total_events
+        canonical["total_agent_updates"] = total_updates
+
+        # Compute hash
+        canonical_json = json.dumps(canonical, sort_keys=True)
+        return hashlib.sha256(canonical_json.encode()).hexdigest()
+
+    def check_replay_integrity(
+        self,
+        blob: TelemetryBlob,
+        expected_ticks: int,
+    ) -> Tuple[str, bool, List[str]]:
+        """
+        Check telemetry integrity and completeness for replay.
+        §6.2: replay_degraded flag if telemetry is incomplete.
+
+        Args:
+            blob: The telemetry blob to check
+            expected_ticks: Expected number of ticks from RunConfig
+
+        Returns:
+            Tuple of (telemetry_hash, replay_degraded, issues)
+        """
+        issues = []
+        replay_degraded = False
+
+        # Check tick count matches expected
+        if blob.ticks_executed < expected_ticks:
+            issues.append(f"Incomplete: executed {blob.ticks_executed}/{expected_ticks} ticks")
+            replay_degraded = True
+
+        # Check keyframes exist for seeking
+        if not blob.keyframes:
+            issues.append("No keyframes available for seeking")
+            replay_degraded = True
+        else:
+            # Check keyframe coverage (should have at least start and near-end)
+            keyframe_ticks = [k.tick for k in blob.keyframes]
+            if 0 not in keyframe_ticks and min(keyframe_ticks) > 10:
+                issues.append("Missing early keyframe for replay start")
+                replay_degraded = True
+
+        # Check deltas exist
+        if not blob.deltas:
+            issues.append("No deltas available for replay")
+            replay_degraded = True
+
+        # Check delta continuity (no gaps)
+        delta_ticks = sorted(d.tick for d in blob.deltas)
+        if delta_ticks:
+            expected_sequence = list(range(delta_ticks[0], delta_ticks[-1] + 1))
+            if delta_ticks != expected_sequence:
+                missing = set(expected_sequence) - set(delta_ticks)
+                if len(missing) > 5:
+                    issues.append(f"Delta gaps detected: {len(missing)} missing ticks")
+                    replay_degraded = True
+
+        # Check final states exist
+        if not blob.final_states:
+            issues.append("No final states recorded")
+            # Not critical for replay, just noting
+
+        # Compute hash
+        telemetry_hash = self.compute_telemetry_hash(blob)
+
+        return telemetry_hash, replay_degraded, issues
+
+    async def get_telemetry_proof(
+        self,
+        storage_ref: StorageRef,
+        expected_ticks: int,
+    ) -> "TelemetryProofData":
+        """
+        Generate telemetry proof data for Evidence Pack.
+        §6.2: Telemetry Sufficiency & Integrity proof.
+
+        Returns:
+            TelemetryProofData with hash, integrity status, and metrics
+        """
+        blob = await self.get_telemetry(storage_ref)
+        telemetry_hash, replay_degraded, issues = self.check_replay_integrity(
+            blob, expected_ticks
+        )
+
+        return TelemetryProofData(
+            telemetry_ref=storage_ref.to_dict(),
+            keyframe_count=len(blob.keyframes),
+            delta_count=len(blob.deltas),
+            total_events=sum(len(d.events_triggered) for d in blob.deltas),
+            telemetry_hash=telemetry_hash,
+            is_complete=not replay_degraded,
+            replay_degraded=replay_degraded,
+            integrity_issues=issues,
+        )
+
+
+@dataclass
+class TelemetryProofData:
+    """
+    §6.2 Telemetry proof data for Evidence Pack.
+    Proves telemetry integrity and replay capability.
+    """
+    telemetry_ref: Dict[str, Any]
+    keyframe_count: int
+    delta_count: int
+    total_events: int
+    telemetry_hash: str
+    is_complete: bool
+    replay_degraded: bool
+    integrity_issues: List[str] = field(default_factory=list)
+
 
 # Singleton instance
 _telemetry_service: Optional[TelemetryService] = None

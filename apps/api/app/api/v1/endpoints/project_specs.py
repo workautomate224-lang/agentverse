@@ -18,11 +18,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, get_db
-from app.middleware.tenant import (
-    TenantContext,
-    require_tenant,
-)
+from app.api.deps import get_current_user, get_db, require_tenant, TenantContext
 from app.models.user import User
 
 
@@ -156,33 +152,36 @@ async def list_project_specs(
     # Query project_specs table
     from sqlalchemy import text
 
-    # Query using spec-compliant schema columns (migration 0002)
-    # Map: id->project_id, title->name, domain_template->domain
-    query = text("""
+    # Build dynamic query to avoid parameter type issues with NULL values
+    # PostgreSQL asyncpg can't infer types for NULL parameters
+    where_clauses = ["tenant_id = :tenant_id"]
+    params = {
+        "tenant_id": str(tenant_ctx.tenant_id),
+        "skip": skip,
+        "limit": limit,
+    }
+
+    if domain:
+        where_clauses.append("domain_template = :domain")
+        params["domain"] = domain
+
+    if search:
+        where_clauses.append("title ILIKE :search_pattern")
+        params["search_pattern"] = f"%{search}%"
+
+    query = text(f"""
         SELECT
             id, tenant_id, title, goal_nl, description, domain_template,
             prediction_core, default_horizon, default_output_metrics,
             privacy_level, policy_flags, has_baseline,
             created_at, updated_at
         FROM project_specs
-        WHERE tenant_id = :tenant_id
-        AND (:domain IS NULL OR domain_template = :domain)
-        AND (:search IS NULL OR title ILIKE :search_pattern)
+        WHERE {" AND ".join(where_clauses)}
         ORDER BY updated_at DESC
         OFFSET :skip LIMIT :limit
     """)
 
-    result = await db.execute(
-        query,
-        {
-            "tenant_id": tenant_ctx.tenant_id,
-            "domain": domain,
-            "search": search,
-            "search_pattern": f"%{search}%" if search else None,
-            "skip": skip,
-            "limit": limit,
-        },
-    )
+    result = await db.execute(query, params)
 
     rows = result.fetchall()
 
@@ -292,8 +291,8 @@ async def create_project_spec(
     await db.commit()
 
     return ProjectSpecResponse(
-        id=project_id,
-        tenant_id=tenant_ctx.tenant_id,
+        id=str(project_id),
+        tenant_id=str(tenant_ctx.tenant_id),
         name=request.name,
         description=request.description,
         domain=request.domain,

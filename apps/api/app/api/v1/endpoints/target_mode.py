@@ -22,12 +22,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, get_db
-from app.middleware.tenant import (
-    TenantContext,
-    require_tenant,
-)
+from app.api.deps import get_current_user, get_db, require_tenant, TenantContext
 from app.models.user import User
+from app.services.audit import (
+    get_tenant_audit_logger,
+    TenantAuditAction,
+    AuditResourceType,
+    AuditActor,
+    AuditActorType,
+)
 from app.schemas.target_mode import (
     TargetPersona,
     TargetPersonaCreate,
@@ -51,6 +54,7 @@ from app.schemas.target_mode import (
 class TargetPersonaResponse(BaseModel):
     """Response for target persona operations."""
     target_id: str
+    project_id: Optional[str]
     persona_id: Optional[str]
     name: str
     description: Optional[str]
@@ -159,8 +163,29 @@ async def create_target_persona(
     try:
         target = service.create_target(request)
 
+        # §4.4 Audit logging for target persona creation
+        audit_logger = get_tenant_audit_logger()
+        await audit_logger.log(
+            tenant_id=str(tenant_ctx.tenant_id) if tenant_ctx.tenant_id else None,
+            action=TenantAuditAction.TARGET_PERSONA_CREATE,
+            resource_type=AuditResourceType.TARGET_PERSONA,
+            resource_id=target.target_id,
+            actor=AuditActor(
+                type=AuditActorType.USER,
+                id=str(current_user.id),
+                name=current_user.email,
+            ),
+            details={
+                "project_id": target.project_id,
+                "name": target.name,
+                "planning_horizon": target.planning_horizon,
+                "utility_dimensions": [w.dimension.value for w in target.utility_function.weights],
+            },
+        )
+
         return TargetPersonaResponse(
             target_id=target.target_id,
+            project_id=target.project_id,
             persona_id=target.persona_id,
             name=target.name,
             description=target.description,
@@ -179,6 +204,44 @@ async def create_target_persona(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create target persona: {str(e)}",
         )
+
+
+@router.get(
+    "/personas",
+    response_model=List[TargetPersonaResponse],
+    summary="List target personas",
+)
+async def list_target_personas(
+    project_id: str = Query(..., description="Project ID to filter by"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_ctx: TenantContext = Depends(require_tenant),
+) -> List[TargetPersonaResponse]:
+    """List all target personas for a project."""
+    from app.services.target_mode import get_target_mode_service
+
+    service = get_target_mode_service()
+    targets = service.list_targets(project_id)
+
+    return [
+        TargetPersonaResponse(
+            target_id=target.target_id,
+            project_id=target.project_id,
+            persona_id=target.persona_id,
+            name=target.name,
+            description=target.description,
+            domain=target.domain,
+            planning_horizon=target.planning_horizon,
+            discount_factor=target.discount_factor,
+            exploration_rate=target.exploration_rate,
+            utility_dimensions=[w.dimension.value for w in target.utility_function.weights],
+            action_count=len(target.custom_actions) if target.custom_actions else 0,
+            constraint_count=len(target.personal_constraints) if target.personal_constraints else 0,
+            created_at=target.created_at.isoformat(),
+            updated_at=target.updated_at.isoformat(),
+        )
+        for target in targets
+    ]
 
 
 @router.get(
@@ -206,6 +269,7 @@ async def get_target_persona(
 
     return TargetPersonaResponse(
         target_id=target.target_id,
+        project_id=target.project_id,
         persona_id=target.persona_id,
         name=target.name,
         description=target.description,
@@ -251,6 +315,35 @@ async def run_planner(
         top_utility = None
         if result.top_paths:
             top_utility = result.top_paths[0].total_utility
+
+        # §4.4 Audit logging for plan completion with §4.2 search counters
+        audit_logger = get_tenant_audit_logger()
+        await audit_logger.log(
+            tenant_id=str(tenant_ctx.tenant_id) if tenant_ctx.tenant_id else None,
+            action=TenantAuditAction.TARGET_PLAN_COMPLETE,
+            resource_type=AuditResourceType.TARGET_PLAN,
+            resource_id=result.plan_id,
+            actor=AuditActor(
+                type=AuditActorType.USER,
+                id=str(current_user.id),
+                name=current_user.email,
+            ),
+            details={
+                "target_id": result.target_id,
+                "project_id": result.project_id,
+                "status": result.status.value,
+                "total_paths_generated": result.total_paths_generated,
+                "total_paths_valid": result.total_paths_valid,
+                "total_paths_pruned": result.total_paths_pruned,
+                "cluster_count": len(result.clusters),
+                "planning_time_ms": result.planning_time_ms,
+                # §4.2 Search counters for Evidence Pack
+                "explored_states_count": result.explored_states_count,
+                "expanded_nodes_count": result.expanded_nodes_count,
+                "hard_constraints_applied": result.hard_constraints_applied,
+                "soft_constraints_applied": result.soft_constraints_applied,
+            },
+        )
 
         return PlanResultResponse(
             plan_id=result.plan_id,

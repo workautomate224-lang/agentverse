@@ -232,6 +232,9 @@ async def create_run(
             detail=str(e),
         )
     except Exception as e:
+        import traceback
+        import logging
+        logging.error(f"Failed to create run: {str(e)}\n{traceback.format_exc()}")
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -387,10 +390,10 @@ async def start_run(
             detail=f"Run {run_id} not found",
         )
 
-    if run.status != "pending":
+    if run.status not in ("pending", "queued"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Run must be pending to start. Current status: {run.status}",
+            detail=f"Run must be pending or queued to start. Current status: {run.status}",
         )
 
     try:
@@ -507,7 +510,8 @@ async def get_run_progress(
 
     orchestrator = get_simulation_orchestrator(db)
 
-    progress = await orchestrator.get_progress(run_id, tenant_ctx.tenant_id)
+    # Get both progress and run data for full response
+    progress = await orchestrator.get_run_progress(run_id, tenant_ctx.tenant_id)
 
     if not progress:
         raise HTTPException(
@@ -515,16 +519,41 @@ async def get_run_progress(
             detail=f"Run {run_id} not found",
         )
 
+    # Get full run data to access config for max_ticks
+    run = await orchestrator.get_run(run_id, tenant_ctx.tenant_id)
+
+    # Extract max_ticks from run config or default to 100
+    max_ticks = 100
+    if run and run.outputs:
+        config = run.outputs.get("config", {})
+        max_ticks = config.get("max_ticks", 100)
+
+    # Calculate current tick and progress
+    current_tick = progress.ticks_executed or 0
+    progress_percent = min((current_tick / max_ticks) * 100, 100.0) if max_ticks > 0 else 0.0
+
+    # Determine phase based on status
+    current_phase = "initializing"
+    if progress.status == "running":
+        current_phase = "simulating"
+    elif progress.status == "succeeded":
+        current_phase = "completed"
+        progress_percent = 100.0
+    elif progress.status == "failed":
+        current_phase = "failed"
+    elif progress.status == "cancelled":
+        current_phase = "cancelled"
+
     return RunProgressResponse(
         run_id=progress.run_id,
         status=progress.status,
-        progress_percent=progress.progress_percent,
-        current_tick=progress.current_tick,
-        max_ticks=progress.max_ticks,
-        agents_completed=progress.agents_completed,
-        agents_total=progress.agents_total,
-        eta_seconds=progress.eta_seconds,
-        current_phase=progress.current_phase,
+        progress_percent=progress_percent,
+        current_tick=current_tick,
+        max_ticks=max_ticks,
+        agents_completed=0,  # Will be populated from actual simulation when running
+        agents_total=0,
+        eta_seconds=None,
+        current_phase=current_phase,
     )
 
 
@@ -562,27 +591,50 @@ async def stream_run_progress(
         import asyncio
         import json
 
+        # Get initial run data for max_ticks
+        initial_run = await orchestrator.get_run(run_id, tenant_ctx.tenant_id)
+        max_ticks = 100
+        if initial_run and initial_run.outputs:
+            config = initial_run.outputs.get("config", {})
+            max_ticks = config.get("max_ticks", 100)
+
         while True:
-            progress = await orchestrator.get_progress(run_id, tenant_ctx.tenant_id)
+            progress = await orchestrator.get_run_progress(run_id, tenant_ctx.tenant_id)
 
             if not progress:
                 yield f"event: error\ndata: {json.dumps({'error': 'Run not found'})}\n\n"
                 break
 
+            # Calculate derived values
+            current_tick = progress.ticks_executed or 0
+            progress_percent = min((current_tick / max_ticks) * 100, 100.0) if max_ticks > 0 else 0.0
+
+            # Determine phase
+            current_phase = "initializing"
+            if progress.status == "running":
+                current_phase = "simulating"
+            elif progress.status == "succeeded":
+                current_phase = "completed"
+                progress_percent = 100.0
+            elif progress.status == "failed":
+                current_phase = "failed"
+            elif progress.status == "cancelled":
+                current_phase = "cancelled"
+
             progress_data = {
                 "run_id": progress.run_id,
                 "status": progress.status,
-                "progress_percent": progress.progress_percent,
-                "current_tick": progress.current_tick,
-                "max_ticks": progress.max_ticks,
-                "agents_completed": progress.agents_completed,
-                "agents_total": progress.agents_total,
-                "current_phase": progress.current_phase,
+                "progress_percent": progress_percent,
+                "current_tick": current_tick,
+                "max_ticks": max_ticks,
+                "agents_completed": 0,
+                "agents_total": 0,
+                "current_phase": current_phase,
             }
 
             yield f"event: progress\ndata: {json.dumps(progress_data)}\n\n"
 
-            if progress.status in ("completed", "failed", "cancelled"):
+            if progress.status in ("succeeded", "failed", "cancelled"):
                 # Send final event
                 run = await orchestrator.get_run(run_id, tenant_ctx.tenant_id)
                 if run and run.aggregated_outcome:

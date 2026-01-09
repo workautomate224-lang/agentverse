@@ -607,6 +607,104 @@ class HybridModeCoupling:
             key_drivers=key_drivers,
         )
 
+    def generate_coupling_proof(
+        self,
+        society_agent_steps: int,
+        target_decision_steps: int,
+        joint_success: bool,
+        synergy_score: float,
+        tick_results: List["HybridTickResult"],
+    ) -> "HybridCouplingProof":
+        """
+        Generate HybridCouplingProof from the effects log.
+
+        §5.1 Bidirectional Coupling Proof:
+        - Records all coupling events with direction and magnitude
+        - Calculates bidirectional balance score
+        - Verifies both directions have events for true bidirectionality
+
+        Args:
+            society_agent_steps: Total agent step executions from society
+            target_decision_steps: Total decision steps from key/target actor
+            joint_success: Whether both achieved goals
+            synergy_score: Positive interaction effect score
+            tick_results: List of tick results for extracting tick-level coupling data
+
+        Returns:
+            HybridCouplingProof with full bidirectional metrics
+        """
+        from app.schemas.evidence import HybridCouplingProof, CouplingEventRecord
+
+        # Count events and sum magnitudes by direction
+        key_to_society_events = 0
+        society_to_key_events = 0
+        key_to_society_magnitude = 0.0
+        society_to_key_magnitude = 0.0
+
+        for effect in self.effects_log:
+            if effect.source == "key_actor" and effect.target == "society":
+                key_to_society_events += 1
+                key_to_society_magnitude += abs(effect.magnitude)
+            elif effect.source == "society" and effect.target == "key_actor":
+                society_to_key_events += 1
+                society_to_key_magnitude += abs(effect.magnitude)
+
+        # Build coupling events sample (limit to 100 per Evidence Pack schema)
+        coupling_events_sample = []
+        tick_effects_map: Dict[int, List[CouplingEffect]] = {}
+
+        # Group effects by tick from tick_results
+        for tick_result in tick_results:
+            tick_effects_map[tick_result.tick] = tick_result.coupling_effects
+
+        for tick, effects in sorted(tick_effects_map.items()):
+            for effect in effects:
+                if len(coupling_events_sample) >= 100:
+                    break
+                direction = (
+                    "key_to_society"
+                    if effect.source == "key_actor"
+                    else "society_to_key"
+                )
+                coupling_events_sample.append(
+                    CouplingEventRecord(
+                        tick=tick,
+                        direction=direction,
+                        effect_type=effect.effect_type,
+                        magnitude=effect.magnitude,
+                        affected_count=len(effect.affected_segments) + len(effect.affected_regions),
+                        description=effect.description,
+                    )
+                )
+
+        # Calculate bidirectional balance score (0-1, 0.5 = perfectly balanced)
+        total_events = key_to_society_events + society_to_key_events
+        if total_events > 0:
+            # Score approaches 0.5 when events are balanced between directions
+            balance_ratio = min(key_to_society_events, society_to_key_events) / max(
+                key_to_society_events, society_to_key_events, 1
+            )
+            bidirectional_balance_score = balance_ratio * 0.5
+        else:
+            bidirectional_balance_score = 0.0
+
+        # True bidirectionality requires events in BOTH directions
+        is_truly_bidirectional = key_to_society_events > 0 and society_to_key_events > 0
+
+        return HybridCouplingProof(
+            key_to_society_events=key_to_society_events,
+            society_to_key_events=society_to_key_events,
+            key_to_society_total_magnitude=key_to_society_magnitude,
+            society_to_key_total_magnitude=society_to_key_magnitude,
+            bidirectional_balance_score=bidirectional_balance_score,
+            is_truly_bidirectional=is_truly_bidirectional,
+            society_agent_steps=society_agent_steps,
+            target_decision_steps=target_decision_steps,
+            coupling_events_sample=coupling_events_sample,
+            joint_success=joint_success,
+            synergy_score=synergy_score,
+        )
+
 
 # =============================================================================
 # Hybrid Mode Runner Configuration
@@ -694,7 +792,7 @@ class HybridModeRunner:
         key_actor: HybridAgent,
         society_agents: Dict[str, Agent],
         environment: Dict[str, Any],
-    ) -> Tuple[HybridOutcome, List[HybridTickResult]]:
+    ) -> Tuple[HybridOutcome, List[HybridTickResult], "HybridCouplingProof"]:
         """
         Execute a complete hybrid simulation.
 
@@ -705,8 +803,10 @@ class HybridModeRunner:
             environment: Initial environment state
 
         Returns:
-            Tuple of (HybridOutcome, list of tick results)
+            Tuple of (HybridOutcome, list of tick results, HybridCouplingProof)
         """
+        from app.schemas.evidence import HybridCouplingProof
+
         logger.info(f"Starting hybrid run with {len(society_agents)} society agents")
 
         # Initialize coupling
@@ -718,6 +818,10 @@ class HybridModeRunner:
         # Track results
         tick_results: List[HybridTickResult] = []
         previous_snapshot: Optional[SocietySnapshot] = None
+
+        # §5.1 Counters for coupling proof
+        society_agent_steps = 0
+        target_decision_steps = 0
 
         # Execute ticks
         for tick in range(config.total_ticks):
@@ -732,6 +836,11 @@ class HybridModeRunner:
 
             tick_results.append(tick_result)
             previous_snapshot = tick_result.society_snapshot
+
+            # §5.1 Count steps for coupling proof
+            society_agent_steps += len(society_agents)  # Each agent executes once per tick
+            if tick_result.key_actor_action:
+                target_decision_steps += 1  # Key actor made a decision this tick
 
             # Check if key actor is blocked
             if key_actor.is_blocked:
@@ -756,13 +865,23 @@ class HybridModeRunner:
             goal_stance=config.target_adoption_rate,
         )
 
+        # §5.1 Generate coupling proof for Evidence Pack
+        coupling_proof = coupling.generate_coupling_proof(
+            society_agent_steps=society_agent_steps,
+            target_decision_steps=target_decision_steps,
+            joint_success=outcome.joint_success,
+            synergy_score=outcome.synergy_score,
+            tick_results=tick_results,
+        )
+
         logger.info(
             f"Hybrid run complete: joint_success={outcome.joint_success}, "
             f"adoption={outcome.society_adoption_rate:.1%}, "
-            f"path_completion={outcome.key_actor_path_completion:.1%}"
+            f"path_completion={outcome.key_actor_path_completion:.1%}, "
+            f"bidirectional={coupling_proof.is_truly_bidirectional}"
         )
 
-        return outcome, tick_results
+        return outcome, tick_results, coupling_proof
 
     async def _execute_tick(
         self,

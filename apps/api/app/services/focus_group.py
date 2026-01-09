@@ -25,7 +25,7 @@ from app.core.config import settings
 from app.models.focus_group import FocusGroupSession, FocusGroupMessage
 from app.models.product import Product, ProductRun, AgentInteraction
 # LLM Router Integration (GAPS.md GAP-P0-001)
-from app.services.llm_router import LLMRouter
+from app.services.llm_router import LLMRouter, LLMRouterContext
 # Keep AVAILABLE_MODELS for model selection in focus groups
 from app.services.openrouter import AVAILABLE_MODELS
 
@@ -191,9 +191,12 @@ class FocusGroupService:
         start_time = time.time()
 
         # Call LLM via LLMRouter with FOCUS_GROUP_DIALOGUE profile
+        # Phase="interactive" for focus group sessions (§1.4 - distinct from compilation/tick_loop)
+        context = LLMRouterContext(phase="interactive")
         response = await self.llm_router.complete(
             profile_key="FOCUS_GROUP_DIALOGUE",
             messages=messages,
+            context=context,
             temperature_override=session.temperature,
             max_tokens_override=model_config.max_tokens,
         )

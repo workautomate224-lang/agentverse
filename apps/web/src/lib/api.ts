@@ -387,12 +387,23 @@ export interface CreateRunConfigInput {
   is_template?: boolean;
 }
 
-// Submit Run Input
+// Submit Run Input - matches backend CreateRunRequest
 export interface SubmitRunInput {
-  node_id: string;
-  config_id?: string;
-  config_overrides?: Partial<CreateRunConfigInput>;
+  project_id: string;
+  node_id?: string;
   label?: string;
+  config?: {
+    run_mode?: string;
+    max_ticks?: number;
+    agent_batch_size?: number;
+    society_mode?: Record<string, unknown>;
+    engine_version?: string;
+    ruleset_version?: string;
+    dataset_version?: string;
+    [key: string]: unknown;  // Allow extra fields
+  };
+  seeds?: number[];
+  auto_start?: boolean;
 }
 
 // =============================================================================
@@ -946,12 +957,16 @@ export interface TargetConstraint {
 
 export interface TargetPersona {
   target_id: string;
+  project_id?: string | null;
   persona_id?: string | null;
   name: string;
   description?: string | null;
-  utility_function: UtilityFunction;
-  action_priors: ActionPrior[];
-  initial_state: Record<string, unknown>;
+  utility_function?: UtilityFunction;
+  utility_dimensions?: string[];  // API returns simplified dimensions list
+  action_priors?: ActionPrior[];
+  action_count?: number;
+  constraint_count?: number;
+  initial_state?: Record<string, unknown>;
   action_catalog_id?: string | null;
   custom_actions?: ActionDefinition[] | null;
   personal_constraints?: TargetConstraint[] | null;
@@ -966,6 +981,7 @@ export interface TargetPersona {
 
 export interface TargetPersonaCreate {
   name: string;
+  project_id?: string | null;
   description?: string | null;
   persona_id?: string | null;
   utility_function?: Partial<UtilityFunction> | null;
@@ -2030,7 +2046,7 @@ class ApiClient {
     if (params?.limit) searchParams.set('limit', String(params.limit));
 
     const query = searchParams.toString();
-    return this.request<NodeSummary[]>(`/api/v1/nodes${query ? `?${query}` : ''}`);
+    return this.request<NodeSummary[]>(`/api/v1/nodes/${query ? `?${query}` : ''}`);
   }
 
   async getNode(nodeId: string): Promise<SpecNode> {
@@ -2038,7 +2054,7 @@ class ApiClient {
   }
 
   async forkNode(data: ForkNodeInput): Promise<{ node: SpecNode; edge: SpecEdge }> {
-    return this.request<{ node: SpecNode; edge: SpecEdge }>('/api/v1/nodes/fork', {
+    return this.request<{ node: SpecNode; edge: SpecEdge }>('/api/v1/nodes/fork/', {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -2082,7 +2098,7 @@ class ApiClient {
   }
 
   async compareNodes(nodeIds: string[]): Promise<CompareNodesResponse> {
-    return this.request<CompareNodesResponse>('/api/v1/nodes/compare', {
+    return this.request<CompareNodesResponse>('/api/v1/nodes/compare/', {
       method: 'POST',
       body: JSON.stringify({ node_ids: nodeIds }),
     });
@@ -2092,7 +2108,7 @@ class ApiClient {
     start_node_id: string;
     end_node_id: string;
   }): Promise<PathAnalysis> {
-    return this.request<PathAnalysis>('/api/v1/nodes/path-analysis', {
+    return this.request<PathAnalysis>('/api/v1/nodes/path-analysis/', {
       method: 'POST',
       body: JSON.stringify(params),
     });

@@ -278,6 +278,47 @@ async def readiness_probe(db: AsyncSession = Depends(get_db)) -> HealthResponse:
     )
 
 
+@router.get("/debug/celery-test")
+async def debug_celery_test() -> dict:
+    """
+    Debug endpoint to test Celery task submission.
+    """
+    from app.core.celery_app import celery_app
+    from app.core.config import settings
+
+    result = {
+        "settings_redis_url": settings.REDIS_URL,
+        "celery_broker_url": celery_app.conf.broker_url,
+        "celery_backend_url": celery_app.conf.result_backend,
+    }
+
+    # Try to connect
+    try:
+        with celery_app.connection() as conn:
+            conn.connect()
+            result["connection_test"] = "success"
+            result["connected"] = conn.connected
+    except Exception as e:
+        result["connection_test"] = f"failed: {str(e)}"
+
+    # Try to submit a simple task
+    try:
+        from app.tasks.run_executor import execute_run
+        # Don't actually run, just test if apply_async works
+        task = execute_run.apply_async(
+            args=["debug-test-id", {"tenant_id": "debug"}],
+            countdown=3600,  # Delay by 1 hour so it doesn't run
+        )
+        result["task_submit_test"] = f"success: {task.id}"
+        task.revoke()  # Cancel immediately
+    except Exception as e:
+        import traceback
+        result["task_submit_test"] = f"failed: {str(e)}"
+        result["traceback"] = traceback.format_exc()
+
+    return result
+
+
 @router.get("/metrics")
 async def metrics_endpoint() -> Response:
     """

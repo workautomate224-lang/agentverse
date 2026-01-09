@@ -649,7 +649,7 @@ class ExportService:
 
             checker = ExportPermissionChecker(
                 user_permissions=ctx.permissions,
-                user_role=ctx.role or "viewer",
+                user_role=ctx.user_role or "viewer",
                 is_admin=ctx.is_admin,
             )
 

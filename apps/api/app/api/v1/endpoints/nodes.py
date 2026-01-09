@@ -29,6 +29,33 @@ from app.middleware.tenant import (
 from app.models.user import User
 
 
+def safe_parse_aggregated_outcome(data: Optional[dict]) -> Optional[dict]:
+    """Safely parse aggregated outcome, handling legacy formats."""
+    if not data:
+        return None
+    # Return as-is for flexibility - frontend handles various formats
+    return data
+
+
+def safe_parse_confidence(data: Optional[dict]) -> Optional[dict]:
+    """Safely parse confidence data, handling legacy formats."""
+    if not data:
+        return None
+    # Normalize to expected format while preserving all data
+    result = {
+        "confidence_level": data.get("confidence_level", "medium"),
+        "confidence_score": data.get("confidence_score"),
+        "mean": data.get("mean"),
+        "std": data.get("std"),
+        "sample_count": data.get("sample_count") or data.get("sample_size"),
+    }
+    # Include any extra fields
+    for key, value in data.items():
+        if key not in result:
+            result[key] = value
+    return result
+
+
 # ============================================================================
 # Request/Response Schemas (project.md §6.7)
 # ============================================================================
@@ -39,50 +66,83 @@ class NodeConfidenceSchema(BaseModel):
     Supports both:
     - Statistical metrics (mean, std, sample_count) from aggregated runs
     - Semantic metrics (confidence_level, confidence_score, factors) from initial creation
+
+    Note: All fields are optional to handle legacy data formats.
     """
     # Statistical fields (from aggregated runs)
-    mean: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    std: Optional[float] = Field(default=None, ge=0.0)
-    sample_count: Optional[int] = Field(default=None, ge=0)
+    mean: Optional[float] = Field(default=None)
+    std: Optional[float] = Field(default=None)
+    sample_count: Optional[int] = Field(default=None)
 
     # Semantic fields (from initial node creation)
     confidence_level: Optional[str] = Field(default="medium")
-    confidence_score: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    factors: Optional[List[dict]] = Field(default_factory=list)
+    confidence_score: Optional[float] = Field(default=None)
+    factors: Optional[List[dict]] = None  # Can be list or dict in legacy data
+
+    # Legacy fields
+    run_count: Optional[int] = None
+    sample_size: Optional[int] = None
+
+    class Config:
+        extra = "allow"  # Allow extra fields for forward/backward compatibility
 
 
 class AggregatedOutcomeSchema(BaseModel):
-    """Aggregated outcome from simulation."""
-    outcome_type: str
-    primary_metric: float
+    """Aggregated outcome from simulation.
+
+    Note: All fields are optional to handle legacy data formats.
+    New nodes should populate outcome_type and primary_metric.
+    """
+    # Required for new nodes, optional for legacy data
+    outcome_type: Optional[str] = None
+    primary_metric: Optional[float] = None
+
+    # Standard fields
     metrics: dict = Field(default_factory=dict)
     distribution: Optional[dict] = None
     top_factors: List[dict] = Field(default_factory=list)
+
+    # Legacy fields (from old simulation format)
+    seed: Optional[int] = None
+    key_metrics: Optional[List[dict]] = None  # List of {unit, value, name} dicts
+    outcome_probability: Optional[float] = None
+    outcome_distribution: Optional[dict] = None
+    agent_states: Optional[List[dict]] = None
+
+    class Config:
+        extra = "allow"  # Allow extra fields for forward compatibility
 
 
 class NodeResponse(BaseModel):
     """Node response per project.md §6.7."""
     node_id: str
     project_id: str
-    parent_id: Optional[str]
+    parent_node_id: Optional[str] = None  # Match frontend's SpecNode interface
     depth: int
-    label: Optional[str]
+    label: Optional[str] = None
 
     # Exploration state
-    is_explored: bool
-    is_pruned: bool
+    is_explored: bool = False
+    is_pruned: bool = False
 
-    # Results (if explored)
-    aggregated_outcome: Optional[AggregatedOutcomeSchema] = None
-    confidence: Optional[NodeConfidenceSchema] = None
+    # Probability (for Universe Map display)
+    probability: float = 1.0
+    cumulative_probability: float = 1.0
+
+    # Results (if explored) - using dict to handle legacy data formats
+    aggregated_outcome: Optional[dict] = None
+    confidence: Optional[dict] = None
     run_refs: List[str] = Field(default_factory=list)
 
     # Clustering
     cluster_id: Optional[str] = None
     is_cluster_rep: bool = False
+    is_cluster_representative: bool = False  # Alias for compatibility
+    is_baseline: bool = False
 
     # Timestamps
     created_at: str
+    updated_at: Optional[str] = None
     explored_at: Optional[str] = None
 
     class Config:
@@ -92,8 +152,8 @@ class NodeResponse(BaseModel):
 class EdgeResponse(BaseModel):
     """Edge response per project.md §6.7."""
     edge_id: str
-    parent_id: str
-    child_id: str
+    from_node_id: str  # Match frontend's SpecEdge interface
+    to_node_id: str    # Match frontend's SpecEdge interface
 
     # Intervention that caused this edge
     intervention: dict = Field(default_factory=dict)
@@ -102,24 +162,45 @@ class EdgeResponse(BaseModel):
     # Metrics
     outcome_delta: Optional[dict] = None
     significance_score: Optional[float] = None
+    weight: Optional[float] = None
+    is_primary_path: bool = False
 
     # Metadata
     created_at: str
+    updated_at: Optional[str] = None
     explanation: Optional[dict] = None
 
 
+class ScenarioPatchSchema(BaseModel):
+    """Scenario patch for forked nodes."""
+    environment_overrides: Optional[dict] = None
+    perception_deltas: Optional[dict] = None
+    network_changes: Optional[dict] = None
+    nl_description: Optional[str] = None
+    patch_description: Optional[str] = None
+
+
 class ForkNodeRequest(BaseModel):
-    """Request to fork a node."""
+    """Request to fork a node.
+
+    Supports two formats:
+    1. Simple: intervention dict with changes
+    2. Structured: scenario_patch with typed fields
+    """
     parent_node_id: str = Field(..., description="Node to fork from")
-    intervention: dict = Field(..., description="Changes for the fork")
-    intervention_label: Optional[str] = Field(
-        None,
-        description="Human-readable description"
-    )
-    auto_run: bool = Field(
-        default=False,
-        description="Start simulation immediately"
-    )
+
+    # Option 1: Simple intervention dict
+    intervention: Optional[dict] = Field(None, description="Changes for the fork")
+    intervention_label: Optional[str] = Field(None, description="Human-readable description")
+
+    # Option 2: Structured format (from frontend)
+    label: Optional[str] = Field(None, description="Fork label")
+    description: Optional[str] = Field(None, description="Fork description")
+    scenario_patch: Optional[ScenarioPatchSchema] = Field(None, description="Structured scenario changes")
+    intervention_type: Optional[str] = Field(None, description="Type: expansion, variable_delta, nl_query")
+    nl_query: Optional[str] = Field(None, description="Natural language query for fork")
+
+    auto_run: bool = Field(default=False, description="Start simulation immediately")
 
 
 class ForkNodeResponse(BaseModel):
@@ -220,23 +301,22 @@ async def list_nodes(
         NodeResponse(
             node_id=str(node.id),
             project_id=str(node.project_id),
-            parent_id=str(node.parent_node_id) if node.parent_node_id else None,
+            parent_node_id=str(node.parent_node_id) if node.parent_node_id else None,
             depth=node.depth,
             label=node.label,
             is_explored=node.is_explored,
             is_pruned=False,  # Model doesn't have is_pruned yet
-            aggregated_outcome=(
-                AggregatedOutcomeSchema(**node.aggregated_outcome)
-                if node.aggregated_outcome else None
-            ),
-            confidence=(
-                NodeConfidenceSchema(**node.confidence)
-                if node.confidence else None
-            ),
-            run_refs=[str(ref) if isinstance(ref, dict) else ref for ref in (node.run_refs or [])],
+            probability=node.probability,
+            cumulative_probability=node.cumulative_probability,
+            aggregated_outcome=safe_parse_aggregated_outcome(node.aggregated_outcome),
+            confidence=safe_parse_confidence(node.confidence),
+            run_refs=[str(ref.get("run_id", ref)) if isinstance(ref, dict) else str(ref) for ref in (node.run_refs or [])],
             cluster_id=str(node.cluster_id) if node.cluster_id else None,
             is_cluster_rep=node.is_cluster_representative,
+            is_cluster_representative=node.is_cluster_representative,
+            is_baseline=node.is_baseline,
             created_at=node.created_at.isoformat() if node.created_at else "",
+            updated_at=node.updated_at.isoformat() if node.updated_at else None,
             explored_at=node.updated_at.isoformat() if node.is_explored and node.updated_at else None,
         )
         for node in nodes
@@ -270,29 +350,28 @@ async def get_node(
     return NodeResponse(
         node_id=str(node.id),
         project_id=str(node.project_id),
-        parent_id=str(node.parent_node_id) if node.parent_node_id else None,
+        parent_node_id=str(node.parent_node_id) if node.parent_node_id else None,
         depth=node.depth,
         label=node.label,
         is_explored=node.is_explored,
-        is_pruned=False,  # Node model doesn't have is_pruned yet
-        aggregated_outcome=(
-            AggregatedOutcomeSchema(**node.aggregated_outcome)
-            if node.aggregated_outcome else None
-        ),
-        confidence=(
-            NodeConfidenceSchema(**node.confidence)
-            if node.confidence else None
-        ),
+        is_pruned=False,
+        probability=node.probability,
+        cumulative_probability=node.cumulative_probability,
+        aggregated_outcome=safe_parse_aggregated_outcome(node.aggregated_outcome),
+        confidence=safe_parse_confidence(node.confidence),
         run_refs=[str(ref.get("run_id", ref)) if isinstance(ref, dict) else str(ref) for ref in (node.run_refs or [])],
         cluster_id=str(node.cluster_id) if node.cluster_id else None,
         is_cluster_rep=node.is_cluster_representative,
+        is_cluster_representative=node.is_cluster_representative,
+        is_baseline=node.is_baseline,
         created_at=node.created_at.isoformat() if node.created_at else "",
+        updated_at=node.updated_at.isoformat() if node.updated_at else None,
         explored_at=node.updated_at.isoformat() if node.is_explored and node.updated_at else None,
     )
 
 
 @router.post(
-    "/fork",
+    "/fork/",
     response_model=ForkNodeResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Fork a node (create alternative future)",
@@ -316,44 +395,73 @@ async def fork_node(
 
     orchestrator = get_simulation_orchestrator(db)
 
+    # Build intervention dict from either format
+    intervention = request.intervention or {}
+
+    # If scenario_patch is provided, convert to intervention
+    if request.scenario_patch:
+        patch = request.scenario_patch
+        if patch.environment_overrides:
+            intervention["environment_overrides"] = patch.environment_overrides
+        if patch.perception_deltas:
+            intervention["perception_deltas"] = patch.perception_deltas
+        if patch.network_changes:
+            intervention["network_changes"] = patch.network_changes
+        if patch.nl_description:
+            intervention["nl_description"] = patch.nl_description
+        if patch.patch_description:
+            intervention["patch_description"] = patch.patch_description
+
+    # Add intervention type
+    if request.intervention_type:
+        intervention["intervention_type"] = request.intervention_type
+
+    # Add nl_query if provided
+    if request.nl_query:
+        intervention["nl_query"] = request.nl_query
+
+    # Build intervention label
+    intervention_label = (
+        request.intervention_label
+        or request.label
+        or request.description
+        or None
+    )
+
     try:
-        result = await orchestrator.fork_node(
+        # Fork the node - returns (Node, Edge) tuple
+        node, edge = await orchestrator.fork_node(
             parent_node_id=request.parent_node_id,
-            intervention=request.intervention,
-            intervention_label=request.intervention_label,
             tenant_id=tenant_ctx.tenant_id,
-            user_id=str(current_user.id),
-            auto_run=request.auto_run,
+            scenario_patch=intervention if intervention else None,
+            intervention=intervention,
+            explanation=intervention_label,
         )
 
         await db.commit()
 
-        node, edge = result["node"], result["edge"]
-        run_id = result.get("run_id")
-        task_id = result.get("task_id")
-
         return ForkNodeResponse(
             node=NodeResponse(
-                node_id=node.node_id,
-                project_id=node.project_id,
-                parent_id=node.parent_id,
+                node_id=str(node.id),
+                project_id=str(node.project_id),
+                parent_node_id=str(node.parent_node_id) if node.parent_node_id else None,
                 depth=node.depth,
-                label=node.label,
+                label=node.label or intervention_label,
                 is_explored=node.is_explored,
-                is_pruned=node.is_pruned,
-                run_refs=node.run_refs or [],
-                created_at=node.created_at,
+                is_pruned=False,
+                run_refs=[str(ref.get("run_id", ref)) if isinstance(ref, dict) else str(ref) for ref in (node.run_refs or [])],
+                created_at=node.created_at.isoformat() if node.created_at else "",
             ),
             edge=EdgeResponse(
-                edge_id=edge.edge_id,
-                parent_id=edge.parent_id,
-                child_id=edge.child_id,
-                intervention=edge.intervention,
-                intervention_label=edge.intervention_label,
-                created_at=edge.created_at,
+                edge_id=str(edge.id),
+                from_node_id=str(edge.from_node_id),
+                to_node_id=str(edge.to_node_id),
+                intervention=edge.intervention or intervention,
+                intervention_label=edge.explanation.get("short_label") if edge.explanation else intervention_label,
+                created_at=edge.created_at.isoformat() if edge.created_at else "",
             ),
-            run_id=run_id,
-            task_id=task_id,
+            run_id=None,
+            task_id=None,
         )
     except ValueError as e:
         raise HTTPException(
@@ -390,19 +498,13 @@ async def get_node_children(
         NodeResponse(
             node_id=str(node.id),
             project_id=str(node.project_id),
-            parent_id=str(node.parent_node_id) if node.parent_node_id else None,
+            parent_node_id=str(node.parent_node_id) if node.parent_node_id else None,
             depth=node.depth,
             label=node.label,
             is_explored=node.is_explored,
             is_pruned=False,  # Node model doesn't have is_pruned
-            aggregated_outcome=(
-                AggregatedOutcomeSchema(**node.aggregated_outcome)
-                if node.aggregated_outcome else None
-            ),
-            confidence=(
-                NodeConfidenceSchema(**node.confidence)
-                if node.confidence else None
-            ),
+            aggregated_outcome=safe_parse_aggregated_outcome(node.aggregated_outcome),
+            confidence=safe_parse_confidence(node.confidence),
             run_refs=[str(ref.get("run_id", ref)) if isinstance(ref, dict) else str(ref) for ref in (node.run_refs or [])],
             cluster_id=str(node.cluster_id) if node.cluster_id else None,
             is_cluster_rep=node.is_cluster_representative,
@@ -439,8 +541,8 @@ async def get_node_edges(
     return [
         EdgeResponse(
             edge_id=str(edge.id),
-            parent_id=str(edge.from_node_id),
-            child_id=str(edge.to_node_id),
+            from_node_id=str(edge.from_node_id),
+            to_node_id=str(edge.to_node_id),
             intervention=edge.intervention or {},
             intervention_label=edge.explanation.get("short_label") if edge.explanation else None,
             outcome_delta=None,  # Edge model doesn't have outcome_delta
@@ -501,19 +603,13 @@ async def get_universe_map(
         NodeResponse(
             node_id=str(node.id),
             project_id=str(node.project_id),
-            parent_id=str(node.parent_node_id) if node.parent_node_id else None,
+            parent_node_id=str(node.parent_node_id) if node.parent_node_id else None,
             depth=node.depth,
             label=node.label,
             is_explored=node.is_explored,
             is_pruned=False,  # Node model doesn't have is_pruned
-            aggregated_outcome=(
-                AggregatedOutcomeSchema(**node.aggregated_outcome)
-                if node.aggregated_outcome else None
-            ),
-            confidence=(
-                NodeConfidenceSchema(**node.confidence)
-                if node.confidence else None
-            ),
+            aggregated_outcome=safe_parse_aggregated_outcome(node.aggregated_outcome),
+            confidence=safe_parse_confidence(node.confidence),
             run_refs=[str(ref.get("run_id", ref)) if isinstance(ref, dict) else str(ref) for ref in (node.run_refs or [])],
             cluster_id=str(node.cluster_id) if node.cluster_id else None,
             is_cluster_rep=node.is_cluster_representative,
@@ -526,8 +622,8 @@ async def get_universe_map(
     edges = [
         EdgeResponse(
             edge_id=str(edge.id),
-            parent_id=str(edge.from_node_id),
-            child_id=str(edge.to_node_id),
+            from_node_id=str(edge.from_node_id),
+            to_node_id=str(edge.to_node_id),
             intervention=edge.intervention or {},
             intervention_label=edge.explanation.get("short_label") if edge.explanation else None,
             outcome_delta=None,  # Edge model doesn't have outcome_delta
@@ -550,7 +646,7 @@ async def get_universe_map(
 
 
 @router.post(
-    "/path-analysis",
+    "/path-analysis/",
     response_model=PathAnalysisResponse,
     summary="Analyze path between nodes",
 )
@@ -589,15 +685,13 @@ async def analyze_path(
         NodeResponse(
             node_id=str(node.id),
             project_id=str(node.project_id),
-            parent_id=str(node.parent_node_id) if node.parent_node_id else None,
+            parent_node_id=str(node.parent_node_id) if node.parent_node_id else None,
             depth=node.depth,
             label=node.label,
             is_explored=node.is_explored,
             is_pruned=False,
-            aggregated_outcome=(
-                AggregatedOutcomeSchema(**node.aggregated_outcome)
-                if node.aggregated_outcome else None
-            ),
+            aggregated_outcome=safe_parse_aggregated_outcome(node.aggregated_outcome),
+            confidence=safe_parse_confidence(node.confidence),
             run_refs=[str(ref.get("run_id", ref)) if isinstance(ref, dict) else str(ref) for ref in (node.run_refs or [])],
             cluster_id=str(node.cluster_id) if node.cluster_id else None,
             is_cluster_rep=node.is_cluster_representative,
@@ -610,8 +704,8 @@ async def analyze_path(
     edges = [
         EdgeResponse(
             edge_id=str(edge.id),
-            parent_id=str(edge.from_node_id),
-            child_id=str(edge.to_node_id),
+            from_node_id=str(edge.from_node_id),
+            to_node_id=str(edge.to_node_id),
             intervention=edge.intervention or {},
             intervention_label=edge.explanation.get("short_label") if edge.explanation else None,
             outcome_delta=None,
@@ -632,7 +726,7 @@ async def analyze_path(
 
 
 @router.post(
-    "/compare",
+    "/compare/",
     response_model=NodeComparisonResponse,
     summary="Compare two nodes",
 )
@@ -671,19 +765,13 @@ async def compare_nodes(
         return NodeResponse(
             node_id=str(node.id),
             project_id=str(node.project_id),
-            parent_id=str(node.parent_node_id) if node.parent_node_id else None,
+            parent_node_id=str(node.parent_node_id) if node.parent_node_id else None,
             depth=node.depth,
             label=node.label,
             is_explored=node.is_explored,
             is_pruned=False,
-            aggregated_outcome=(
-                AggregatedOutcomeSchema(**node.aggregated_outcome)
-                if node.aggregated_outcome else None
-            ),
-            confidence=(
-                NodeConfidenceSchema(**node.confidence)
-                if node.confidence else None
-            ),
+            aggregated_outcome=safe_parse_aggregated_outcome(node.aggregated_outcome),
+            confidence=safe_parse_confidence(node.confidence),
             run_refs=[str(ref.get("run_id", ref)) if isinstance(ref, dict) else str(ref) for ref in (node.run_refs or [])],
             cluster_id=str(node.cluster_id) if node.cluster_id else None,
             is_cluster_rep=node.is_cluster_representative,
@@ -739,7 +827,7 @@ async def prune_node(
     return NodeResponse(
         node_id=str(node.id),
         project_id=str(node.project_id),
-        parent_id=str(node.parent_node_id) if node.parent_node_id else None,
+        parent_node_id=str(node.parent_node_id) if node.parent_node_id else None,
         depth=node.depth,
         label=node.label,
         is_explored=node.is_explored,
@@ -749,4 +837,195 @@ async def prune_node(
         is_cluster_rep=node.is_cluster_representative,
         created_at=node.created_at.isoformat() if node.created_at else "",
         explored_at=node.updated_at.isoformat() if node.is_explored and node.updated_at else None,
+    )
+
+
+# =============================================================================
+# Probability Verification Endpoints (§2.4)
+# Reference: verification_checklist_v2.md §2.4 (Conditional Probability Correctness)
+# =============================================================================
+
+
+class ProbabilityConsistencyResponse(BaseModel):
+    """Response for probability consistency verification."""
+    is_consistent: bool
+    tolerance: float
+    stats: dict
+    issues: Optional[List[dict]] = None
+
+
+class SiblingProbabilityResponse(BaseModel):
+    """Response for sibling probability report."""
+    parent: dict
+    children: List[dict]
+    children_count: int
+    children_sum: float
+    is_normalized: bool
+    difference: float
+
+
+class NormalizationResponse(BaseModel):
+    """Response for probability normalization."""
+    status: str
+    parent_probability: float
+    before_sum: Optional[float] = None
+    after_sum: Optional[float] = None
+    children_count: int
+    before: Optional[List[dict]] = None
+    after: Optional[List[dict]] = None
+
+
+@router.get(
+    "/project/{project_id}/verify-probabilities",
+    response_model=ProbabilityConsistencyResponse,
+    summary="Verify probability consistency (§2.4)",
+)
+async def verify_probability_consistency(
+    project_id: str,
+    tolerance: float = Query(default=0.001, ge=0, le=0.1),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_ctx: TenantContext = Depends(require_tenant),
+) -> ProbabilityConsistencyResponse:
+    """
+    Verify probability consistency across all nodes in a project.
+
+    Reference: verification_checklist_v2.md §2.4 (Conditional Probability Correctness)
+
+    Checks:
+    1. Root node probability is 1.0
+    2. Children probabilities sum to parent probability (within tolerance)
+    3. Cumulative probabilities are correctly computed
+
+    Returns verification report with any issues found.
+    """
+    from app.services import get_node_service
+
+    node_service = get_node_service(db)
+
+    try:
+        project_uuid = UUID(project_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid project ID format",
+        )
+
+    result = await node_service.verify_probability_consistency(
+        project_id=project_uuid,
+        tenant_id=tenant_ctx.tenant_id,
+        tolerance=tolerance,
+    )
+
+    return ProbabilityConsistencyResponse(
+        is_consistent=result["is_consistent"],
+        tolerance=result["tolerance"],
+        stats=result["stats"],
+        issues=result.get("issues"),
+    )
+
+
+@router.get(
+    "/{node_id}/sibling-probabilities",
+    response_model=SiblingProbabilityResponse,
+    summary="Get sibling probability report (§2.4)",
+)
+async def get_sibling_probabilities(
+    node_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_ctx: TenantContext = Depends(require_tenant),
+) -> SiblingProbabilityResponse:
+    """
+    Get probability report for children under a parent node.
+
+    Reference: verification_checklist_v2.md §2.4
+
+    Returns parent probability, children probabilities, and validation status.
+    """
+    from app.services import get_node_service
+
+    node_service = get_node_service(db)
+
+    try:
+        node_uuid = UUID(node_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid node ID format",
+        )
+
+    try:
+        result = await node_service.get_sibling_probability_report(node_uuid)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+
+    return SiblingProbabilityResponse(
+        parent=result["parent"],
+        children=result["children"],
+        children_count=result["children_count"],
+        children_sum=result["children_sum"],
+        is_normalized=result["is_normalized"],
+        difference=result["difference"],
+    )
+
+
+@router.post(
+    "/{node_id}/normalize-children",
+    response_model=NormalizationResponse,
+    summary="Normalize child probabilities (§2.4)",
+)
+async def normalize_child_probabilities(
+    node_id: str,
+    tolerance: float = Query(default=0.001, ge=0, le=0.1),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_ctx: TenantContext = Depends(require_tenant),
+) -> NormalizationResponse:
+    """
+    Normalize child node probabilities to sum to parent's probability.
+
+    Reference: verification_checklist_v2.md §2.4 (Conditional Probability Correctness)
+
+    When a parent node is forked into multiple children, this ensures:
+    P(child_1 | parent) + P(child_2 | parent) + ... = P(parent)
+
+    Returns normalization report with before/after state.
+    """
+    from app.services import get_node_service
+
+    node_service = get_node_service(db)
+
+    try:
+        node_uuid = UUID(node_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid node ID format",
+        )
+
+    try:
+        result = await node_service.normalize_sibling_probabilities(
+            parent_node_id=node_uuid,
+            tolerance=tolerance,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+
+    await db.commit()
+
+    return NormalizationResponse(
+        status=result["status"],
+        parent_probability=result["parent_probability"],
+        before_sum=result.get("before_sum"),
+        after_sum=result.get("after_sum"),
+        children_count=result["children_count"],
+        before=result.get("before"),
+        after=result.get("after"),
     )

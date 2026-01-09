@@ -67,6 +67,7 @@ class LLMRouterContext(BaseModel):
     node_id: Optional[str] = None
     user_id: Optional[str] = None
     seed: Optional[int] = None  # For deterministic replay
+    phase: Optional[str] = None  # "compilation" or "tick_loop" for C5 tracking (§1.4)
 
 
 class LLMRouter:
@@ -534,6 +535,7 @@ class LLMRouter:
             user_id=uuid.UUID(context.user_id) if context.user_id else None,
             temperature=temperature,
             max_tokens=max_tokens,
+            phase=context.phase,  # Track compilation vs tick_loop (§1.4)
         )
 
         self.db.add(call)

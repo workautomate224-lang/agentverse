@@ -782,6 +782,10 @@ class AgentPool:
         """Get all agents."""
         return list(self._agents.values())
 
+    def get_active(self) -> List[Agent]:
+        """Get all active (non-terminated) agents."""
+        return [a for a in self._agents.values() if a.state != AgentState.TERMINATED]
+
     def get_by_segment(self, segment: str) -> List[Agent]:
         """Get all agents in a segment."""
         agent_ids = self._by_segment.get(segment, set())

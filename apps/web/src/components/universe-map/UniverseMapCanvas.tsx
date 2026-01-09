@@ -348,16 +348,27 @@ export const UniverseMapCanvas = memo(function UniverseMapCanvas({
                 filter={isCompareSelected || isSelected ? 'url(#glow)' : undefined}
               />
 
-              {/* Node label */}
+              {/* Node probability label */}
               <text
-                y={4}
+                y={-2}
                 textAnchor="middle"
                 fill={COLORS.text.primary}
-                fontSize={10}
+                fontSize={11}
                 fontFamily="monospace"
                 fontWeight="bold"
               >
-                {pos.id.slice(0, 4)}
+                {(pos.node.probability * 100).toFixed(0)}%
+              </text>
+
+              {/* Node label or short ID */}
+              <text
+                y={10}
+                textAnchor="middle"
+                fill={COLORS.text.secondary}
+                fontSize={7}
+                fontFamily="monospace"
+              >
+                {pos.node.label || pos.id.slice(0, 6)}
               </text>
 
               {/* Root indicator */}
@@ -371,7 +382,21 @@ export const UniverseMapCanvas = memo(function UniverseMapCanvas({
                 />
               )}
 
-              {/* Level indicator */}
+              {/* Baseline indicator */}
+              {pos.node.is_baseline && (
+                <text
+                  y={-NODE_RADIUS - 6}
+                  textAnchor="middle"
+                  fill="rgba(34,197,94,0.9)"
+                  fontSize={8}
+                  fontFamily="monospace"
+                  fontWeight="bold"
+                >
+                  BASE
+                </text>
+              )}
+
+              {/* Level and confidence indicator */}
               <text
                 y={NODE_RADIUS + 14}
                 textAnchor="middle"
@@ -379,7 +404,7 @@ export const UniverseMapCanvas = memo(function UniverseMapCanvas({
                 fontSize={8}
                 fontFamily="monospace"
               >
-                L{pos.level}
+                L{pos.level} • {pos.node.confidence?.confidence_level?.charAt(0).toUpperCase() || '?'}
               </text>
             </g>
           );

@@ -94,8 +94,15 @@ async def login(
     user.last_login_at = datetime.utcnow()
     await db.flush()
 
+    # Determine if user is admin
+    is_admin = user.role == "admin"
+
     return {
-        "access_token": create_access_token(subject=str(user.id)),
+        "access_token": create_access_token(
+            subject=str(user.id),
+            role=user.role,
+            is_admin=is_admin,
+        ),
         "refresh_token": create_refresh_token(subject=str(user.id)),
         "token_type": "bearer",
     }

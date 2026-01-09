@@ -270,6 +270,13 @@ class LLMCall(Base):
         nullable=True
     )
 
+    # Phase tracking for C5 compliance (§1.4)
+    # "compilation" = LLM calls during scenario/event compilation
+    # "tick_loop" = LLM calls during agent execution loop (should be 0 for C5)
+    phase: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True, index=True
+    )
+
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, nullable=False, index=True

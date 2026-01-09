@@ -266,6 +266,7 @@ class TargetPersona(BaseModel):
     Reference: project.md §11 Phase 5
     """
     target_id: str = Field(..., description="Unique target identifier")
+    project_id: Optional[str] = Field(None, description="Project this target belongs to")
     persona_id: Optional[str] = Field(None, description="Reference to base PersonaRecord")
     name: str = Field(..., description="Target name/label")
     description: Optional[str] = Field(None)
@@ -297,6 +298,7 @@ class TargetPersona(BaseModel):
 class TargetPersonaCreate(BaseModel):
     """Schema for creating a target persona."""
     name: str
+    project_id: Optional[str] = None  # Project this target belongs to
     description: Optional[str] = None
     persona_id: Optional[str] = None  # Optional base persona
     utility_function: Optional[UtilityFunction] = None
@@ -420,6 +422,10 @@ class PlanResult(BaseModel):
 
     # Performance
     planning_time_ms: int = Field(0)
+
+    # §4.2 Search counters for Evidence Pack
+    explored_states_count: int = Field(0, description="Number of unique state vectors explored")
+    expanded_nodes_count: int = Field(0, description="Total node expansions in search tree")
 
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)

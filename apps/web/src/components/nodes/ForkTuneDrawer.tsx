@@ -249,8 +249,10 @@ export function ForkTuneDrawer({
       // Auto-start run if enabled
       if (autoStartRun && newNode?.node?.node_id) {
         const run = await createRun.mutateAsync({
+          project_id: projectId,
           node_id: newNode.node.node_id,
           label: forkLabel || `Run from fork ${newNode.node.node_id.slice(0, 8)}`,
+          auto_start: true,
         });
 
         onForkCreated?.(newNode.node.node_id, run?.run_id);

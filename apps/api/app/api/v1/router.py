@@ -40,6 +40,8 @@ from app.api.v1.endpoints import (
     llm_admin,
     # Audit Log Admin (GAPS.md GAP-P0-006)
     audit_admin,
+    # Evidence Pack API (verification_checklist_v2.md §1)
+    evidence,
 )
 
 api_router = APIRouter()
@@ -85,3 +87,6 @@ api_router.include_router(llm_admin.router, prefix="/admin/llm", tags=["LLM Admi
 
 # Audit Log Admin (GAPS.md GAP-P0-006) - Admin only
 api_router.include_router(audit_admin.router, prefix="/admin", tags=["Audit Admin"])
+
+# Evidence Pack API (verification_checklist_v2.md §1)
+api_router.include_router(evidence.router, prefix="/evidence", tags=["Evidence & Verification"])

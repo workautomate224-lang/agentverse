@@ -341,9 +341,12 @@ Respond in JSON format:
         ]
 
         # Use LLMRouter with EVENT_COMPILER_INTENT profile
+        # Phase="compilation" for C5 compliance tracking (§1.4)
+        context = LLMRouterContext(phase="compilation")
         response = await self.llm_router.complete(
             profile_key="EVENT_COMPILER_INTENT",
             messages=messages,
+            context=context,
             temperature_override=0.3,  # Low temperature for consistent classification
             max_tokens_override=500,
         )
@@ -442,9 +445,12 @@ Respond in JSON format:
         ]
 
         # Use LLMRouter with EVENT_COMPILER_DECOMPOSE profile
+        # Phase="compilation" for C5 compliance tracking (§1.4)
+        context = LLMRouterContext(phase="compilation")
         response = await self.llm_router.complete(
             profile_key="EVENT_COMPILER_DECOMPOSE",
             messages=messages,
+            context=context,
             temperature_override=0.5,
             max_tokens_override=1500,
         )
@@ -552,9 +558,12 @@ Respond in JSON format:
         ]
 
         # Use LLMRouter with EVENT_COMPILER_VARIABLE_MAP profile
+        # Phase="compilation" for C5 compliance tracking (§1.4)
+        context = LLMRouterContext(phase="compilation")
         response = await self.llm_router.complete(
             profile_key="EVENT_COMPILER_VARIABLE_MAP",
             messages=messages,
+            context=context,
             temperature_override=0.4,
             max_tokens_override=1500,
         )
@@ -674,9 +683,12 @@ Respond in JSON format:
         ]
 
         # Use LLMRouter with SCENARIO_GENERATOR profile
+        # Phase="compilation" for C5 compliance tracking (§1.4)
+        context = LLMRouterContext(phase="compilation")
         response = await self.llm_router.complete(
             profile_key="SCENARIO_GENERATOR",
             messages=messages,
+            context=context,
             temperature_override=0.7,  # Higher temperature for diversity
             max_tokens_override=4000,
         )
@@ -836,9 +848,12 @@ Respond in JSON format:
         ]
 
         # Use LLMRouter with EXPLANATION_GENERATOR profile
+        # Phase="compilation" for C5 compliance tracking (§1.4)
+        context = LLMRouterContext(phase="compilation")
         response = await self.llm_router.complete(
             profile_key="EXPLANATION_GENERATOR",
             messages=messages,
+            context=context,
             temperature_override=0.4,
             max_tokens_override=1500,
         )
