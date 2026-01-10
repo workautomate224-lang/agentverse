@@ -439,3 +439,158 @@ async def metrics_endpoint() -> Response:
         content=metrics_output,
         media_type=get_metrics_content_type(),
     )
+
+
+@router.get("/health/llm-canary")
+async def llm_canary_test(db: AsyncSession = Depends(get_db)) -> dict:
+    """
+    LLM Canary Test - Makes a REAL OpenRouter API call.
+
+    This endpoint is used for Step 3.1 validation to prove that:
+    1. The LLM integration is working (spends real tokens)
+    2. OpenRouter API key is valid
+    3. The system can make actual LLM calls
+
+    Returns detailed evidence of the real LLM call including:
+    - OpenRouter request_id (from response headers or body)
+    - Model used
+    - Token counts (input/output)
+    - Cost in USD
+    - Response time
+    - Actual LLM response content
+
+    Staging-only endpoint for validation purposes.
+    """
+    import json
+    import uuid
+    from datetime import datetime, timezone
+
+    import httpx
+
+    result: dict[str, Any] = {
+        "test_id": f"llm-canary-{str(uuid.uuid4())[:8]}",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "environment": getattr(settings, "ENVIRONMENT", "development"),
+        "purpose": "Step 3.1 E2E Validation - Real LLM Call Proof",
+    }
+
+    # Only allow in staging/development
+    env = getattr(settings, "ENVIRONMENT", "development")
+    if env == "production":
+        result["status"] = "skipped"
+        result["message"] = "LLM canary disabled in production"
+        return result
+
+    try:
+        # Get OpenRouter credentials
+        api_key = getattr(settings, "OPENROUTER_API_KEY", None)
+        base_url = getattr(settings, "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+
+        if not api_key:
+            result["status"] = "error"
+            result["message"] = "OPENROUTER_API_KEY not configured"
+            return result
+
+        # Make a minimal LLM call (fewest tokens possible)
+        canary_prompt = "Reply with exactly: CANARY_OK"
+        model = "openai/gpt-4o-mini"  # Fast, cheap model
+
+        start_time = time.perf_counter()
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "HTTP-Referer": "https://agentverse.ai",
+                    "X-Title": "AgentVerse LLM Canary Test",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": canary_prompt}],
+                    "temperature": 0,
+                    "max_tokens": 10,
+                },
+                timeout=30.0,
+            )
+
+            response.raise_for_status()
+            response_data = response.json()
+            response_headers = dict(response.headers)
+
+        response_time_ms = (time.perf_counter() - start_time) * 1000
+
+        # Extract usage info
+        usage = response_data.get("usage", {})
+        input_tokens = usage.get("prompt_tokens", 0)
+        output_tokens = usage.get("completion_tokens", 0)
+        total_tokens = usage.get("total_tokens", input_tokens + output_tokens)
+
+        # Extract request ID from response
+        openrouter_id = response_data.get("id", "unknown")
+
+        # Calculate cost (GPT-4o-mini pricing)
+        cost_per_1k_input = 0.00015
+        cost_per_1k_output = 0.0006
+        cost_usd = (
+            (input_tokens / 1000) * cost_per_1k_input +
+            (output_tokens / 1000) * cost_per_1k_output
+        )
+
+        # Extract actual response content
+        content = response_data.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+        # Build comprehensive result
+        result["status"] = "success"
+        result["llm_call"] = {
+            "openrouter_request_id": openrouter_id,
+            "model_requested": model,
+            "model_used": response_data.get("model", model),
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": total_tokens,
+            "cost_usd": round(cost_usd, 8),
+            "response_time_ms": round(response_time_ms, 2),
+            "response_content": content,
+            "canary_verified": "canary" in content.lower() or "ok" in content.lower(),
+        }
+        result["evidence"] = {
+            "api_endpoint": f"{base_url}/chat/completions",
+            "http_status": response.status_code,
+            "response_id_header": response_headers.get("x-request-id", "not_present"),
+        }
+
+        # Create llm_ledger entry for validation
+        ledger_entry = {
+            "timestamp": result["timestamp"],
+            "test_id": result["test_id"],
+            "request_id": openrouter_id,
+            "model": model,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": total_tokens,
+            "cost_usd": cost_usd,
+            "response_time_ms": response_time_ms,
+            "status": "success",
+            "content_preview": content[:100],
+        }
+        result["llm_ledger_entry"] = ledger_entry
+
+    except httpx.HTTPStatusError as e:
+        result["status"] = "error"
+        result["error_type"] = "http_error"
+        result["message"] = f"HTTP {e.response.status_code}: {str(e)}"
+        result["response_body"] = e.response.text[:500] if e.response else None
+    except httpx.RequestError as e:
+        result["status"] = "error"
+        result["error_type"] = "request_error"
+        result["message"] = str(e)
+    except Exception as e:
+        import traceback
+        result["status"] = "error"
+        result["error_type"] = "unexpected_error"
+        result["message"] = str(e)
+        result["traceback"] = traceback.format_exc()
+
+    return result
