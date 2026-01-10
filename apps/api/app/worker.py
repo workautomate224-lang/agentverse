@@ -1,16 +1,19 @@
 """
 Celery Worker Entry Point
+Reference: start-worker.sh
 
-This module exposes the Celery application for the worker command:
+This module provides the entry point for the Celery worker.
+It imports the celery_app instance and registers all signal handlers.
+
+Usage:
     celery -A app.worker worker --loglevel=info
 
-Reference: app/core/celery_app.py for full configuration
+The worker_ready signal in celery_app.py will fire when this worker starts,
+registering the boot_id in Redis for chaos testing.
 """
 
+# Import celery_app - this will register all signals
 from app.core.celery_app import celery_app
 
-# Re-export celery_app as 'app' for celery CLI compatibility
-app = celery_app
-
-# Also export as celery_app for explicit imports
-__all__ = ["celery_app", "app"]
+# Re-export for Celery CLI
+__all__ = ["celery_app"]

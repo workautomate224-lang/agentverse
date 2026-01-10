@@ -54,6 +54,9 @@ class WorkerStatusResponse(BaseModel):
     """Response from worker-status endpoint."""
     status: str
     boot_info: dict[str, Any] | None = None
+    worker_boot_id: str | None = None
+    last_seen_ts: str | None = None
+    redis_key_used: str = "staging:worker:boot_info"
     timestamp: str
 
 
@@ -280,24 +283,45 @@ async def get_worker_status(
     """
     verify_staging_access(x_api_key)
 
+    redis_key = "staging:worker:boot_info"
+
     try:
         r = redis.from_url(settings.REDIS_URL)
-        boot_info = await r.hgetall("staging:worker:boot_info")
+        boot_info = await r.hgetall(redis_key)
+
+        # Also get TTL for debugging
+        ttl = await r.ttl(redis_key)
         await r.close()
 
         if not boot_info:
             return WorkerStatusResponse(
                 status="unavailable",
                 boot_info=None,
+                worker_boot_id=None,
+                last_seen_ts=None,
+                redis_key_used=redis_key,
                 timestamp=datetime.now(timezone.utc).isoformat(),
             )
 
         # Decode byte keys/values
         decoded_info = {k.decode(): v.decode() for k, v in boot_info.items()}
 
+        # Extract worker_boot_id and timestamp
+        worker_boot_id = decoded_info.get("boot_id")
+        boot_timestamp = decoded_info.get("boot_timestamp")
+
+        # Calculate last seen based on TTL (300 - ttl = seconds since last refresh)
+        last_seen_ts = None
+        if boot_timestamp:
+            last_seen_ts = boot_timestamp  # When worker started
+        decoded_info["ttl_seconds"] = ttl
+
         return WorkerStatusResponse(
             status="available",
             boot_info=decoded_info,
+            worker_boot_id=worker_boot_id,
+            last_seen_ts=last_seen_ts,
+            redis_key_used=redis_key,
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
 
@@ -306,5 +330,8 @@ async def get_worker_status(
         return WorkerStatusResponse(
             status="error",
             boot_info={"error": str(e)},
+            worker_boot_id=None,
+            last_seen_ts=None,
+            redis_key_used=redis_key,
             timestamp=datetime.now(timezone.utc).isoformat(),
         )

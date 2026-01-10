@@ -710,6 +710,7 @@ class TriggeredBy(str, Enum):
     SYSTEM = "system"
     SCHEDULE = "schedule"
     API = "api"
+    BATCH = "batch"  # For multi-seed / ensemble runs
 
 
 class Run(Base):

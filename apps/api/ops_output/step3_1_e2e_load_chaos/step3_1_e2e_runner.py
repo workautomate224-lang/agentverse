@@ -1354,6 +1354,38 @@ class Step31E2ERunner:
             f.write(self._generate_evidence_document())
         print(f"  Saved: {evidence_path}")
 
+        # Save chaos_c1_proof.json (required evidence bundle)
+        c1_proof_path = self.output_dir / "chaos_c1_proof.json"
+        c1_result = self.results.chaos_tests.get("C1")
+        c1_proof = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "test_id": c1_result.test_id if c1_result else None,
+            "status": c1_result.status.value if c1_result else "NOT_RUN",
+            "before_boot_id": c1_result.details.get("before_boot_id") if c1_result else None,
+            "after_boot_id": c1_result.details.get("after_boot_id") if c1_result else None,
+            "boot_id_changed": c1_result.details.get("boot_id_changed", False) if c1_result else False,
+            "time_to_restart_seconds": c1_result.details.get("time_to_restart_seconds") if c1_result else None,
+            "restart_method": c1_result.details.get("restart_method") if c1_result else None,
+            "duration_ms": c1_result.duration_ms if c1_result else None,
+            "proof_valid": (
+                c1_result is not None and
+                c1_result.status == TestStatus.PASS and
+                c1_result.details.get("boot_id_changed", False) and
+                c1_result.details.get("before_boot_id") is not None and
+                c1_result.details.get("after_boot_id") is not None and
+                c1_result.details.get("before_boot_id") != c1_result.details.get("after_boot_id")
+            ),
+        }
+        with open(c1_proof_path, "w") as f:
+            json.dump(c1_proof, f, indent=2)
+        print(f"  Saved: {c1_proof_path}")
+
+        # Save logs.txt (test execution log)
+        logs_path = self.output_dir / "logs.txt"
+        with open(logs_path, "w") as f:
+            f.write(self._generate_logs_txt())
+        print(f"  Saved: {logs_path}")
+
         # Save REPs index
         reps_index_path = self.output_dir / "reps_index.json"
         reps_index = {
@@ -1534,6 +1566,129 @@ class Step31E2ERunner:
             "---",
             "",
             f"*Evidence generated at {self.results.test_completed_at}*",
+        ])
+
+        return "\n".join(lines)
+
+    def _generate_logs_txt(self) -> str:
+        """Generate plain text execution log."""
+        lines = [
+            "=" * 70,
+            "STEP 3.1 E2E LOAD & CHAOS VALIDATION LOG",
+            "=" * 70,
+            "",
+            f"Started:  {self.results.test_started_at}",
+            f"Finished: {self.results.test_completed_at}",
+            f"Duration: {self.results.total_duration_seconds:.1f}s",
+            f"Status:   {self.results.overall_status}",
+            "",
+            "-" * 70,
+            "ENVIRONMENT",
+            "-" * 70,
+        ]
+
+        for k, v in self.results.environment.items():
+            lines.append(f"  {k}: {v}")
+
+        lines.extend([
+            "",
+            "-" * 70,
+            "LLM CANARY TEST",
+            "-" * 70,
+        ])
+
+        if self.results.llm_canary:
+            llm = self.results.llm_canary
+            llm_call = llm.get("llm_call", {})
+            lines.extend([
+                f"  Status: {llm.get('status', 'unknown')}",
+                f"  Request ID: {llm_call.get('openrouter_request_id', 'N/A')}",
+                f"  Model: {llm_call.get('model_used', 'N/A')}",
+                f"  Tokens: {llm_call.get('total_tokens', 0)}",
+                f"  Cost: ${llm_call.get('cost_usd', 0):.6f}",
+            ])
+        else:
+            lines.append("  NOT EXECUTED")
+
+        lines.extend([
+            "",
+            "-" * 70,
+            "LOAD TESTS",
+            "-" * 70,
+        ])
+
+        for key, test in self.results.load_tests.items():
+            lines.extend([
+                f"  [{key}] {test.test_name}",
+                f"    Status: {test.status.value}",
+                f"    Success: {test.success_count}, Fail: {test.fail_count}",
+                f"    P50: {test.p50_ms:.1f}ms, P95: {test.p95_ms:.1f}ms",
+                f"    Duration: {test.duration_ms:.1f}ms",
+            ])
+
+        lines.extend([
+            "",
+            "-" * 70,
+            "CHAOS TESTS",
+            "-" * 70,
+        ])
+
+        for key, test in self.results.chaos_tests.items():
+            lines.extend([
+                f"  [{key}] {test.test_name}",
+                f"    Status: {test.status.value}",
+                f"    Method: {test.details.get('restart_method', 'N/A')}",
+            ])
+            if key == "C1":
+                lines.extend([
+                    f"    Before boot_id: {test.details.get('before_boot_id', 'N/A')}",
+                    f"    After boot_id: {test.details.get('after_boot_id', 'N/A')}",
+                    f"    Boot ID Changed: {test.details.get('boot_id_changed', False)}",
+                    f"    Time to Restart: {test.details.get('time_to_restart_seconds', 'N/A')}s",
+                ])
+            lines.append(f"    Duration: {test.duration_ms:.1f}ms")
+
+        lines.extend([
+            "",
+            "-" * 70,
+            "REP VALIDATION",
+            "-" * 70,
+            f"  Total REPs: {len(self.results.rep_integrity_results)}",
+            f"  Valid REPs: {sum(1 for r in self.results.rep_integrity_results if r.get('is_valid', False))}",
+            f"  Run IDs: {len(self.results.all_run_ids)}",
+            f"  LLM Ledger Entries: {self.results.llm_ledger_entries}",
+        ])
+
+        for i, rep in enumerate(self.results.rep_integrity_results):
+            lines.extend([
+                f"",
+                f"  REP #{i+1}:",
+                f"    Run ID: {rep.get('run_id', 'N/A')}",
+                f"    Valid: {rep.get('is_valid', False)}",
+                f"    Method: {rep.get('method', 'N/A')}",
+                f"    Files: {rep.get('files_found', [])}",
+            ])
+            if rep.get("errors"):
+                lines.append(f"    Errors: {rep.get('errors')}")
+
+        lines.extend([
+            "",
+            "-" * 70,
+            "ERRORS",
+            "-" * 70,
+        ])
+
+        if self.results.errors:
+            for err in self.results.errors:
+                lines.append(f"  - {err}")
+        else:
+            lines.append("  None")
+
+        lines.extend([
+            "",
+            "=" * 70,
+            f"END OF LOG - Status: {self.results.overall_status}",
+            "=" * 70,
         ])
 
         return "\n".join(lines)
