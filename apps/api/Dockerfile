@@ -26,11 +26,20 @@ COPY README.md ./
 # Copy application code
 COPY app ./app
 
+# Copy alembic for migrations
+COPY alembic ./alembic
+COPY alembic.ini ./
+
+# Copy startup scripts
+COPY start.sh ./
+COPY start-worker.sh ./
+RUN chmod +x start.sh start-worker.sh
+
 # Install the package
 RUN pip install .
 
 # Expose port
 EXPOSE 8000
 
-# Default command - using PORT env var for Railway
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Default command - run migrations then start API
+CMD ["./start.sh"]
