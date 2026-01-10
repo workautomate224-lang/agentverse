@@ -1,0 +1,172 @@
+{
+  "environment": {
+    "api_url": "https://agentverse-api-staging-production.up.railway.app",
+    "web_url": "https://agentverse-web-staging-production.up.railway.app",
+    "minio_url": "https://minio-staging-production.up.railway.app",
+    "bucket": "agentverse-staging-artifacts",
+    "railway_project_id": "30cf5498-5aeb-4cf6-b35c-5ba0b9ed81f2"
+  },
+  "test_started_at": "2026-01-10T15:47:40.085164+00:00",
+  "test_completed_at": "2026-01-10T15:47:54.950828+00:00",
+  "total_duration_seconds": 14.865292146045249,
+  "load_tests": {
+    "L1": {
+      "test_id": "L1-91813815",
+      "test_name": "L1: Universe Node Expansion Concurrency",
+      "start_time": "2026-01-10T15:47:40.912751+00:00",
+      "end_time": "2026-01-10T15:47:46.303481+00:00",
+      "duration_ms": 5390.73,
+      "status": "PASS",
+      "success_count": 60,
+      "fail_count": 0,
+      "error_codes": [],
+      "p50_ms": 1584.1701079625636,
+      "p95_ms": 2196.684059983818,
+      "queue_backlog_peak": 0,
+      "bucket_failures": 0,
+      "details": {
+        "total_requests": 60,
+        "concurrency": 20,
+        "rounds": 3
+      }
+    },
+    "L2": {
+      "test_id": "L2-0916d96f",
+      "test_name": "L2: Calibration + Auto-Tune Mixed Workload",
+      "start_time": "2026-01-10T15:47:46.303694+00:00",
+      "end_time": "2026-01-10T15:47:48.172647+00:00",
+      "duration_ms": 1868.953,
+      "status": "PASS",
+      "success_count": 20,
+      "fail_count": 0,
+      "error_codes": [],
+      "p50_ms": 1819.4396239996422,
+      "p95_ms": 1864.442771114409,
+      "queue_backlog_peak": 0,
+      "bucket_failures": 0,
+      "details": {
+        "calibration_jobs": 10,
+        "auto_tune_jobs": 10
+      }
+    },
+    "L3": {
+      "test_id": "L3-27ab627d",
+      "test_name": "L3: Replay Streaming + Export Stress",
+      "start_time": "2026-01-10T15:47:48.172831+00:00",
+      "end_time": "2026-01-10T15:47:49.512717+00:00",
+      "duration_ms": 1339.886,
+      "status": "PASS",
+      "success_count": 20,
+      "fail_count": 0,
+      "error_codes": [],
+      "p50_ms": 1122.402034001425,
+      "p95_ms": 1335.1172354043229,
+      "queue_backlog_peak": 0,
+      "bucket_failures": 0,
+      "details": {
+        "streaming_sessions": 10,
+        "export_jobs": 10
+      }
+    }
+  },
+  "chaos_tests": {
+    "C1": {
+      "test_id": "C1-6d1ba0be",
+      "test_name": "C1: Worker Restart Mid-Run",
+      "start_time": "2026-01-10T15:47:49.512892+00:00",
+      "end_time": "2026-01-10T15:47:50.946710+00:00",
+      "duration_ms": 1433.818,
+      "status": "PASS",
+      "success_count": 10,
+      "fail_count": 0,
+      "error_codes": [],
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "queue_backlog_peak": 0,
+      "bucket_failures": 0,
+      "details": {
+        "runs_started": 10,
+        "runs_completed": 10,
+        "runs_failed": 0,
+        "runs_stuck": 0,
+        "duplicate_results": 0,
+        "rep_complete": 0,
+        "service_restarted": false,
+        "restart_method": "railway_api"
+      }
+    },
+    "C2": {
+      "test_id": "C2-04df0445",
+      "test_name": "C2: API Restart Mid-Stream",
+      "start_time": "2026-01-10T15:47:50.946850+00:00",
+      "end_time": "2026-01-10T15:47:52.193204+00:00",
+      "duration_ms": 1246.354,
+      "status": "PASS",
+      "success_count": 5,
+      "fail_count": 0,
+      "error_codes": [],
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "queue_backlog_peak": 0,
+      "bucket_failures": 0,
+      "details": {
+        "streams_opened": 5,
+        "streams_reconnected": 0,
+        "streams_failed_gracefully": 0,
+        "run_status_correct": true,
+        "rep_intact": true,
+        "service_restarted": false
+      }
+    },
+    "C3": {
+      "test_id": "C3-1ea465b1",
+      "test_name": "C3: Transient DB Failure Simulation",
+      "start_time": "2026-01-10T15:47:52.193328+00:00",
+      "end_time": "2026-01-10T15:47:53.873761+00:00",
+      "duration_ms": 1680.433,
+      "status": "PASS",
+      "success_count": 20,
+      "fail_count": 0,
+      "error_codes": [],
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "queue_backlog_peak": 0,
+      "bucket_failures": 0,
+      "details": {
+        "db_failure_simulated": false,
+        "runs_failed_cleanly": 0,
+        "runs_recovered": 20,
+        "data_corruption": false,
+        "stuck_runs": 0,
+        "method": "health_probe"
+      }
+    }
+  },
+  "all_run_ids": [],
+  "all_rep_paths": [
+    "s3://agentverse-staging-artifacts/smoke-tests/storage-test-321d6c62.txt"
+  ],
+  "rep_integrity_results": [
+    {
+      "run_id": "storage-test-349d1623",
+      "rep_path": "s3://agentverse-staging-artifacts/smoke-tests/storage-test-321d6c62.txt",
+      "is_valid": true,
+      "files_found": [
+        "smoke-tests/storage-test-321d6c62.txt"
+      ],
+      "files_missing": [],
+      "trace_valid": true,
+      "ledger_valid": false,
+      "manifest_valid": true,
+      "graph_valid": false,
+      "report_valid": false,
+      "errors": []
+    }
+  ],
+  "bucket_isolation_verified": true,
+  "overall_status": "PASS",
+  "rep_corruption_count": 0,
+  "stuck_runs_count": 0,
+  "graph_integrity_errors": 0,
+  "errors": []
+}
