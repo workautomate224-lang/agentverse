@@ -21,9 +21,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, get_db, get_tenant_context
+from app.api.deps import get_current_user, get_db
+from app.middleware.tenant import TenantContext, get_tenant_context
 from app.models.user import User
-from app.models.tenant import TenantContext
 from app.models.audit import TenantAuditAction, TenantAuditService
 
 logger = logging.getLogger(__name__)
