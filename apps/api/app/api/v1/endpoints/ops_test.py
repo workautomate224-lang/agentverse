@@ -59,6 +59,24 @@ class TestStatusResponse(BaseModel):
     timestamp: str
 
 
+class DbCheckResponse(BaseModel):
+    """Response from db-check endpoint."""
+    status: str
+    tables_found: list[str]
+    tables_missing: list[str]
+    migration_head: Optional[str] = None
+    message: Optional[str] = None
+    timestamp: str
+
+
+class MigrationResponse(BaseModel):
+    """Response from run-migrations endpoint."""
+    status: str
+    message: str
+    output: Optional[str] = None
+    timestamp: str
+
+
 # =============================================================================
 # Auth Helper
 # =============================================================================
@@ -313,3 +331,128 @@ async def get_test_status(
         worker_available=worker_available,
         timestamp=datetime.now(timezone.utc).isoformat(),
     )
+
+
+@router.get("/db-check", response_model=DbCheckResponse)
+async def check_database(
+    x_api_key: str = Header(..., alias="X-API-Key"),
+    db: AsyncSession = Depends(get_db),
+) -> DbCheckResponse:
+    """
+    Check database schema status.
+
+    Returns list of required tables and which are present/missing.
+    Useful for debugging migration issues.
+    """
+    verify_staging_access(x_api_key)
+
+    required_tables = [
+        "project_specs",
+        "nodes",
+        "runs",
+        "event_scripts",
+        "llm_calls",
+    ]
+
+    tables_found = []
+    tables_missing = []
+
+    try:
+        from sqlalchemy import text
+
+        for table in required_tables:
+            result = await db.execute(
+                text(f"SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = :table)"),
+                {"table": table}
+            )
+            exists = result.scalar()
+            if exists:
+                tables_found.append(table)
+            else:
+                tables_missing.append(table)
+
+        # Get current migration head
+        migration_head = None
+        try:
+            result = await db.execute(text("SELECT version_num FROM alembic_version LIMIT 1"))
+            row = result.fetchone()
+            if row:
+                migration_head = row[0]
+        except Exception:
+            migration_head = "alembic_version table not found"
+
+        status = "ok" if not tables_missing else "missing_tables"
+
+        return DbCheckResponse(
+            status=status,
+            tables_found=tables_found,
+            tables_missing=tables_missing,
+            migration_head=migration_head,
+            message=f"Found {len(tables_found)}/{len(required_tables)} required tables",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+
+    except Exception as e:
+        logger.exception(f"Error checking database: {e}")
+        return DbCheckResponse(
+            status="error",
+            tables_found=tables_found,
+            tables_missing=tables_missing,
+            message=str(e),
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+
+
+@router.post("/run-migrations", response_model=MigrationResponse)
+async def run_migrations(
+    x_api_key: str = Header(..., alias="X-API-Key"),
+) -> MigrationResponse:
+    """
+    Trigger database migrations.
+
+    Runs `alembic upgrade head` synchronously and returns the result.
+    This is a staging-only endpoint for fixing migration issues.
+    """
+    verify_staging_access(x_api_key)
+
+    try:
+        import subprocess
+        import os
+
+        # Run alembic upgrade head
+        result = subprocess.run(
+            ["alembic", "upgrade", "head"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
+        )
+
+        if result.returncode == 0:
+            return MigrationResponse(
+                status="success",
+                message="Migrations completed successfully",
+                output=result.stdout + result.stderr,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+        else:
+            return MigrationResponse(
+                status="failed",
+                message=f"Migrations failed with exit code {result.returncode}",
+                output=result.stdout + result.stderr,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+
+    except subprocess.TimeoutExpired:
+        return MigrationResponse(
+            status="timeout",
+            message="Migration command timed out after 120 seconds",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+    except Exception as e:
+        logger.exception(f"Error running migrations: {e}")
+        return MigrationResponse(
+            status="error",
+            message=str(e),
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
