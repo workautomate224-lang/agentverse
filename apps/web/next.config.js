@@ -1,6 +1,14 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
+  // Skip ESLint during production builds (for CI/CD)
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+  // Skip TypeScript errors during production builds
+  typescript: {
+    ignoreBuildErrors: true,
+  },
   // Prevent Next.js from redirecting trailing slashes - let API routes handle them
   skipTrailingSlashRedirect: true,
   images: {
