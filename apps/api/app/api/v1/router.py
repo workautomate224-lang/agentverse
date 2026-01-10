@@ -30,6 +30,8 @@ from app.api.v1.endpoints import (
     ask,
     # Target Mode (project.md §11 Phase 5)
     target_mode,
+    # Calibration & Reliability (project.md §11 Phase 7)
+    calibration,
     # 2D Replay (project.md §11 Phase 8)
     replay,
     # Export Controls (project.md §11 Phase 9)
@@ -42,6 +44,10 @@ from app.api.v1.endpoints import (
     audit_admin,
     # Evidence Pack API (verification_checklist_v2.md §1)
     evidence,
+    # Knowledge Graph / Universe Ops (STEP 9)
+    universe_graph,
+    # Governance, Cost Controls, Safety (STEP 10)
+    governance,
 )
 
 api_router = APIRouter()
@@ -73,6 +79,9 @@ api_router.include_router(event_scripts.router, tags=["Event Scripts"])
 api_router.include_router(ask.router, prefix="/ask", tags=["Ask - Event Compiler"])
 api_router.include_router(target_mode.router, prefix="/target", tags=["Target Mode"])
 
+# Calibration & Reliability (project.md §11 Phase 7)
+api_router.include_router(calibration.router, prefix="/calibration", tags=["Calibration & Reliability"])
+
 # 2D Replay (project.md §11 Phase 8) - READ-ONLY per C3
 api_router.include_router(replay.router, prefix="/replay", tags=["2D Replay"])
 
@@ -90,3 +99,9 @@ api_router.include_router(audit_admin.router, prefix="/admin", tags=["Audit Admi
 
 # Evidence Pack API (verification_checklist_v2.md §1)
 api_router.include_router(evidence.router, prefix="/evidence", tags=["Evidence & Verification"])
+
+# Knowledge Graph / Universe Ops (STEP 9)
+api_router.include_router(universe_graph.router, prefix="/universe-graph", tags=["Knowledge Graph / Universe Ops"])
+
+# Governance, Cost Controls, Safety (STEP 10)
+api_router.include_router(governance.router, prefix="/governance", tags=["Governance & Cost Controls"])

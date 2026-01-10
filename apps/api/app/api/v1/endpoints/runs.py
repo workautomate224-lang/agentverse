@@ -816,3 +816,396 @@ async def start_batch_runs(
         "total_started": len(started),
         "total_failed": len(failed),
     }
+
+
+# =============================================================================
+# STEP 1 Audit Endpoints - RunSpec, RunTrace, Worker Heartbeats
+# =============================================================================
+
+class RunSpecResponse(BaseModel):
+    """RunSpec artifact response (STEP 1: Artifact 1)."""
+    run_id: str
+    project_id: str
+    ticks_total: int
+    seed: int
+    llm_config: dict = Field(..., alias="model_config")
+    environment_spec: dict
+    scheduler_config: Optional[dict]
+    engine_version: str
+    ruleset_version: str
+    dataset_version: str
+    created_at: str
+
+    model_config = {"populate_by_name": True}
+
+
+class RunTraceEntryResponse(BaseModel):
+    """RunTrace entry response (STEP 1: Artifact 2)."""
+    run_id: str
+    timestamp: str
+    worker_id: str
+    execution_stage: str
+    description: Optional[str]
+    tick_number: Optional[int]
+    agents_processed: Optional[int]
+    events_count: Optional[int]
+    duration_ms: Optional[int]
+
+
+class WorkerHeartbeatResponse(BaseModel):
+    """Worker heartbeat response (STEP 1: Worker tracking)."""
+    worker_id: str
+    hostname: Optional[str]
+    last_seen_at: str
+    status: str
+    current_run_id: Optional[str]
+    runs_executed: int
+    runs_failed: int
+
+
+@router.get(
+    "/{run_id}/spec",
+    response_model=RunSpecResponse,
+    summary="Get RunSpec artifact (STEP 1: Artifact 1)",
+)
+async def get_run_spec(
+    run_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_ctx: TenantContext = Depends(require_tenant),
+) -> RunSpecResponse:
+    """
+    Get the RunSpec artifact for a run.
+
+    STEP 1 Requirement - RunSpec must include:
+    - run_id
+    - project_id
+    - ticks_total or horizon (must be > 0)
+    - seed
+    - model or model configuration
+    - environment_spec
+    - created_at
+    """
+    from sqlalchemy import text
+
+    query = text("""
+        SELECT run_id, project_id, ticks_total, seed, model_config,
+               environment_spec, scheduler_config, engine_version,
+               ruleset_version, dataset_version, created_at
+        FROM run_specs
+        WHERE run_id = :run_id AND tenant_id = :tenant_id
+    """)
+
+    result = await db.execute(query, {
+        "run_id": run_id,
+        "tenant_id": tenant_ctx.tenant_id,
+    })
+    row = result.fetchone()
+
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"RunSpec not found for run {run_id}",
+        )
+
+    return RunSpecResponse(
+        run_id=str(row.run_id),
+        project_id=str(row.project_id),
+        ticks_total=row.ticks_total,
+        seed=row.seed,
+        model_config=row.model_config if isinstance(row.model_config, dict) else {},
+        environment_spec=row.environment_spec if isinstance(row.environment_spec, dict) else {},
+        scheduler_config=row.scheduler_config if isinstance(row.scheduler_config, dict) else None,
+        engine_version=row.engine_version,
+        ruleset_version=row.ruleset_version,
+        dataset_version=row.dataset_version,
+        created_at=row.created_at.isoformat() if row.created_at else None,
+    )
+
+
+@router.get(
+    "/{run_id}/traces",
+    response_model=List[RunTraceEntryResponse],
+    summary="Get RunTrace entries (STEP 1: Artifact 2)",
+)
+async def get_run_traces(
+    run_id: str,
+    limit: int = Query(100, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_ctx: TenantContext = Depends(require_tenant),
+) -> List[RunTraceEntryResponse]:
+    """
+    Get RunTrace entries for a run.
+
+    STEP 1 Requirement - At least 3 real trace entries:
+    - Each entry includes: run_id, timestamp, worker_id, execution_stage
+    """
+    from sqlalchemy import text
+
+    query = text("""
+        SELECT run_id, timestamp, worker_id, execution_stage, description,
+               tick_number, agents_processed, events_count, duration_ms
+        FROM run_traces
+        WHERE run_id = :run_id AND tenant_id = :tenant_id
+        ORDER BY timestamp ASC
+        LIMIT :limit
+    """)
+
+    result = await db.execute(query, {
+        "run_id": run_id,
+        "tenant_id": tenant_ctx.tenant_id,
+        "limit": limit,
+    })
+    rows = result.fetchall()
+
+    return [
+        RunTraceEntryResponse(
+            run_id=str(row.run_id),
+            timestamp=row.timestamp.isoformat() if row.timestamp else None,
+            worker_id=row.worker_id,
+            execution_stage=row.execution_stage,
+            description=row.description,
+            tick_number=row.tick_number,
+            agents_processed=row.agents_processed,
+            events_count=row.events_count,
+            duration_ms=row.duration_ms,
+        )
+        for row in rows
+    ]
+
+
+@router.get(
+    "/workers/heartbeats",
+    response_model=List[WorkerHeartbeatResponse],
+    summary="Get worker heartbeats (STEP 1: Worker tracking)",
+)
+async def get_worker_heartbeats(
+    active_only: bool = Query(True, description="Only show active workers"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_ctx: TenantContext = Depends(require_tenant),
+) -> List[WorkerHeartbeatResponse]:
+    """
+    Get worker heartbeat information.
+
+    STEP 1 Requirement - Worker heartbeat with:
+    - worker_id
+    - last_seen_at
+    - current_run_id (which run the worker is executing)
+    """
+    from sqlalchemy import text
+    from datetime import timedelta
+
+    # Consider workers active if seen in last 5 minutes
+    cutoff = datetime.utcnow() - timedelta(minutes=5)
+
+    if active_only:
+        query = text("""
+            SELECT worker_id, hostname, last_seen_at, status, current_run_id,
+                   runs_executed, runs_failed
+            FROM worker_heartbeats
+            WHERE last_seen_at > :cutoff
+            ORDER BY last_seen_at DESC
+        """)
+        result = await db.execute(query, {"cutoff": cutoff})
+    else:
+        query = text("""
+            SELECT worker_id, hostname, last_seen_at, status, current_run_id,
+                   runs_executed, runs_failed
+            FROM worker_heartbeats
+            ORDER BY last_seen_at DESC
+            LIMIT 100
+        """)
+        result = await db.execute(query)
+
+    rows = result.fetchall()
+
+    return [
+        WorkerHeartbeatResponse(
+            worker_id=row.worker_id,
+            hostname=row.hostname,
+            last_seen_at=row.last_seen_at.isoformat() if row.last_seen_at else None,
+            status=row.status,
+            current_run_id=str(row.current_run_id) if row.current_run_id else None,
+            runs_executed=row.runs_executed or 0,
+            runs_failed=row.runs_failed or 0,
+        )
+        for row in rows
+    ]
+
+
+@router.get(
+    "/{run_id}/outcome",
+    summary="Get Run Outcome (STEP 1: Artifact 3)",
+)
+async def get_run_outcome(
+    run_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_ctx: TenantContext = Depends(require_tenant),
+) -> dict:
+    """
+    Get the Outcome artifact for a completed run.
+
+    STEP 1 Requirement - Outcome must include:
+    - run_id
+    - at least one real numeric result
+    - status = completed
+    """
+    from app.services import get_simulation_orchestrator
+
+    orchestrator = get_simulation_orchestrator(db)
+    run = await orchestrator.get_run(run_id, tenant_ctx.tenant_id)
+
+    if not run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Run {run_id} not found",
+        )
+
+    if run.status != "succeeded":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Run not completed. Status: {run.status}",
+        )
+
+    outputs = run.outputs or {}
+    outcomes = outputs.get("outcomes", {})
+
+    # STEP 1 Validation: Ensure at least one real numeric result
+    key_metrics = outcomes.get("key_metrics", [])
+    has_numeric = any(
+        isinstance(m.get("value"), (int, float)) and m.get("value") != 0
+        for m in key_metrics
+    )
+
+    if not has_numeric:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="STEP 1 VIOLATION: Outcome has no real numeric results",
+        )
+
+    return {
+        "run_id": str(run.id),
+        "status": "completed",
+        "primary_outcome": outcomes.get("primary_outcome"),
+        "primary_outcome_probability": outcomes.get("primary_outcome_probability"),
+        "outcome_distribution": outcomes.get("outcome_distribution"),
+        "key_metrics": key_metrics,
+        "variance_metrics": outcomes.get("variance_metrics"),
+        "summary_text": outcomes.get("summary_text"),
+        "seed": outcomes.get("seed"),
+        "reliability": outputs.get("reliability"),
+        "execution_counters": outputs.get("execution_counters"),
+    }
+
+
+# =============================================================================
+# STEP 1: Retry Failed Run Endpoint
+# =============================================================================
+
+@router.post(
+    "/{run_id}/retry",
+    response_model=RunResponse,
+    summary="Retry a failed run (STEP 1: Retry Failed Run)",
+)
+async def retry_failed_run(
+    run_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_ctx: TenantContext = Depends(require_tenant),
+) -> RunResponse:
+    """
+    Retry a failed simulation run.
+
+    STEP 1 Requirement - 'Retry Failed Run' button must:
+    - Trigger request with request_id and relevant ids
+    - Validate input schema and permissions
+    - Write DB records and emit AuditLog entry
+    - Show loading state driven by backend response
+    - Return actionable error on failure
+
+    This creates a NEW run with the same configuration as the failed run.
+    The original failed run is preserved for audit purposes (C4: Auditable).
+    """
+    from app.services import get_simulation_orchestrator
+    from app.services.simulation_orchestrator import CreateRunInput, RunConfigInput
+
+    orchestrator = get_simulation_orchestrator(db)
+
+    # Get the failed run
+    failed_run = await orchestrator.get_run(run_id, tenant_ctx.tenant_id)
+
+    if not failed_run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Run {run_id} not found",
+        )
+
+    if failed_run.status != "failed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Only failed runs can be retried. Current status: {failed_run.status}",
+        )
+
+    try:
+        # Extract configuration from failed run
+        failed_outputs = failed_run.outputs or {}
+        failed_config = failed_outputs.get("config", {})
+
+        config_input = RunConfigInput(
+            run_mode=failed_config.get("run_mode", "society"),
+            max_ticks=failed_config.get("max_ticks", 100),
+            agent_batch_size=failed_config.get("agent_batch_size", 100),
+            society_mode=failed_config.get("society_mode"),
+            engine_version=failed_config.get("engine_version", "0.1.0"),
+            ruleset_version=failed_config.get("ruleset_version", "1.0.0"),
+            dataset_version=failed_config.get("dataset_version", "1.0.0"),
+        )
+
+        # Create new run with same configuration
+        run_input = CreateRunInput(
+            project_id=str(failed_run.project_id),
+            node_id=str(failed_run.node_id),
+            label=f"Retry of {failed_run.label or run_id}",
+            config=config_input,
+            seeds=[failed_run.actual_seed] if failed_run.actual_seed else [42],
+            user_id=str(current_user.id),
+            tenant_id=tenant_ctx.tenant_id,
+        )
+
+        # Create and start the retry run
+        run, node, task_id = await orchestrator.create_and_start_run(run_input)
+
+        await db.commit()
+
+        return RunResponse(
+            run_id=str(run.id),
+            node_id=str(run.node_id),
+            project_id=str(run.project_id),
+            label=run.label,
+            status=run.status,
+            config=run.outputs.get("config", {}) if run.outputs else {},
+            seeds=[run.actual_seed] if run.actual_seed else [],
+            created_at=run.created_at.isoformat() if run.created_at else None,
+            started_at=run.timing.get("started_at") if run.timing else None,
+            completed_at=run.timing.get("completed_at") if run.timing else None,
+            ticks_completed=run.timing.get("ticks_executed", 0) if run.timing else 0,
+            agents_processed=run.timing.get("agents_processed", 0) if run.timing else 0,
+            task_id=task_id,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        import traceback
+        import logging
+        logging.error(f"Failed to retry run: {str(e)}\n{traceback.format_exc()}")
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retry run: {str(e)}",
+        )

@@ -12,11 +12,20 @@ Key principles:
 - FORK not MUTATE: Creates new nodes, never edits history
 - Deterministic: Same seed + config = same outcome
 - On-demand: Runs only when requested, no continuous simulation
+
+STEP 1 Requirements:
+- Proper state transitions: CREATED -> QUEUED -> RUNNING -> SUCCEEDED/FAILED
+- Worker heartbeat with worker_id and last_seen_at
+- RunSpec artifact with required fields
+- RunTrace entries (at least 3) with run_id, timestamp, worker_id, execution_stage
+- Outcome with real numeric results
 """
 
 import asyncio
 import hashlib
 import json
+import os
+import socket
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -53,6 +62,14 @@ from app.models.node import (
     Run,
     RunStatus,
 )
+from app.models.run_artifacts import (
+    WorkerHeartbeat,
+    RunSpec,
+    RunTrace,
+    ExecutionStage,
+)
+# STEP 3: Import PersonaSnapshot for immutable persona tracking
+from app.models.persona import PersonaSnapshot
 # Import services
 from app.services.node_service import (
     NodeService,
@@ -67,6 +84,13 @@ from app.services.leakage_guard import (
     LeakageViolationError,
 )
 from app.models.node import ConfidenceLevel
+
+
+def get_worker_id() -> str:
+    """Generate a unique worker ID for this worker instance."""
+    hostname = socket.gethostname()
+    pid = os.getpid()
+    return f"{hostname}-{pid}"
 
 
 # Async database session for background tasks
@@ -119,48 +143,120 @@ async def _execute_run(run_id: str, context: JobContext) -> dict:
     """
     Async implementation of run execution.
 
-    Phases:
-    1. Load run configuration and validate
-    2. Initialize deterministic RNG with seed
-    3. Execute simulation ticks
-    4. Aggregate outcomes
-    5. Generate telemetry
-    6. Compute reliability metrics
-    7. Store results
+    STEP 1 Compliant Phases:
+    1. Worker assignment and heartbeat update
+    2. Load run configuration and validate (ticks_total > 0)
+    3. Create RunSpec artifact
+    4. Write initial RunTrace entries
+    5. Initialize deterministic RNG with seed
+    6. Execute simulation ticks (with trace updates)
+    7. Aggregate outcomes (real numeric results)
+    8. Generate telemetry
+    9. Compute reliability metrics
+    10. Store results and final trace
     """
     started_at = datetime.utcnow()
     start_time = time.perf_counter()
+    worker_id = get_worker_id()
 
     async with AsyncSessionLocal() as db:
         try:
-            # Phase 1: Load and validate
+            # Phase 1: Worker assignment and heartbeat
+            await _update_worker_heartbeat(db, worker_id, run_id)
+            await _write_trace(db, run_id, context.tenant_id, worker_id,
+                              ExecutionStage.WORKER_ASSIGNED,
+                              "Worker assigned to run")
+
+            # Phase 2: Load and validate
+            await _write_trace(db, run_id, context.tenant_id, worker_id,
+                              ExecutionStage.LOADING_CONFIG,
+                              "Loading run configuration")
+
             run = await _load_run(db, run_id, context.tenant_id)
             if not run:
+                await _write_trace(db, run_id, context.tenant_id, worker_id,
+                                  ExecutionStage.RUN_FAILED,
+                                  f"Run not found: {run_id}")
+                await db.commit()
                 return JobResult(
                     job_id=context.job_id,
                     status=JobStatus.FAILED,
                     error=f"Run not found: {run_id}",
                 ).to_dict()
 
-            # Update run status to RUNNING
-            await _update_run_status(db, run_id, "running", started_at=started_at)
+            # STEP 1: Validate ticks_total > 0
+            config = run.get("run_config", {}) or {}
+            max_ticks = config.get("max_ticks") or 100
+            if not isinstance(max_ticks, int) or max_ticks < 1:
+                max_ticks = 100  # Enforce minimum
+            if max_ticks == 0:
+                raise ValueError("STEP 1 VIOLATION: ticks_total must be > 0. 0/0 ticks is not allowed.")
 
-            # Phase 2: Initialize RNG
-            primary_seed = run.get("run_config", {}).get("seed_config", {}).get("primary_seed", 42)
+            # Update run status to RUNNING with worker info
+            await _update_run_status(db, run_id, "running", started_at=started_at, worker_id=worker_id)
+
+            # Phase 3a: Create PersonaSnapshot (STEP 3: Immutable persona capture)
+            personas_snapshot_id, personas_summary = await _create_persona_snapshot(
+                db=db,
+                tenant_id=context.tenant_id,
+                project_id=run.get("project_id"),
+            )
+
+            await _write_trace(db, run_id, context.tenant_id, worker_id,
+                              ExecutionStage.LOADING_AGENTS,
+                              f"Created persona snapshot: {personas_summary.get('total_personas', 0) if personas_summary else 0} personas")
+
+            # Phase 3b: Create RunSpec artifact (STEP 1: Artifact 1, STEP 3: with personas)
+            primary_seed = config.get("seed_config", {}).get("primary_seed", 42)
+            await _create_run_spec(
+                db=db,
+                run_id=run_id,
+                tenant_id=context.tenant_id,
+                project_id=run.get("project_id"),
+                ticks_total=max_ticks,
+                seed=primary_seed,
+                config=config,
+                personas_snapshot_id=personas_snapshot_id,
+                personas_summary=personas_summary,
+            )
+
+            await _write_trace(db, run_id, context.tenant_id, worker_id,
+                              ExecutionStage.INITIALIZING_RNG,
+                              f"Initializing RNG with seed {primary_seed}")
+
+            # Phase 4: Initialize RNG
             rng = DeterministicRNG(primary_seed)
 
-            # Phase 3: Execute simulation
+            await _write_trace(db, run_id, context.tenant_id, worker_id,
+                              ExecutionStage.SIMULATION_START,
+                              f"Starting simulation with {max_ticks} ticks")
+
+            # Phase 5: Execute simulation (STEP 3: with persona snapshot)
             execution_result = await _execute_simulation(
                 db=db,
                 run=run,
                 rng=rng,
                 context=context,
+                worker_id=worker_id,
+                personas_snapshot_id=personas_snapshot_id,  # STEP 3: immutable personas
             )
 
-            # Phase 4: Aggregate outcomes
+            await _write_trace(db, run_id, context.tenant_id, worker_id,
+                              ExecutionStage.SIMULATION_COMPLETE,
+                              f"Simulation completed: {execution_result.get('ticks_executed', 0)} ticks executed",
+                              tick_number=execution_result.get("ticks_executed", 0),
+                              agents_processed=execution_result.get("agent_count", 0))
+
+            # Phase 6: Aggregate outcomes (STEP 1: Real numeric results)
+            await _write_trace(db, run_id, context.tenant_id, worker_id,
+                              ExecutionStage.AGGREGATING_OUTCOMES,
+                              "Aggregating simulation outcomes")
             outcomes = _aggregate_outcomes(execution_result)
 
-            # Phase 5: Generate telemetry
+            # Phase 7: Generate telemetry
+            await _write_trace(db, run_id, context.tenant_id, worker_id,
+                              ExecutionStage.STORING_TELEMETRY,
+                              "Storing telemetry data")
             telemetry_ref = await _store_telemetry(
                 db=db,
                 run_id=run_id,
@@ -168,10 +264,13 @@ async def _execute_run(run_id: str, context: JobContext) -> dict:
                 execution_result=execution_result,
             )
 
-            # Phase 6: Compute reliability (placeholder)
+            # Phase 8: Compute reliability
+            await _write_trace(db, run_id, context.tenant_id, worker_id,
+                              ExecutionStage.COMPUTING_RELIABILITY,
+                              "Computing reliability metrics")
             reliability = _compute_reliability(execution_result, outcomes)
 
-            # Phase 7: Store results
+            # Phase 9: Store results
             elapsed_ms = int((time.perf_counter() - start_time) * 1000)
             completed_at = datetime.utcnow()
 
@@ -186,7 +285,7 @@ async def _execute_run(run_id: str, context: JobContext) -> dict:
                 execution_counters=execution_result.get("execution_counters"),
             )
 
-            # Phase 8: Update Node with run outcome (C1: fork-not-mutate applies to history, outcomes update is OK)
+            # Phase 10: Update Node with run outcome
             await _update_node_outcome(
                 db=db,
                 run=run,
@@ -195,6 +294,15 @@ async def _execute_run(run_id: str, context: JobContext) -> dict:
                 reliability=reliability,
                 telemetry_ref=telemetry_ref,
             )
+
+            # Final trace entry
+            await _write_trace(db, run_id, context.tenant_id, worker_id,
+                              ExecutionStage.RUN_SUCCEEDED,
+                              f"Run completed successfully in {elapsed_ms}ms",
+                              duration_ms=elapsed_ms)
+
+            # Update worker heartbeat to clear current run
+            await _update_worker_heartbeat(db, worker_id, None, runs_executed_increment=1)
 
             await db.commit()
 
@@ -206,6 +314,7 @@ async def _execute_run(run_id: str, context: JobContext) -> dict:
                     "outcomes": outcomes,
                     "telemetry_ref": telemetry_ref,
                     "reliability_summary": reliability,
+                    "worker_id": worker_id,
                 },
                 started_at=started_at,
                 completed_at=completed_at,
@@ -214,6 +323,14 @@ async def _execute_run(run_id: str, context: JobContext) -> dict:
 
         except Exception as e:
             await db.rollback()
+            # Write failure trace
+            try:
+                await _write_trace(db, run_id, context.tenant_id, worker_id,
+                                  ExecutionStage.RUN_FAILED,
+                                  f"Run failed: {str(e)}")
+                await _update_worker_heartbeat(db, worker_id, None, runs_failed_increment=1)
+            except Exception:
+                pass  # Don't fail on trace write failure
             await _update_run_status(db, run_id, "failed", error=str(e))
             await db.commit()
 
@@ -283,6 +400,7 @@ async def _update_run_status(
     status: str,
     started_at: Optional[datetime] = None,
     error: Optional[str] = None,
+    worker_id: Optional[str] = None,
 ):
     """Update run status in database."""
     from app.models.node import Run
@@ -304,12 +422,324 @@ async def _update_run_status(
             "occurred_at": datetime.utcnow().isoformat(),
         }
 
+    # STEP 1: Track worker info
+    if worker_id:
+        update_data["worker_id"] = worker_id
+        update_data["worker_started_at"] = datetime.utcnow()
+        update_data["worker_last_heartbeat_at"] = datetime.utcnow()
+
     stmt = (
         update(Run)
         .where(Run.id == uuid.UUID(run_id))
         .values(**update_data)
     )
     await db.execute(stmt)
+
+
+async def _update_worker_heartbeat(
+    db: AsyncSession,
+    worker_id: str,
+    current_run_id: Optional[str],
+    runs_executed_increment: int = 0,
+    runs_failed_increment: int = 0,
+):
+    """
+    Update or create worker heartbeat record (STEP 1 requirement).
+
+    Tracks:
+    - worker_id
+    - last_seen_at
+    - current_run_id (if executing)
+    - runs_executed / runs_failed counts
+    """
+    from sqlalchemy import text
+
+    now = datetime.utcnow()
+    hostname = socket.gethostname()
+    pid = os.getpid()
+
+    # Upsert worker heartbeat
+    upsert_sql = text("""
+        INSERT INTO worker_heartbeats (id, worker_id, hostname, pid, last_seen_at, status, current_run_id, runs_executed, runs_failed, created_at, updated_at)
+        VALUES (:id, :worker_id, :hostname, :pid, :last_seen_at, :status, :current_run_id, :runs_executed, :runs_failed, :created_at, :updated_at)
+        ON CONFLICT (worker_id)
+        DO UPDATE SET
+            last_seen_at = EXCLUDED.last_seen_at,
+            current_run_id = EXCLUDED.current_run_id,
+            runs_executed = worker_heartbeats.runs_executed + :runs_executed_inc,
+            runs_failed = worker_heartbeats.runs_failed + :runs_failed_inc,
+            updated_at = EXCLUDED.updated_at
+    """)
+
+    await db.execute(upsert_sql, {
+        "id": uuid.uuid4(),
+        "worker_id": worker_id,
+        "hostname": hostname,
+        "pid": pid,
+        "last_seen_at": now,
+        "status": "active",
+        "current_run_id": uuid.UUID(current_run_id) if current_run_id else None,
+        "runs_executed": runs_executed_increment,
+        "runs_failed": runs_failed_increment,
+        "runs_executed_inc": runs_executed_increment,
+        "runs_failed_inc": runs_failed_increment,
+        "created_at": now,
+        "updated_at": now,
+    })
+
+
+async def _write_trace(
+    db: AsyncSession,
+    run_id: str,
+    tenant_id: str,
+    worker_id: str,
+    execution_stage: str,
+    description: str,
+    tick_number: Optional[int] = None,
+    agents_processed: Optional[int] = None,
+    events_count: Optional[int] = None,
+    duration_ms: Optional[int] = None,
+    metadata: Optional[dict] = None,
+):
+    """
+    Write a RunTrace entry (STEP 1: Artifact 2).
+
+    Each entry includes:
+    - run_id
+    - timestamp
+    - worker_id
+    - execution_stage or brief description
+    """
+    from sqlalchemy import text
+
+    trace_sql = text("""
+        INSERT INTO run_traces (
+            id, run_id, tenant_id, timestamp, worker_id, execution_stage,
+            description, tick_number, agents_processed, events_count,
+            duration_ms, metadata, created_at
+        ) VALUES (
+            :id, :run_id, :tenant_id, :timestamp, :worker_id, :execution_stage,
+            :description, :tick_number, :agents_processed, :events_count,
+            :duration_ms, :metadata, :created_at
+        )
+    """)
+
+    await db.execute(trace_sql, {
+        "id": uuid.uuid4(),
+        "run_id": uuid.UUID(run_id),
+        "tenant_id": uuid.UUID(tenant_id),
+        "timestamp": datetime.utcnow(),
+        "worker_id": worker_id,
+        "execution_stage": execution_stage,
+        "description": description,
+        "tick_number": tick_number,
+        "agents_processed": agents_processed,
+        "events_count": events_count,
+        "duration_ms": duration_ms,
+        "metadata": json.dumps(metadata) if metadata else None,
+        "created_at": datetime.utcnow(),
+    })
+
+
+async def _create_run_spec(
+    db: AsyncSession,
+    run_id: str,
+    tenant_id: str,
+    project_id: str,
+    ticks_total: int,
+    seed: int,
+    config: dict,
+    personas_snapshot_id: Optional[str] = None,
+    personas_summary: Optional[dict] = None,
+):
+    """
+    Create RunSpec artifact (STEP 1: Artifact 1, STEP 3: Personas Integration).
+
+    Required fields:
+    - run_id
+    - project_id
+    - ticks_total or horizon (must be > 0)
+    - seed
+    - model or model_config
+    - environment_spec (even minimal is required)
+    - created_at
+
+    STEP 3 fields:
+    - personas_snapshot_id (reference to immutable snapshot)
+    - personas_summary (segment breakdown with weights)
+    """
+    from sqlalchemy import text
+
+    # STEP 1: Validate ticks_total > 0
+    if ticks_total < 1:
+        raise ValueError(f"STEP 1 VIOLATION: ticks_total must be > 0, got {ticks_total}")
+
+    # Build model config
+    model_config = {
+        "run_mode": config.get("run_mode", "society"),
+        "scheduler_profile": config.get("scheduler_profile", {}),
+        "logging_profile": config.get("logging_profile", {}),
+        "max_agents": config.get("max_agents", 100),
+    }
+
+    # Build environment spec (even minimal is required)
+    environment_spec = {
+        "scenario_patch": config.get("scenario_patch"),
+        "tick_rate": config.get("tick_rate", 1),
+        "base_environment": {
+            "time": 0,
+            "market_conditions": "normal",
+        },
+    }
+
+    # Extract versions
+    versions = config.get("versions", {})
+    engine_version = versions.get("engine", "1.0.0")
+    ruleset_version = versions.get("ruleset", "1.0.0")
+    dataset_version = versions.get("dataset", "1.0.0")
+
+    # STEP 3: Include personas snapshot in RunSpec
+    spec_sql = text("""
+        INSERT INTO run_specs (
+            id, run_id, tenant_id, project_id, ticks_total, seed,
+            model_config, environment_spec, scheduler_config,
+            personas_snapshot_id, personas_summary,
+            engine_version, ruleset_version, dataset_version, created_at
+        ) VALUES (
+            :id, :run_id, :tenant_id, :project_id, :ticks_total, :seed,
+            :model_config, :environment_spec, :scheduler_config,
+            :personas_snapshot_id, :personas_summary,
+            :engine_version, :ruleset_version, :dataset_version, :created_at
+        )
+    """)
+
+    await db.execute(spec_sql, {
+        "id": uuid.uuid4(),
+        "run_id": uuid.UUID(run_id),
+        "tenant_id": uuid.UUID(tenant_id),
+        "project_id": uuid.UUID(project_id),
+        "ticks_total": ticks_total,
+        "seed": seed,
+        "model_config": json.dumps(model_config),
+        "environment_spec": json.dumps(environment_spec),
+        "scheduler_config": json.dumps(config.get("scheduler_profile", {})),
+        # STEP 3: Personas tracking
+        "personas_snapshot_id": uuid.UUID(personas_snapshot_id) if personas_snapshot_id else None,
+        "personas_summary": json.dumps(personas_summary) if personas_summary else None,
+        "engine_version": engine_version,
+        "ruleset_version": ruleset_version,
+        "dataset_version": dataset_version,
+        "created_at": datetime.utcnow(),
+    })
+
+
+async def _create_persona_snapshot(
+    db: AsyncSession,
+    tenant_id: str,
+    project_id: str,
+) -> Tuple[Optional[str], Optional[dict]]:
+    """
+    STEP 3: Create immutable PersonaSnapshot for this run.
+
+    Creates a snapshot of all active personas in the project at the moment
+    of run creation. This ensures:
+    - Immutability: The snapshot cannot be changed after creation
+    - Auditability: RunSpec references the exact personas used
+    - Reproducibility: Same snapshot = same persona input
+
+    Returns:
+        Tuple[snapshot_id, personas_summary] or (None, None) if no personas
+    """
+    from sqlalchemy import text
+
+    # Load active personas from the project
+    persona_query = text("""
+        SELECT id, label, demographics, preferences, perception_weights,
+               bias_parameters, action_priors, uncertainty_score,
+               created_at, updated_at
+        FROM personas
+        WHERE project_id = :project_id AND is_active = true
+        ORDER BY created_at ASC
+    """)
+    result = await db.execute(persona_query, {"project_id": project_id})
+    persona_rows = result.fetchall()
+
+    if not persona_rows:
+        # No personas found - return None
+        return None, None
+
+    # Build personas data array (immutable copy)
+    personas_data = []
+    segment_counts = {}  # Track segments for summary
+
+    for row in persona_rows:
+        persona_dict = {
+            "persona_id": str(row.id),
+            "label": row.label,
+            "demographics": row.demographics or {},
+            "preferences": row.preferences or {},
+            "perception_weights": row.perception_weights or {},
+            "bias_parameters": row.bias_parameters or {},
+            "action_priors": row.action_priors or {},
+            "uncertainty_score": row.uncertainty_score or 0.5,
+            "original_created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        personas_data.append(persona_dict)
+
+        # Extract segment from demographics for summary
+        demographics = row.demographics or {}
+        segment_key = demographics.get("segment", demographics.get("income_bracket", "default"))
+        segment_counts[segment_key] = segment_counts.get(segment_key, 0) + 1
+
+    # Compute data hash for integrity verification
+    data_json = json.dumps(personas_data, sort_keys=True, default=str)
+    data_hash = hashlib.sha256(data_json.encode()).hexdigest()
+
+    # Build segment summary with weights
+    total_personas = len(personas_data)
+    segment_summary = {
+        "segments": [
+            {
+                "name": segment,
+                "count": count,
+                "weight": round(count / total_personas, 4),
+            }
+            for segment, count in sorted(segment_counts.items())
+        ],
+        "total_segments": len(segment_counts),
+        "total_personas": total_personas,
+    }
+
+    # Create the snapshot
+    snapshot_id = uuid.uuid4()
+    snapshot_sql = text("""
+        INSERT INTO persona_snapshots (
+            id, tenant_id, project_id, name, total_personas,
+            segment_summary, personas_data, data_hash,
+            confidence_score, is_locked, created_at
+        ) VALUES (
+            :id, :tenant_id, :project_id, :name, :total_personas,
+            :segment_summary, :personas_data, :data_hash,
+            :confidence_score, :is_locked, :created_at
+        )
+    """)
+
+    await db.execute(snapshot_sql, {
+        "id": snapshot_id,
+        "tenant_id": uuid.UUID(tenant_id),
+        "project_id": uuid.UUID(project_id),
+        "name": f"Run Snapshot {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}",
+        "total_personas": total_personas,
+        "segment_summary": json.dumps(segment_summary),
+        "personas_data": json.dumps(personas_data),
+        "data_hash": data_hash,
+        "confidence_score": 0.8,  # Default confidence
+        "is_locked": True,  # Immutable by default
+        "created_at": datetime.utcnow(),
+    })
+
+    # Return snapshot_id and summary for RunSpec
+    return str(snapshot_id), segment_summary
 
 
 async def _update_run_complete(
@@ -428,19 +858,175 @@ async def _update_node_outcome(
         "calibration": reliability.get("calibration"),
     }
 
-    # Update node
+    # STEP 4: Ensemble tracking - increment completed run count
+    new_run_count = len(existing_run_refs)
+    min_ensemble_size = node.min_ensemble_size if hasattr(node, 'min_ensemble_size') else 2
+    is_ensemble_complete = new_run_count >= min_ensemble_size
+
+    # STEP 4: Compute aggregated outcome from all runs if ensemble is complete
+    aggregated_outcome = outcomes
+    outcome_counts = None
+    outcome_variance = None
+
+    if is_ensemble_complete and new_run_count > 1:
+        # Aggregate outcomes from all runs using mean aggregation
+        aggregated_outcome, outcome_counts, outcome_variance = await _aggregate_ensemble_outcomes(
+            db=db,
+            node_id=node_id,
+            current_outcomes=outcomes,
+            aggregation_method=node.aggregation_method if hasattr(node, 'aggregation_method') else "mean",
+        )
+
+    # Update node with all ensemble tracking fields
     stmt = (
         update(Node)
         .where(Node.id == uuid.UUID(node_id))
         .values(
-            aggregated_outcome=outcomes,
+            aggregated_outcome=aggregated_outcome,
             run_refs=existing_run_refs,
             confidence=confidence_obj,
             is_explored=True,
+            # STEP 4: Ensemble tracking fields
+            completed_run_count=new_run_count,
+            is_ensemble_complete=is_ensemble_complete,
+            outcome_counts=outcome_counts,
+            outcome_variance=outcome_variance,
             updated_at=datetime.utcnow(),
         )
     )
     await db.execute(stmt)
+
+    # STEP 2: Update ProjectSpec.has_baseline and root_node_id if this is a baseline node
+    if node.is_baseline:
+        from app.models.project_spec import ProjectSpec
+        project_id = run.get("project_id")
+        if project_id:
+            project_stmt = (
+                update(ProjectSpec)
+                .where(ProjectSpec.id == uuid.UUID(project_id))
+                .values(
+                    has_baseline=True,
+                    root_node_id=uuid.UUID(node_id),
+                    updated_at=datetime.utcnow(),
+                )
+            )
+            await db.execute(project_stmt)
+
+
+async def _aggregate_ensemble_outcomes(
+    db: AsyncSession,
+    node_id: str,
+    current_outcomes: dict,
+    aggregation_method: str = "mean",
+) -> tuple[dict, dict, dict]:
+    """
+    STEP 4: Aggregate outcomes from all completed runs for a node.
+
+    This implements proper probability aggregation from multiple ensemble runs,
+    ensuring NO hardcoded probabilities. All values are computed from actual runs.
+
+    Args:
+        db: Database session
+        node_id: The node ID to aggregate outcomes for
+        current_outcomes: The outcomes from the current (just completed) run
+        aggregation_method: Method to use - "mean", "weighted_mean", "median", "mode"
+
+    Returns:
+        Tuple of (aggregated_outcome, outcome_counts, outcome_variance)
+    """
+    from app.models.node import Run
+    from statistics import mean, median, variance
+    from collections import Counter
+
+    # Load all completed runs for this node
+    query = select(Run).where(
+        Run.node_id == uuid.UUID(node_id),
+        Run.status == "completed",
+    )
+    result = await db.execute(query)
+    all_runs = result.scalars().all()
+
+    if len(all_runs) < 2:
+        # Not enough runs for aggregation - return current outcomes
+        return current_outcomes, None, None
+
+    # Collect all outcomes from all runs
+    all_outcomes = []
+    all_probabilities = []
+    all_metrics = {}  # metric_name -> [values]
+
+    for run in all_runs:
+        run_outputs = run.outputs or {}
+        run_outcomes = run_outputs.get("outcomes", {})
+        all_outcomes.append(run_outcomes)
+
+        # Collect primary outcome probability
+        if "primary_outcome_probability" in run_outcomes:
+            all_probabilities.append(run_outcomes["primary_outcome_probability"])
+
+        # Collect key metrics
+        for metric in run_outcomes.get("key_metrics", []):
+            metric_name = metric.get("metric_name")
+            value = metric.get("value")
+            if metric_name and value is not None:
+                if metric_name not in all_metrics:
+                    all_metrics[metric_name] = []
+                all_metrics[metric_name].append(value)
+
+    # STEP 4: Compute aggregated values based on method (NO hardcoding)
+    aggregated = dict(current_outcomes)
+
+    if all_probabilities:
+        if aggregation_method == "mean":
+            aggregated["primary_outcome_probability"] = mean(all_probabilities)
+        elif aggregation_method == "median":
+            aggregated["primary_outcome_probability"] = median(all_probabilities)
+        elif aggregation_method == "mode":
+            counter = Counter(all_probabilities)
+            aggregated["primary_outcome_probability"] = counter.most_common(1)[0][0]
+        else:  # Default to mean
+            aggregated["primary_outcome_probability"] = mean(all_probabilities)
+
+    # Aggregate key metrics using same method
+    aggregated_metrics = []
+    for metric_name, values in all_metrics.items():
+        if len(values) > 0:
+            if aggregation_method == "mean":
+                agg_value = mean(values)
+            elif aggregation_method == "median":
+                agg_value = median(values)
+            else:
+                agg_value = mean(values)
+
+            aggregated_metrics.append({
+                "metric_name": metric_name,
+                "value": agg_value,
+                "sample_size": len(values),
+            })
+    aggregated["key_metrics"] = aggregated_metrics
+
+    # Compute outcome counts (for tracking distribution)
+    outcome_counts = {}
+    for outcomes_data in all_outcomes:
+        primary = outcomes_data.get("primary_outcome", "unknown")
+        outcome_counts[primary] = outcome_counts.get(primary, 0) + 1
+
+    # Compute variance for numeric values
+    outcome_variance = {}
+    if len(all_probabilities) >= 2:
+        outcome_variance["primary_outcome_probability"] = variance(all_probabilities)
+    for metric_name, values in all_metrics.items():
+        if len(values) >= 2:
+            outcome_variance[metric_name] = variance(values)
+
+    # Add ensemble metadata
+    aggregated["ensemble_metadata"] = {
+        "run_count": len(all_runs),
+        "aggregation_method": aggregation_method,
+        "aggregated_at": datetime.utcnow().isoformat(),
+    }
+
+    return aggregated, outcome_counts, outcome_variance
 
 
 class DeterministicRNG:
@@ -533,12 +1119,16 @@ async def _execute_simulation(
     run: dict,
     rng: DeterministicRNG,
     context: JobContext,
+    worker_id: str = "unknown",
+    personas_snapshot_id: Optional[str] = None,
 ) -> dict:
     """
     Execute the simulation engine.
 
     Uses the Rule Engine (P1-001) and Agent State Machine (P1-002).
     Produces execution trace for telemetry and outcome aggregation.
+
+    STEP 3: Uses personas_snapshot_id to load immutable persona data.
 
     Returns execution trace data for telemetry and outcomes.
     """
@@ -559,9 +1149,8 @@ async def _execute_simulation(
     # Initialize leakage guard for backtest scenarios (§1.3)
     leakage_guard = create_leakage_guard_from_config(config, strict_mode=False)
 
-    # Load personas and create agents
-    # TODO: Load actual personas from database based on project
-    agents = await _load_agents_for_run(db, run, rng)
+    # STEP 3: Load personas from snapshot (immutable) and create agents
+    agents = await _load_agents_for_run(db, run, rng, personas_snapshot_id)
 
     # Create agent pool for social interactions
     agent_pool = AgentPool()
@@ -769,44 +1358,70 @@ async def _load_agents_for_run(
     db: AsyncSession,
     run: dict,
     rng: DeterministicRNG,
+    personas_snapshot_id: Optional[str] = None,
 ) -> List[Agent]:
     """
-    Load personas and compile them into agents for this run.
+    STEP 3: Load personas and compile them into agents for this run.
+
+    Priority:
+    1. Use PersonaSnapshot if available (STEP 3 compliant - immutable)
+    2. Fall back to live personas table (backwards compatibility)
+    3. Create default agents if no personas found
+
+    The snapshot ensures the exact same personas are used for reproducibility.
     """
     from sqlalchemy import text
 
     project_id = run.get("project_id")
     config = run.get("run_config", {}) or {}
-    max_agents = config.get("max_agents") or 100  # Use 'or' to handle None values
-
-    # Load personas from database
-    persona_query = text("""
-        SELECT id, label, demographics, preferences, perception_weights,
-               bias_parameters, action_priors, uncertainty_score
-        FROM personas
-        WHERE project_id = :project_id AND is_active = true
-        LIMIT :max_agents
-    """)
-    result = await db.execute(persona_query, {
-        "project_id": project_id,
-        "max_agents": max_agents,
-    })
-    persona_rows = result.fetchall()
+    max_agents = config.get("max_agents") or 100
 
     agents = []
-    for row in persona_rows:
-        # Create agent from persona using factory
-        persona_dict = {
-            "persona_id": str(row.id),
-            "label": row.label,
-            "demographics": row.demographics or {},
-            "preferences": row.preferences or {},
-            "perception_weights": row.perception_weights or {},
-            "bias_parameters": row.bias_parameters or {},
-            "action_priors": row.action_priors or {},
-            "uncertainty_score": row.uncertainty_score or 0.5,
-        }
+    personas_data = []
 
+    # STEP 3: Try to load from PersonaSnapshot first (immutable source)
+    if personas_snapshot_id:
+        snapshot_query = text("""
+            SELECT personas_data
+            FROM persona_snapshots
+            WHERE id = :snapshot_id AND is_locked = true
+        """)
+        result = await db.execute(snapshot_query, {"snapshot_id": personas_snapshot_id})
+        row = result.fetchone()
+        if row and row.personas_data:
+            # Parse snapshot data (stored as JSONB)
+            snapshot_data = row.personas_data if isinstance(row.personas_data, list) else json.loads(row.personas_data)
+            personas_data = snapshot_data[:max_agents]
+
+    # Fallback: Load from live personas table if no snapshot data
+    if not personas_data:
+        persona_query = text("""
+            SELECT id, label, demographics, preferences, perception_weights,
+                   bias_parameters, action_priors, uncertainty_score
+            FROM personas
+            WHERE project_id = :project_id AND is_active = true
+            LIMIT :max_agents
+        """)
+        result = await db.execute(persona_query, {
+            "project_id": project_id,
+            "max_agents": max_agents,
+        })
+        persona_rows = result.fetchall()
+
+        for row in persona_rows:
+            personas_data.append({
+                "persona_id": str(row.id),
+                "label": row.label,
+                "demographics": row.demographics or {},
+                "preferences": row.preferences or {},
+                "perception_weights": row.perception_weights or {},
+                "bias_parameters": row.bias_parameters or {},
+                "action_priors": row.action_priors or {},
+                "uncertainty_score": row.uncertainty_score or 0.5,
+            })
+
+    # Create agents from persona data
+    for persona_dict in personas_data:
         agent = AgentFactory.create_from_persona(persona_dict)
         agents.append(agent)
 

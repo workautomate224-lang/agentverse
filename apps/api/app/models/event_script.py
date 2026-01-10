@@ -167,6 +167,40 @@ class EventScript(Base):
         Boolean, default=False, nullable=False
     )
 
+    # ==========================================================================
+    # STEP 5: Event Audit Fields
+    # ==========================================================================
+
+    # Source text: explicit field for original NL input (was buried in provenance)
+    source_text: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True,
+        comment="STEP 5: Original natural language input that was compiled"
+    )
+
+    # Affected variables: explicit array field (was derived from deltas)
+    affected_variables: Mapped[Optional[List[str]]] = mapped_column(
+        ARRAY(String(100)), nullable=True,
+        comment="STEP 5: List of variables this event affects"
+    )
+
+    # Confidence score: how confident is the compiler in this interpretation
+    confidence_score: Mapped[Optional[float]] = mapped_column(
+        Float, nullable=True,
+        comment="STEP 5: Compiler confidence in this interpretation (0.0-1.0)"
+    )
+
+    # Ambiguity score: how ambiguous was the original input
+    ambiguity_score: Mapped[Optional[float]] = mapped_column(
+        Float, nullable=True,
+        comment="STEP 5: Ambiguity level of the original input (0.0-1.0)"
+    )
+
+    # Validation result: detailed validation status
+    validation_result: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSONB, nullable=True,
+        comment="STEP 5: Detailed validation result {passed, errors, warnings}"
+    )
+
     # Tags for organization
     tags: Mapped[Optional[List[str]]] = mapped_column(
         ARRAY(String(100)), nullable=True
@@ -213,6 +247,12 @@ class EventScript(Base):
             "schema_version": self.schema_version,
             "is_active": self.is_active,
             "is_validated": self.is_validated,
+            # STEP 5: Audit fields
+            "source_text": self.source_text,
+            "affected_variables": self.affected_variables,
+            "confidence_score": self.confidence_score,
+            "ambiguity_score": self.ambiguity_score,
+            "validation_result": self.validation_result,
             "tags": self.tags,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
@@ -452,4 +492,267 @@ class EventTriggerLog(Base):
             "applied_intensity": self.applied_intensity,
             "effect_summary": self.effect_summary,
             "created_at": self.created_at.isoformat(),
+        }
+
+
+# =============================================================================
+# STEP 5: Event Candidate Model
+# Stores parsed but uncommitted event interpretations from NL input
+# =============================================================================
+
+class EventCandidateStatus(str, Enum):
+    """Status of an event candidate."""
+    PENDING = "pending"        # Awaiting user selection
+    SELECTED = "selected"      # User selected this candidate
+    REJECTED = "rejected"      # User rejected this candidate
+    COMMITTED = "committed"    # Committed to EventScript
+
+
+class EventCandidate(Base):
+    """
+    STEP 5: A parsed but uncommitted event interpretation.
+
+    When a user provides natural language input, the EventCompiler generates
+    multiple candidate interpretations. These are stored as EventCandidates
+    until the user selects one (or more) to commit as EventScripts.
+
+    This enables:
+    1. Auditable parsing - all interpretations are stored
+    2. User review - users can see and select from options
+    3. Reproducibility - same input produces same candidates
+    """
+    __tablename__ = "event_candidates"
+
+    # Identity
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("project_specs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+
+    # Compilation reference
+    compilation_id: Mapped[str] = mapped_column(
+        String(100), nullable=False, index=True,
+        comment="STEP 5: ID of the compilation session"
+    )
+
+    # Original input
+    source_text: Mapped[str] = mapped_column(
+        Text, nullable=False,
+        comment="STEP 5: Original natural language input"
+    )
+
+    # Candidate details
+    candidate_index: Mapped[int] = mapped_column(
+        Integer, nullable=False,
+        comment="STEP 5: Index of this candidate in the compilation result"
+    )
+    label: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Parsed interpretation
+    parsed_intent: Mapped[Dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict,
+        comment="STEP 5: Structured intent extracted from NL input"
+    )
+    proposed_deltas: Mapped[Dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict,
+        comment="STEP 5: Proposed deltas to apply"
+    )
+    proposed_scope: Mapped[Dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict,
+        comment="STEP 5: Proposed scope of the event"
+    )
+    affected_variables: Mapped[List[str]] = mapped_column(
+        ARRAY(String(100)), nullable=False, default=list,
+        comment="STEP 5: Variables this candidate would affect"
+    )
+
+    # Scoring
+    probability: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0,
+        comment="STEP 5: Probability assigned to this interpretation"
+    )
+    confidence_score: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0,
+        comment="STEP 5: Compiler confidence in this interpretation"
+    )
+    cluster_id: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True,
+        comment="STEP 5: ID of the scenario cluster this belongs to"
+    )
+
+    # Status
+    status: Mapped[str] = mapped_column(
+        String(50), nullable=False, default=EventCandidateStatus.PENDING.value,
+        comment="STEP 5: pending, selected, rejected, committed"
+    )
+    committed_event_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("event_scripts.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="STEP 5: EventScript ID if this candidate was committed"
+    )
+
+    # Provenance
+    compiler_version: Mapped[str] = mapped_column(
+        String(50), nullable=False
+    )
+    model_used: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True
+    )
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+    selected_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # Relationships
+    committed_event: Mapped[Optional["EventScript"]] = relationship(
+        "EventScript",
+        foreign_keys=[committed_event_id]
+    )
+
+    def __repr__(self) -> str:
+        return f"<EventCandidate {self.id} status={self.status}>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API responses."""
+        return {
+            "candidate_id": str(self.id),
+            "compilation_id": self.compilation_id,
+            "source_text": self.source_text,
+            "candidate_index": self.candidate_index,
+            "label": self.label,
+            "description": self.description,
+            "parsed_intent": self.parsed_intent,
+            "proposed_deltas": self.proposed_deltas,
+            "proposed_scope": self.proposed_scope,
+            "affected_variables": self.affected_variables,
+            "probability": self.probability,
+            "confidence_score": self.confidence_score,
+            "cluster_id": self.cluster_id,
+            "status": self.status,
+            "committed_event_id": str(self.committed_event_id) if self.committed_event_id else None,
+            "compiler_version": self.compiler_version,
+            "model_used": self.model_used,
+            "created_at": self.created_at.isoformat(),
+            "selected_at": self.selected_at.isoformat() if self.selected_at else None,
+        }
+
+
+# =============================================================================
+# STEP 5: Event Validation Model
+# Tracks validation history for events
+# =============================================================================
+
+class EventValidationType(str, Enum):
+    """Types of event validation."""
+    PARAMETER_RANGE = "parameter_range"       # Check parameter values are in valid range
+    VARIABLE_EXISTENCE = "variable_existence"  # Check referenced variables exist
+    CONFLICT_DETECTION = "conflict_detection"  # Check for conflicts with parent state
+    SCHEMA_VALIDATION = "schema_validation"    # Check event schema is valid
+    COMPLETENESS = "completeness"              # Check all required fields present
+
+
+class EventValidation(Base):
+    """
+    STEP 5: Tracks validation history for events.
+
+    Each validation run is recorded with its results, enabling:
+    1. Audit trail of all validations performed
+    2. Context-aware validation (with parent Node state)
+    3. Detailed error and warning tracking
+    """
+    __tablename__ = "event_validations"
+
+    # Identity
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    event_script_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("event_scripts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+
+    # Validation context
+    validation_type: Mapped[str] = mapped_column(
+        String(50), nullable=False,
+        comment="STEP 5: Type of validation performed"
+    )
+    context_node_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("nodes.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="STEP 5: Node context for conflict detection"
+    )
+
+    # Results
+    passed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False
+    )
+    errors: Mapped[List[Dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list,
+        comment="STEP 5: List of validation errors"
+    )
+    warnings: Mapped[List[Dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list,
+        comment="STEP 5: List of validation warnings"
+    )
+    details: Mapped[Dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict,
+        comment="STEP 5: Detailed validation output"
+    )
+
+    # Timestamp
+    validated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+
+    # Relationships
+    event_script: Mapped["EventScript"] = relationship(
+        "EventScript",
+        foreign_keys=[event_script_id]
+    )
+
+    def __repr__(self) -> str:
+        return f"<EventValidation {self.id} type={self.validation_type} passed={self.passed}>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for API responses."""
+        return {
+            "validation_id": str(self.id),
+            "event_script_id": str(self.event_script_id),
+            "validation_type": self.validation_type,
+            "context_node_id": str(self.context_node_id) if self.context_node_id else None,
+            "passed": self.passed,
+            "errors": self.errors,
+            "warnings": self.warnings,
+            "details": self.details,
+            "validated_at": self.validated_at.isoformat(),
         }

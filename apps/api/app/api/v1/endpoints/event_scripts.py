@@ -872,3 +872,827 @@ async def get_event_stats(
         "events_by_type": by_type,
         "total_bundles": bundle_count,
     }
+
+
+# ============================================================================
+# STEP 5: Event Candidate Endpoints
+# ============================================================================
+
+class EventCandidateListResponse(BaseModel):
+    """Response for listing event candidates."""
+    candidate_id: str
+    compilation_id: str
+    source_text: str
+    label: str
+    candidate_index: int
+    probability: float
+    confidence_score: float
+    status: str
+    created_at: datetime
+
+
+class EventCandidateDetailResponse(BaseModel):
+    """Detailed response for an event candidate."""
+    candidate_id: str
+    compilation_id: str
+    source_text: str
+    candidate_index: int
+    label: str
+    description: Optional[str]
+    parsed_intent: Dict[str, Any]
+    proposed_deltas: Dict[str, Any]
+    proposed_scope: Dict[str, Any]
+    affected_variables: List[str]
+    probability: float
+    confidence_score: float
+    cluster_id: Optional[str]
+    status: str
+    committed_event_id: Optional[str]
+    compiler_version: str
+    model_used: Optional[str]
+    created_at: datetime
+    selected_at: Optional[datetime]
+
+
+class SelectCandidateRequest(BaseModel):
+    """Request to select an event candidate."""
+    pass  # Selection just requires the candidate_id in path
+
+
+class SelectCandidateResponse(BaseModel):
+    """Response from selecting a candidate."""
+    candidate_id: str
+    status: str
+    selected_at: datetime
+
+
+class EditCandidateParametersRequest(BaseModel):
+    """Request to edit candidate parameters."""
+    label: Optional[str] = None
+    description: Optional[str] = None
+    proposed_deltas: Optional[Dict[str, Any]] = None
+    proposed_scope: Optional[Dict[str, Any]] = None
+    probability: Optional[float] = Field(None, ge=0.0, le=1.0)
+
+
+class ApplyToNodeRequest(BaseModel):
+    """Request to apply a candidate to a node (creates fork)."""
+    parent_node_id: UUID = Field(..., description="Parent node to fork from")
+    label: Optional[str] = Field(None, description="Optional label for the new node")
+    auto_run: bool = Field(default=False, description="Auto-start simulation run")
+
+
+class ApplyToNodeResponse(BaseModel):
+    """Response from applying candidate to node."""
+    candidate_id: str
+    committed_event_id: str
+    node_id: str
+    edge_id: str
+    patch_id: str
+    patch_hash: str
+
+
+class MissingFieldsResponse(BaseModel):
+    """Response showing missing fields for a candidate."""
+    candidate_id: str
+    missing_required: List[Dict[str, Any]]
+    missing_recommended: List[Dict[str, Any]]
+    completeness_score: float
+
+
+class AffectedVariablesResponse(BaseModel):
+    """Response showing affected variables for a candidate."""
+    candidate_id: str
+    affected_variables: List[str]
+    variable_details: List[Dict[str, Any]]
+    impact_summary: Dict[str, Any]
+
+
+class ScopePreviewResponse(BaseModel):
+    """Response showing scope preview for a candidate."""
+    candidate_id: str
+    scope: Dict[str, Any]
+    affected_regions: List[str]
+    affected_segments: List[str]
+    time_window: Optional[Dict[str, int]]
+    estimated_agent_count: int
+
+
+class SaveAsTemplateRequest(BaseModel):
+    """Request to save an event as a template."""
+    template_name: str = Field(..., min_length=1, max_length=255)
+    template_description: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+
+class SaveAsTemplateResponse(BaseModel):
+    """Response from saving event as template."""
+    original_event_id: str
+    template_event_id: str
+    template_name: str
+
+
+@router.get(
+    "/candidates",
+    response_model=List[EventCandidateListResponse],
+    summary="List event candidates (STEP 5)",
+)
+async def list_event_candidates(
+    compilation_id: Optional[str] = Query(None, description="Filter by compilation ID"),
+    project_id: Optional[UUID] = Query(None, description="Filter by project"),
+    status_filter: Optional[str] = Query(None, description="Filter by status: pending, selected, rejected, committed"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_id: UUID = Depends(get_current_tenant_id),
+):
+    """
+    STEP 5: List event candidates from NL compilation.
+
+    Candidates are parsed but uncommitted event interpretations from natural
+    language input. Use this endpoint to review candidates before committing.
+    """
+    from app.models.event_script import EventCandidate
+
+    query = select(EventCandidate).where(EventCandidate.tenant_id == tenant_id)
+
+    if compilation_id:
+        query = query.where(EventCandidate.compilation_id == compilation_id)
+    if project_id:
+        query = query.where(EventCandidate.project_id == project_id)
+    if status_filter:
+        query = query.where(EventCandidate.status == status_filter)
+
+    query = query.order_by(EventCandidate.created_at.desc())
+    query = query.offset(skip).limit(limit)
+
+    result = await db.execute(query)
+    candidates = result.scalars().all()
+
+    return [
+        EventCandidateListResponse(
+            candidate_id=str(c.id),
+            compilation_id=c.compilation_id,
+            source_text=c.source_text[:100] + "..." if len(c.source_text) > 100 else c.source_text,
+            label=c.label,
+            candidate_index=c.candidate_index,
+            probability=c.probability,
+            confidence_score=c.confidence_score,
+            status=c.status,
+            created_at=c.created_at,
+        )
+        for c in candidates
+    ]
+
+
+@router.get(
+    "/candidates/{candidate_id}",
+    response_model=EventCandidateDetailResponse,
+    summary="Get event candidate details (STEP 5)",
+)
+async def get_event_candidate(
+    candidate_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_id: UUID = Depends(get_current_tenant_id),
+):
+    """STEP 5: Get detailed information about an event candidate."""
+    from app.models.event_script import EventCandidate
+
+    result = await db.execute(
+        select(EventCandidate).where(
+            and_(
+                EventCandidate.id == candidate_id,
+                EventCandidate.tenant_id == tenant_id,
+            )
+        )
+    )
+    candidate = result.scalar_one_or_none()
+
+    if not candidate:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Event candidate {candidate_id} not found",
+        )
+
+    return EventCandidateDetailResponse(
+        candidate_id=str(candidate.id),
+        compilation_id=candidate.compilation_id,
+        source_text=candidate.source_text,
+        candidate_index=candidate.candidate_index,
+        label=candidate.label,
+        description=candidate.description,
+        parsed_intent=candidate.parsed_intent,
+        proposed_deltas=candidate.proposed_deltas,
+        proposed_scope=candidate.proposed_scope,
+        affected_variables=candidate.affected_variables,
+        probability=candidate.probability,
+        confidence_score=candidate.confidence_score,
+        cluster_id=candidate.cluster_id,
+        status=candidate.status,
+        committed_event_id=str(candidate.committed_event_id) if candidate.committed_event_id else None,
+        compiler_version=candidate.compiler_version,
+        model_used=candidate.model_used,
+        created_at=candidate.created_at,
+        selected_at=candidate.selected_at,
+    )
+
+
+@router.post(
+    "/candidates/{candidate_id}/select",
+    response_model=SelectCandidateResponse,
+    summary="Select an event candidate (STEP 5)",
+)
+async def select_event_candidate(
+    candidate_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_id: UUID = Depends(get_current_tenant_id),
+):
+    """
+    STEP 5: Select an event candidate for further use.
+
+    Marking a candidate as selected indicates user intent to use this
+    interpretation. The candidate can then be applied to a node.
+    """
+    from app.models.event_script import EventCandidate, EventCandidateStatus
+
+    result = await db.execute(
+        select(EventCandidate).where(
+            and_(
+                EventCandidate.id == candidate_id,
+                EventCandidate.tenant_id == tenant_id,
+            )
+        )
+    )
+    candidate = result.scalar_one_or_none()
+
+    if not candidate:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Event candidate {candidate_id} not found",
+        )
+
+    if candidate.status == EventCandidateStatus.COMMITTED.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Candidate has already been committed",
+        )
+
+    # Mark as selected
+    candidate.status = EventCandidateStatus.SELECTED.value
+    candidate.selected_at = datetime.utcnow()
+
+    await db.commit()
+    await db.refresh(candidate)
+
+    return SelectCandidateResponse(
+        candidate_id=str(candidate.id),
+        status=candidate.status,
+        selected_at=candidate.selected_at,
+    )
+
+
+@router.patch(
+    "/candidates/{candidate_id}/parameters",
+    response_model=EventCandidateDetailResponse,
+    summary="Edit candidate parameters (STEP 5)",
+)
+async def edit_candidate_parameters(
+    candidate_id: UUID,
+    request: EditCandidateParametersRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_id: UUID = Depends(get_current_tenant_id),
+):
+    """
+    STEP 5: Edit parameters of an event candidate.
+
+    Allows fine-tuning the candidate's deltas, scope, and metadata
+    before applying it to a node.
+    """
+    from app.models.event_script import EventCandidate, EventCandidateStatus
+
+    result = await db.execute(
+        select(EventCandidate).where(
+            and_(
+                EventCandidate.id == candidate_id,
+                EventCandidate.tenant_id == tenant_id,
+            )
+        )
+    )
+    candidate = result.scalar_one_or_none()
+
+    if not candidate:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Event candidate {candidate_id} not found",
+        )
+
+    if candidate.status == EventCandidateStatus.COMMITTED.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot edit committed candidate",
+        )
+
+    # Update fields
+    if request.label is not None:
+        candidate.label = request.label
+    if request.description is not None:
+        candidate.description = request.description
+    if request.proposed_deltas is not None:
+        candidate.proposed_deltas = request.proposed_deltas
+        # Update affected_variables based on deltas
+        affected = set()
+        for delta in request.proposed_deltas.get("environment_deltas", []):
+            if isinstance(delta, dict) and "variable" in delta:
+                affected.add(delta["variable"])
+        for delta in request.proposed_deltas.get("perception_deltas", []):
+            if isinstance(delta, dict) and "variable" in delta:
+                affected.add(delta["variable"])
+        candidate.affected_variables = list(affected)
+    if request.proposed_scope is not None:
+        candidate.proposed_scope = request.proposed_scope
+    if request.probability is not None:
+        candidate.probability = request.probability
+
+    await db.commit()
+    await db.refresh(candidate)
+
+    return EventCandidateDetailResponse(
+        candidate_id=str(candidate.id),
+        compilation_id=candidate.compilation_id,
+        source_text=candidate.source_text,
+        candidate_index=candidate.candidate_index,
+        label=candidate.label,
+        description=candidate.description,
+        parsed_intent=candidate.parsed_intent,
+        proposed_deltas=candidate.proposed_deltas,
+        proposed_scope=candidate.proposed_scope,
+        affected_variables=candidate.affected_variables,
+        probability=candidate.probability,
+        confidence_score=candidate.confidence_score,
+        cluster_id=candidate.cluster_id,
+        status=candidate.status,
+        committed_event_id=str(candidate.committed_event_id) if candidate.committed_event_id else None,
+        compiler_version=candidate.compiler_version,
+        model_used=candidate.model_used,
+        created_at=candidate.created_at,
+        selected_at=candidate.selected_at,
+    )
+
+
+@router.post(
+    "/candidates/{candidate_id}/apply-to-node",
+    response_model=ApplyToNodeResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Apply candidate to node (STEP 5)",
+)
+async def apply_candidate_to_node(
+    candidate_id: UUID,
+    request: ApplyToNodeRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_id: UUID = Depends(get_current_tenant_id),
+):
+    """
+    STEP 5: Apply an event candidate to a node.
+
+    This creates:
+    1. An EventScript from the candidate (committed)
+    2. A NodePatch describing the change
+    3. A child Node forked from the parent
+    4. An Edge linking parent to child
+
+    The candidate's patch_hash ensures reproducibility.
+    """
+    import hashlib
+    import json
+    from app.models.event_script import EventCandidate, EventCandidateStatus
+    from app.models.node import Node, Edge, NodePatch
+
+    # Get the candidate
+    result = await db.execute(
+        select(EventCandidate).where(
+            and_(
+                EventCandidate.id == candidate_id,
+                EventCandidate.tenant_id == tenant_id,
+            )
+        )
+    )
+    candidate = result.scalar_one_or_none()
+
+    if not candidate:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Event candidate {candidate_id} not found",
+        )
+
+    if candidate.status == EventCandidateStatus.COMMITTED.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Candidate has already been committed",
+        )
+
+    # Get the parent node
+    parent_result = await db.execute(
+        select(Node).where(
+            and_(
+                Node.id == request.parent_node_id,
+                Node.tenant_id == tenant_id,
+            )
+        )
+    )
+    parent_node = parent_result.scalar_one_or_none()
+
+    if not parent_node:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Parent node {request.parent_node_id} not found",
+        )
+
+    # Create deterministic patch_hash from candidate content
+    hash_content = json.dumps({
+        "source_text": candidate.source_text,
+        "proposed_deltas": candidate.proposed_deltas,
+        "proposed_scope": candidate.proposed_scope,
+        "parent_node_id": str(request.parent_node_id),
+    }, sort_keys=True)
+    patch_hash = hashlib.sha256(hash_content.encode()).hexdigest()[:16]
+
+    # 1. Create EventScript from candidate
+    event_script = EventScript(
+        tenant_id=tenant_id,
+        project_id=parent_node.project_id,
+        event_type="custom",
+        label=candidate.label,
+        description=candidate.description,
+        scope=candidate.proposed_scope,
+        deltas=candidate.proposed_deltas,
+        intensity_profile={},
+        uncertainty={
+            "occurrence_probability": candidate.probability,
+            "compilation_confidence": candidate.confidence_score,
+        },
+        provenance={
+            "compiled_from": candidate.source_text,
+            "compiler_version": candidate.compiler_version,
+            "compilation_id": candidate.compilation_id,
+            "candidate_id": str(candidate.id),
+            "model_used": candidate.model_used,
+        },
+        source_text=candidate.source_text,
+        affected_variables=candidate.affected_variables,
+        confidence_score=candidate.confidence_score,
+        is_validated=False,
+    )
+    db.add(event_script)
+    await db.flush()
+
+    # 2. Create NodePatch
+    node_patch = NodePatch(
+        tenant_id=tenant_id,
+        patch_type="event_injection",
+        change_description={
+            "type": "event_candidate_applied",
+            "candidate_id": str(candidate.id),
+            "source_text": candidate.source_text,
+        },
+        parameters=candidate.proposed_deltas,
+        affected_variables=candidate.affected_variables,
+        environment_overrides=candidate.proposed_scope.get("environment_overrides"),
+        event_script_id=event_script.id,
+        nl_description=candidate.source_text,
+    )
+    db.add(node_patch)
+    await db.flush()
+
+    # 3. Create child Node
+    child_node = Node(
+        tenant_id=tenant_id,
+        project_id=parent_node.project_id,
+        parent_node_id=parent_node.id,
+        depth=parent_node.depth + 1,
+        label=request.label or candidate.label,
+        environment_spec=parent_node.environment_spec,  # Inherit from parent
+        is_explored=False,
+        is_baseline=False,
+        probability=candidate.probability,
+        cumulative_probability=parent_node.cumulative_probability * candidate.probability,
+        min_ensemble_size=2,
+        completed_run_count=0,
+        is_ensemble_complete=False,
+    )
+    db.add(child_node)
+    await db.flush()
+
+    # Update NodePatch with node_id
+    node_patch.node_id = child_node.id
+
+    # 4. Create Edge
+    edge = Edge(
+        tenant_id=tenant_id,
+        from_node_id=parent_node.id,
+        to_node_id=child_node.id,
+        intervention=candidate.proposed_deltas,
+        explanation=candidate.description or candidate.source_text,
+    )
+    db.add(edge)
+
+    # 5. Update candidate as committed
+    candidate.status = EventCandidateStatus.COMMITTED.value
+    candidate.committed_event_id = event_script.id
+
+    await db.commit()
+
+    return ApplyToNodeResponse(
+        candidate_id=str(candidate.id),
+        committed_event_id=str(event_script.id),
+        node_id=str(child_node.id),
+        edge_id=str(edge.id),
+        patch_id=str(node_patch.id),
+        patch_hash=patch_hash,
+    )
+
+
+@router.get(
+    "/candidates/{candidate_id}/missing-fields",
+    response_model=MissingFieldsResponse,
+    summary="Show missing fields for candidate (STEP 5)",
+)
+async def show_candidate_missing_fields(
+    candidate_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_id: UUID = Depends(get_current_tenant_id),
+):
+    """
+    STEP 5: Show which fields are missing or incomplete for a candidate.
+
+    Helps users understand what additional information might be needed
+    before applying the candidate to a node.
+    """
+    from app.models.event_script import EventCandidate
+
+    result = await db.execute(
+        select(EventCandidate).where(
+            and_(
+                EventCandidate.id == candidate_id,
+                EventCandidate.tenant_id == tenant_id,
+            )
+        )
+    )
+    candidate = result.scalar_one_or_none()
+
+    if not candidate:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Event candidate {candidate_id} not found",
+        )
+
+    missing_required = []
+    missing_recommended = []
+
+    # Required fields
+    if not candidate.label:
+        missing_required.append({"field": "label", "message": "Label is required"})
+    if not candidate.proposed_deltas:
+        missing_required.append({"field": "proposed_deltas", "message": "At least one delta is required"})
+    elif not any([
+        candidate.proposed_deltas.get("environment_deltas"),
+        candidate.proposed_deltas.get("perception_deltas"),
+    ]):
+        missing_required.append({
+            "field": "proposed_deltas",
+            "message": "At least one environment or perception delta is required"
+        })
+
+    # Recommended fields
+    if not candidate.description:
+        missing_recommended.append({"field": "description", "message": "Description is recommended"})
+    if not candidate.proposed_scope:
+        missing_recommended.append({"field": "proposed_scope", "message": "Scope is recommended for targeting"})
+    if candidate.probability == 0.0:
+        missing_recommended.append({"field": "probability", "message": "Probability should be > 0"})
+
+    # Calculate completeness score
+    total_fields = 5
+    complete_fields = total_fields - len(missing_required)
+    completeness_score = complete_fields / total_fields
+
+    return MissingFieldsResponse(
+        candidate_id=str(candidate.id),
+        missing_required=missing_required,
+        missing_recommended=missing_recommended,
+        completeness_score=completeness_score,
+    )
+
+
+@router.get(
+    "/candidates/{candidate_id}/affected-variables",
+    response_model=AffectedVariablesResponse,
+    summary="Show affected variables for candidate (STEP 5)",
+)
+async def show_candidate_affected_variables(
+    candidate_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_id: UUID = Depends(get_current_tenant_id),
+):
+    """
+    STEP 5: Show which simulation variables would be affected by this candidate.
+
+    Provides detailed information about each affected variable including
+    the operation and value to be applied.
+    """
+    from app.models.event_script import EventCandidate
+
+    result = await db.execute(
+        select(EventCandidate).where(
+            and_(
+                EventCandidate.id == candidate_id,
+                EventCandidate.tenant_id == tenant_id,
+            )
+        )
+    )
+    candidate = result.scalar_one_or_none()
+
+    if not candidate:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Event candidate {candidate_id} not found",
+        )
+
+    variable_details = []
+
+    # Extract from environment_deltas
+    env_deltas = candidate.proposed_deltas.get("environment_deltas", [])
+    for delta in env_deltas:
+        if isinstance(delta, dict):
+            variable_details.append({
+                "variable": delta.get("variable"),
+                "category": "environment",
+                "operation": delta.get("operation", "add"),
+                "value": delta.get("value"),
+                "impact_type": "direct",
+            })
+
+    # Extract from perception_deltas
+    perception_deltas = candidate.proposed_deltas.get("perception_deltas", [])
+    for delta in perception_deltas:
+        if isinstance(delta, dict):
+            variable_details.append({
+                "variable": delta.get("variable"),
+                "category": "perception",
+                "operation": delta.get("operation", "add"),
+                "value": delta.get("value"),
+                "impact_type": "indirect",
+            })
+
+    # Impact summary
+    impact_summary = {
+        "total_variables": len(candidate.affected_variables),
+        "environment_count": len(env_deltas),
+        "perception_count": len(perception_deltas),
+        "estimated_impact": "medium" if len(candidate.affected_variables) < 5 else "high",
+    }
+
+    return AffectedVariablesResponse(
+        candidate_id=str(candidate.id),
+        affected_variables=candidate.affected_variables,
+        variable_details=variable_details,
+        impact_summary=impact_summary,
+    )
+
+
+@router.get(
+    "/candidates/{candidate_id}/scope-preview",
+    response_model=ScopePreviewResponse,
+    summary="Show scope preview for candidate (STEP 5)",
+)
+async def show_candidate_scope_preview(
+    candidate_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_id: UUID = Depends(get_current_tenant_id),
+):
+    """
+    STEP 5: Preview the scope of effect for this candidate.
+
+    Shows which regions, segments, and time window would be affected
+    if this candidate is applied.
+    """
+    from app.models.event_script import EventCandidate
+
+    result = await db.execute(
+        select(EventCandidate).where(
+            and_(
+                EventCandidate.id == candidate_id,
+                EventCandidate.tenant_id == tenant_id,
+            )
+        )
+    )
+    candidate = result.scalar_one_or_none()
+
+    if not candidate:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Event candidate {candidate_id} not found",
+        )
+
+    scope = candidate.proposed_scope or {}
+    affected_regions = scope.get("affected_regions", ["global"])
+    affected_segments = scope.get("affected_segments", ["all"])
+    time_window = scope.get("time_window")
+
+    # Estimate affected agent count based on scope
+    # In production, this would query the project's persona pool
+    if "global" in affected_regions or not affected_regions:
+        estimated_agent_count = 1000  # Full simulation
+    else:
+        estimated_agent_count = len(affected_regions) * 200  # Rough estimate
+
+    if "all" not in affected_segments and affected_segments:
+        estimated_agent_count = int(estimated_agent_count * 0.3)  # Segment subset
+
+    return ScopePreviewResponse(
+        candidate_id=str(candidate.id),
+        scope=scope,
+        affected_regions=affected_regions,
+        affected_segments=affected_segments,
+        time_window=time_window,
+        estimated_agent_count=estimated_agent_count,
+    )
+
+
+@router.post(
+    "/{event_id}/save-as-template",
+    response_model=SaveAsTemplateResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Save event as template (STEP 5)",
+)
+async def save_event_as_template(
+    event_id: UUID,
+    request: SaveAsTemplateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_id: UUID = Depends(get_current_tenant_id),
+):
+    """
+    STEP 5: Save an event script as a reusable template.
+
+    Creates a copy of the event with template metadata, allowing
+    it to be reused across projects.
+    """
+    # Get original event
+    result = await db.execute(
+        select(EventScript).where(
+            and_(
+                EventScript.id == event_id,
+                EventScript.tenant_id == tenant_id,
+            )
+        )
+    )
+    original = result.scalar_one_or_none()
+
+    if not original:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Event script {event_id} not found",
+        )
+
+    # Create template copy
+    template = EventScript(
+        tenant_id=tenant_id,
+        project_id=original.project_id,  # Templates can be moved later
+        event_type=original.event_type,
+        label=request.template_name,
+        description=request.template_description or original.description,
+        scope=original.scope,
+        deltas=original.deltas,
+        intensity_profile=original.intensity_profile,
+        uncertainty=original.uncertainty,
+        provenance={
+            "template_source": str(original.id),
+            "original_label": original.label,
+            "templated_at": datetime.utcnow().isoformat(),
+            "templated_by": str(current_user.id),
+        },
+        source_text=original.source_text,
+        affected_variables=original.affected_variables,
+        confidence_score=original.confidence_score,
+        tags=(request.tags or []) + ["template"],
+        is_active=True,
+        is_validated=original.is_validated,
+    )
+
+    db.add(template)
+    await db.commit()
+    await db.refresh(template)
+
+    return SaveAsTemplateResponse(
+        original_event_id=str(original.id),
+        template_event_id=str(template.id),
+        template_name=request.template_name,
+    )

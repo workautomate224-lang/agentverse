@@ -20,10 +20,12 @@ from app.models.node import (
     Node,
     Edge,
     NodeCluster,
+    NodePatch,
     Run,
     InterventionType,
     ExpansionStrategy,
     ConfidenceLevel,
+    AggregationMethod,
 )
 
 
@@ -283,19 +285,36 @@ class NodeService:
     async def fork_node(
         self,
         input: ForkNodeInput,
-    ) -> Tuple[Node, Edge]:
+        min_ensemble_size: int = 2,
+    ) -> Tuple[Node, Edge, NodePatch]:
         """
         Fork a new node from an existing parent.
 
         This is the ONLY way to create non-root nodes.
         Enforces fork-not-mutate invariant.
+
+        STEP 2: Baseline immutability enforcement
+        - Can only fork from a node that has been explored (has a completed run)
+        - Completed baseline nodes are immutable
+
+        STEP 4: Creates structured NodePatch and enforces ensemble runs
+        - Creates NodePatch describing what changed from parent
+        - Sets min_ensemble_size for ensemble run requirement
+        - Returns (Node, Edge, NodePatch) tuple
         """
         # Get parent node
         parent = await self.get_node(input.parent_node_id)
         if not parent:
             raise ValueError(f"Parent node {input.parent_node_id} not found")
 
-        # Create child node
+        # STEP 2: Baseline immutability - require parent to have completed run first
+        if parent.is_baseline and not parent.is_explored:
+            raise ValueError(
+                "STEP 2 VIOLATION: Cannot fork from baseline node before baseline run completes. "
+                "Run the baseline simulation first to establish the reference scenario."
+            )
+
+        # STEP 4: Create child node with ensemble tracking
         child_node = Node(
             id=uuid.uuid4(),
             tenant_id=input.tenant_id,
@@ -304,8 +323,8 @@ class NodeService:
             depth=parent.depth + 1,
             scenario_patch_ref=input.scenario_patch_ref.to_dict() if input.scenario_patch_ref else None,
             run_refs=[],
-            probability=1.0,  # Will be updated when runs complete
-            cumulative_probability=parent.cumulative_probability,  # Updated with runs
+            probability=1.0,  # Will be updated when ensemble completes
+            cumulative_probability=parent.cumulative_probability,
             confidence={
                 "confidence_level": ConfidenceLevel.LOW.value,
                 "confidence_score": 0.0,
@@ -317,6 +336,45 @@ class NodeService:
             is_baseline=False,
             is_explored=False,
             child_count=0,
+            # STEP 4: Ensemble tracking
+            min_ensemble_size=min_ensemble_size,
+            completed_run_count=0,
+            is_ensemble_complete=False,
+            aggregation_method=AggregationMethod.MEAN.value,
+        )
+
+        self.db.add(child_node)
+        await self.db.flush()  # Flush to get child_node.id
+
+        # STEP 4: Create structured NodePatch
+        intervention_dict = input.intervention.to_dict()
+        patch_type = intervention_dict.get("intervention_type", "variable_delta")
+
+        # Extract affected variables from intervention
+        affected_vars = []
+        if intervention_dict.get("variable_deltas"):
+            affected_vars = list(intervention_dict["variable_deltas"].keys())
+        if intervention_dict.get("event_script_ref"):
+            affected_vars.append("event_injection")
+
+        node_patch = NodePatch(
+            id=uuid.uuid4(),
+            tenant_id=input.tenant_id,
+            node_id=child_node.id,
+            patch_type=patch_type,
+            change_description={
+                "intervention_type": patch_type,
+                "source": "fork",
+                "parent_node_id": str(parent.id),
+            },
+            parameters={
+                "variable_deltas": intervention_dict.get("variable_deltas"),
+                "expansion_strategy": intervention_dict.get("expansion_strategy"),
+            },
+            affected_variables=affected_vars,
+            environment_overrides=intervention_dict.get("variable_deltas"),
+            event_script=intervention_dict.get("event_script_ref"),
+            nl_description=intervention_dict.get("nl_query") or input.label,
         )
 
         # Create edge from parent to child
@@ -332,7 +390,7 @@ class NodeService:
             project_id=input.project_id,
             from_node_id=parent.id,
             to_node_id=child_node.id,
-            intervention=input.intervention.to_dict(),
+            intervention=intervention_dict,
             explanation=explanation.to_dict(),
             is_primary_path=False,
         )
@@ -340,11 +398,11 @@ class NodeService:
         # Update parent child count (allowed meta update, not outcome mutation)
         parent.child_count += 1
 
-        self.db.add(child_node)
+        self.db.add(node_patch)
         self.db.add(edge)
         await self.db.flush()
 
-        return child_node, edge
+        return child_node, edge, node_patch
 
     async def get_node(
         self,
@@ -1042,8 +1100,8 @@ class NodeService:
         if not parent:
             raise ValueError(f"Parent node {parent_node_id} not found")
 
-        # Get all children
-        children = await self.get_child_nodes(parent.id)
+        # Get all children (STEP 4: Fixed method name bug)
+        children = await self.get_children(str(parent.id), parent.tenant_id)
         if not children:
             return {
                 "status": "no_children",
@@ -1219,7 +1277,8 @@ class NodeService:
         if not parent:
             raise ValueError(f"Parent node {parent_node_id} not found")
 
-        children = await self.get_child_nodes(parent.id)
+        # STEP 4: Fixed method name bug
+        children = await self.get_children(str(parent.id), parent.tenant_id)
 
         children_data = [
             {
@@ -1245,6 +1304,499 @@ class NodeService:
             "children_sum": children_sum,
             "is_normalized": is_normalized,
             "difference": abs(children_sum - parent.probability),
+        }
+
+
+    # ==========================================================================
+    # STEP 9: Dependency Tracking & Node Operations
+    # ==========================================================================
+
+    async def mark_descendants_stale(
+        self,
+        ancestor_node_id: uuid.UUID,
+        change_type: str,
+        changed_at: Optional[datetime] = None,
+    ) -> int:
+        """
+        STEP 9 Req 5: Mark all descendant nodes as stale when ancestor is modified.
+
+        This propagates staleness through the entire subtree.
+        Returns the count of nodes marked stale.
+        """
+        if changed_at is None:
+            changed_at = datetime.utcnow()
+
+        stale_reason = {
+            "ancestor_node_id": str(ancestor_node_id),
+            "change_type": change_type,
+            "changed_at": changed_at.isoformat(),
+        }
+
+        # Get all descendant node IDs using recursive CTE
+        # Build descendant list iteratively
+        descendants = []
+        to_process = [ancestor_node_id]
+
+        while to_process:
+            current_id = to_process.pop()
+            stmt = select(Node).where(
+                Node.parent_node_id == current_id,
+                Node.is_pruned == False,
+            )
+            result = await self.db.execute(stmt)
+            children = result.scalars().all()
+
+            for child in children:
+                descendants.append(child.id)
+                to_process.append(child.id)
+
+        # Mark all descendants as stale
+        stale_count = 0
+        for desc_id in descendants:
+            stmt = select(Node).where(Node.id == desc_id)
+            result = await self.db.execute(stmt)
+            node = result.scalar_one_or_none()
+            if node and not node.is_stale:
+                node.is_stale = True
+                node.stale_reason = stale_reason
+                stale_count += 1
+
+        await self.db.flush()
+        return stale_count
+
+    async def clear_staleness(
+        self,
+        node_id: uuid.UUID,
+        cascade_to_descendants: bool = False,
+    ) -> int:
+        """
+        STEP 9: Clear staleness flag on a node (and optionally descendants).
+
+        Called after a node has been refreshed/rerun.
+        Returns count of nodes cleared.
+        """
+        cleared_count = 0
+
+        stmt = select(Node).where(Node.id == node_id)
+        result = await self.db.execute(stmt)
+        node = result.scalar_one_or_none()
+
+        if node and node.is_stale:
+            node.is_stale = False
+            node.stale_reason = None
+            cleared_count += 1
+
+        if cascade_to_descendants and node:
+            # Clear all descendants
+            descendants = await self._get_all_descendants(node_id)
+            for desc in descendants:
+                if desc.is_stale:
+                    desc.is_stale = False
+                    desc.stale_reason = None
+                    cleared_count += 1
+
+        await self.db.flush()
+        return cleared_count
+
+    async def _get_all_descendants(
+        self,
+        ancestor_node_id: uuid.UUID,
+    ) -> List[Node]:
+        """Helper to get all descendant nodes."""
+        descendants = []
+        to_process = [ancestor_node_id]
+
+        while to_process:
+            current_id = to_process.pop()
+            stmt = select(Node).where(
+                Node.parent_node_id == current_id,
+            )
+            result = await self.db.execute(stmt)
+            children = result.scalars().all()
+
+            for child in children:
+                descendants.append(child)
+                to_process.append(child.id)
+
+        return descendants
+
+    async def get_stale_nodes(
+        self,
+        project_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+    ) -> List[Node]:
+        """
+        STEP 9: Get all stale nodes in a project for refresh queue.
+        """
+        stmt = select(Node).where(
+            Node.project_id == project_id,
+            Node.tenant_id == tenant_id,
+            Node.is_stale == True,
+            Node.is_pruned == False,
+        ).order_by(Node.depth.asc())
+
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def prune_node(
+        self,
+        node_id: uuid.UUID,
+        reason: Optional[str] = None,
+    ) -> Node:
+        """
+        STEP 9 Req 6: Prune a node (mark as hidden, not deleted).
+
+        Pruned nodes are excluded from default views but remain for audit trail.
+        """
+        stmt = select(Node).where(Node.id == node_id)
+        result = await self.db.execute(stmt)
+        node = result.scalar_one_or_none()
+
+        if not node:
+            raise ValueError(f"Node {node_id} not found")
+
+        node.is_pruned = True
+        node.pruned_at = datetime.utcnow()
+        node.pruned_reason = reason
+
+        await self.db.flush()
+        return node
+
+    async def unprune_node(
+        self,
+        node_id: uuid.UUID,
+    ) -> Node:
+        """
+        STEP 9: Restore a pruned node to visibility.
+        """
+        stmt = select(Node).where(Node.id == node_id)
+        result = await self.db.execute(stmt)
+        node = result.scalar_one_or_none()
+
+        if not node:
+            raise ValueError(f"Node {node_id} not found")
+
+        node.is_pruned = False
+        node.pruned_at = None
+        node.pruned_reason = None
+
+        await self.db.flush()
+        return node
+
+    async def annotate_node(
+        self,
+        node_id: uuid.UUID,
+        annotations: Dict[str, Any],
+        merge: bool = True,
+    ) -> Node:
+        """
+        STEP 9 Req 6: Add or update annotations on a node.
+
+        Args:
+            node_id: Node to annotate
+            annotations: Dict with keys like 'notes', 'tags', 'bookmarked', 'custom_labels'
+            merge: If True, merge with existing annotations; if False, replace entirely
+        """
+        stmt = select(Node).where(Node.id == node_id)
+        result = await self.db.execute(stmt)
+        node = result.scalar_one_or_none()
+
+        if not node:
+            raise ValueError(f"Node {node_id} not found")
+
+        if merge and node.annotations:
+            # Deep merge annotations
+            merged = dict(node.annotations)
+            for key, value in annotations.items():
+                if key == "tags" and isinstance(value, list):
+                    # Merge tag lists without duplicates
+                    existing_tags = merged.get("tags", [])
+                    merged["tags"] = list(set(existing_tags + value))
+                elif isinstance(value, dict) and isinstance(merged.get(key), dict):
+                    merged[key] = {**merged[key], **value}
+                else:
+                    merged[key] = value
+            node.annotations = merged
+        else:
+            node.annotations = annotations
+
+        await self.db.flush()
+        return node
+
+    async def get_annotated_nodes(
+        self,
+        project_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        tag_filter: Optional[str] = None,
+        bookmarked_only: bool = False,
+    ) -> List[Node]:
+        """
+        STEP 9: Get nodes with annotations (bookmarks, tags, notes).
+        """
+        stmt = select(Node).where(
+            Node.project_id == project_id,
+            Node.tenant_id == tenant_id,
+            Node.annotations.isnot(None),
+            Node.is_pruned == False,
+        )
+
+        result = await self.db.execute(stmt)
+        nodes = list(result.scalars().all())
+
+        # Filter in Python for JSONB fields
+        filtered = []
+        for node in nodes:
+            if not node.annotations:
+                continue
+
+            if bookmarked_only and not node.annotations.get("bookmarked"):
+                continue
+
+            if tag_filter:
+                tags = node.annotations.get("tags", [])
+                if tag_filter not in tags:
+                    continue
+
+            filtered.append(node)
+
+        return filtered
+
+    async def compute_outcome_delta(
+        self,
+        parent_node_id: uuid.UUID,
+        child_node_id: uuid.UUID,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        STEP 9: Compute outcome delta between parent and child nodes.
+
+        Returns dict with metric changes for Edge.outcome_delta field.
+        """
+        parent_stmt = select(Node).where(Node.id == parent_node_id)
+        child_stmt = select(Node).where(Node.id == child_node_id)
+
+        parent_result = await self.db.execute(parent_stmt)
+        child_result = await self.db.execute(child_stmt)
+
+        parent = parent_result.scalar_one_or_none()
+        child = child_result.scalar_one_or_none()
+
+        if not parent or not child:
+            return None
+
+        if not parent.aggregated_outcome or not child.aggregated_outcome:
+            return None
+
+        delta = {}
+        parent_metrics = parent.aggregated_outcome.get("key_metrics", [])
+        child_metrics = child.aggregated_outcome.get("key_metrics", [])
+
+        # Build lookup dicts
+        parent_lookup = {m.get("name"): m.get("value") for m in parent_metrics if m.get("name")}
+        child_lookup = {m.get("name"): m.get("value") for m in child_metrics if m.get("name")}
+
+        # Compute deltas for common metrics
+        all_metrics = set(parent_lookup.keys()) | set(child_lookup.keys())
+        for metric in all_metrics:
+            before = parent_lookup.get(metric)
+            after = child_lookup.get(metric)
+
+            if before is not None and after is not None:
+                try:
+                    before_val = float(before)
+                    after_val = float(after)
+                    change = after_val - before_val
+                    change_pct = (change / before_val * 100) if before_val != 0 else 0
+
+                    delta[metric] = {
+                        "before": before_val,
+                        "after": after_val,
+                        "change": change,
+                        "change_pct": round(change_pct, 2),
+                    }
+                except (ValueError, TypeError):
+                    # Non-numeric metric, just record before/after
+                    delta[metric] = {
+                        "before": before,
+                        "after": after,
+                    }
+
+        return delta if delta else None
+
+    # ==========================================================================
+    # STEP 4: Universe Map Operations
+    # ==========================================================================
+
+    async def get_node_patch(
+        self,
+        node_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+    ) -> Optional[NodePatch]:
+        """
+        STEP 4: Get the NodePatch for a specific node.
+
+        Returns None for root/baseline nodes which have no patch.
+        """
+        stmt = select(NodePatch).where(
+            NodePatch.node_id == node_id,
+            NodePatch.tenant_id == tenant_id,
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def collapse_branches(
+        self,
+        parent_node_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        cluster_label: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        STEP 4: Collapse all child branches under a parent into a cluster.
+
+        Groups similar nodes for visualization without deleting them.
+        Returns cluster info with representative node.
+        """
+        # Get parent node
+        parent_stmt = select(Node).where(
+            Node.id == parent_node_id,
+            Node.tenant_id == tenant_id,
+        )
+        parent_result = await self.db.execute(parent_stmt)
+        parent = parent_result.scalar_one_or_none()
+
+        if not parent:
+            raise ValueError(f"Parent node {parent_node_id} not found")
+
+        # Get all children
+        children_stmt = select(Node).where(
+            Node.parent_node_id == parent_node_id,
+            Node.tenant_id == tenant_id,
+            Node.is_pruned == False,
+        ).order_by(Node.probability.desc())
+
+        children_result = await self.db.execute(children_stmt)
+        children = list(children_result.scalars().all())
+
+        if len(children) < 2:
+            raise ValueError("Need at least 2 children to collapse")
+
+        # Create a new cluster
+        cluster = NodeCluster(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            project_id=parent.project_id,
+            label=cluster_label or f"Collapsed branches from {parent.label or str(parent_node_id)[:8]}",
+            representative_node_id=children[0].id,  # Highest probability node
+            member_count=len(children),
+            collapse_reason="manual_collapse",
+            is_expanded=False,
+        )
+        self.db.add(cluster)
+
+        # Update all children to reference the cluster
+        representative = children[0]
+        for child in children:
+            child.cluster_id = cluster.id
+            child.is_cluster_representative = (child.id == representative.id)
+
+        await self.db.flush()
+
+        return {
+            "cluster_id": cluster.id,
+            "parent_node_id": parent_node_id,
+            "collapsed_count": len(children),
+            "representative_node_id": representative.id,
+            "cluster_label": cluster.label,
+        }
+
+    async def prune_by_probability(
+        self,
+        project_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        threshold: float,
+    ) -> Dict[str, Any]:
+        """
+        STEP 4: Prune all nodes below a probability threshold.
+
+        Marks nodes as pruned (not deleted) for audit trail.
+        Returns count and IDs of pruned nodes.
+        """
+        stmt = select(Node).where(
+            Node.project_id == project_id,
+            Node.tenant_id == tenant_id,
+            Node.probability < threshold,
+            Node.is_pruned == False,
+            Node.is_baseline == False,  # Never prune baseline
+        )
+        result = await self.db.execute(stmt)
+        nodes = list(result.scalars().all())
+
+        pruned_ids = []
+        now = datetime.utcnow()
+
+        for node in nodes:
+            node.is_pruned = True
+            node.pruned_at = now
+            node.pruned_reason = f"Bulk prune: probability {node.probability:.4f} < threshold {threshold}"
+            pruned_ids.append(node.id)
+
+        await self.db.flush()
+
+        return {
+            "pruned_count": len(pruned_ids),
+            "threshold_used": threshold,
+            "pruned_node_ids": pruned_ids,
+        }
+
+    async def prune_by_reliability(
+        self,
+        project_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        threshold: float,
+    ) -> Dict[str, Any]:
+        """
+        STEP 4: Prune all nodes below a reliability threshold.
+
+        Uses confidence.confidence_score field if available.
+        Marks nodes as pruned (not deleted) for audit trail.
+        """
+        stmt = select(Node).where(
+            Node.project_id == project_id,
+            Node.tenant_id == tenant_id,
+            Node.is_pruned == False,
+            Node.is_baseline == False,  # Never prune baseline
+        )
+        result = await self.db.execute(stmt)
+        nodes = list(result.scalars().all())
+
+        pruned_ids = []
+        now = datetime.utcnow()
+
+        for node in nodes:
+            # Get reliability score from confidence field
+            confidence = node.confidence or {}
+            reliability_score = confidence.get("confidence_score") or confidence.get("reliability_score")
+
+            if reliability_score is None:
+                # No reliability data, skip
+                continue
+
+            try:
+                score = float(reliability_score)
+            except (ValueError, TypeError):
+                continue
+
+            if score < threshold:
+                node.is_pruned = True
+                node.pruned_at = now
+                node.pruned_reason = f"Bulk prune: reliability {score:.4f} < threshold {threshold}"
+                pruned_ids.append(node.id)
+
+        await self.db.flush()
+
+        return {
+            "pruned_count": len(pruned_ids),
+            "threshold_used": threshold,
+            "pruned_node_ids": pruned_ids,
         }
 
 

@@ -179,7 +179,22 @@ class SimulationOrchestrator:
                 ),
                 label=input.label,
             )
-            node, edge = await self.node_service.fork_node(fork_input)
+            # STEP 4: fork_node now returns (Node, Edge, NodePatch)
+            node, edge, node_patch = await self.node_service.fork_node(fork_input)
+
+            # STEP 4: Generate child scenario from parent state + node_patch
+            parent_node = await self.node_service.get_node(uuid.UUID(input.parent_node_id))
+            if parent_node and parent_node.aggregated_outcome:
+                # Get parent's environment state (from last run outcome or scenario)
+                parent_env = parent_node.aggregated_outcome.get("environment_state", {})
+                if not parent_env and parent_node.scenario_patch_ref:
+                    parent_env = parent_node.scenario_patch_ref
+
+                # Apply NodePatch to generate child environment
+                if parent_env and node_patch:
+                    config.scenario_patch = node_patch.apply_to_environment(parent_env)
+                    config.scenario_patch["_derived_from_parent"] = str(parent_node.id)
+                    config.scenario_patch["_patch_id"] = str(node_patch.id)
         else:
             # Create root node
             node_input = CreateNodeInput(
@@ -234,7 +249,7 @@ class SimulationOrchestrator:
             }
         )
 
-        # Create Run record
+        # Create Run record (STEP 1: Start with CREATED status)
         run = Run(
             id=uuid.uuid4(),
             project_id=uuid.UUID(input.project_id),
@@ -242,14 +257,44 @@ class SimulationOrchestrator:
             node_id=node.id,
             run_config_ref=run_config_id,
             triggered_by=input.triggered_by.value if input.triggered_by else "user",
-            status=RunStatus.QUEUED.value,
+            status=RunStatus.CREATED.value,  # STEP 1: Initial state is CREATED
             actual_seed=config.primary_seed,
-            timing={},
+            timing={"created_at": datetime.utcnow().isoformat()},
         )
         self.db.add(run)
         await self.db.flush()
 
         return run, node
+
+    async def queue_run(
+        self,
+        run: Run,
+        tenant_id: str,
+    ) -> Run:
+        """
+        Transition a run from CREATED to QUEUED status.
+
+        STEP 1: Enforces proper state transition.
+        """
+        if run.status != RunStatus.CREATED.value:
+            raise ValueError(
+                f"STEP 1 VIOLATION: Cannot queue run with status {run.status}. "
+                f"Expected status: {RunStatus.CREATED.value}"
+            )
+
+        # Update run status to QUEUED
+        stmt = (
+            update(Run)
+            .where(Run.id == run.id)
+            .values(
+                status=RunStatus.QUEUED.value,
+                timing={**run.timing, "queued_at": datetime.utcnow().isoformat()},
+                updated_at=datetime.utcnow(),
+            )
+        )
+        await self.db.execute(stmt)
+        run.status = RunStatus.QUEUED.value
+        return run
 
     async def start_run(
         self,
@@ -260,9 +305,24 @@ class SimulationOrchestrator:
         """
         Start a simulation run by submitting to the job queue.
 
+        STEP 1 State Transitions:
+        - CREATED -> QUEUED (when submitted to queue)
+        - QUEUED -> RUNNING (when worker picks it up, handled by executor)
+
         Returns the Celery task ID.
         """
         from app.tasks.run_executor import execute_run
+
+        # STEP 1: Validate state transition
+        if run.status not in (RunStatus.CREATED.value, RunStatus.QUEUED.value, "pending"):
+            raise ValueError(
+                f"STEP 1 VIOLATION: Cannot start run with status {run.status}. "
+                f"Expected status: {RunStatus.CREATED.value} or {RunStatus.QUEUED.value}"
+            )
+
+        # Transition from CREATED to QUEUED
+        if run.status == RunStatus.CREATED.value:
+            await self.queue_run(run, tenant_id)
 
         # Create job context with a default user_id
         context = create_job_context(
@@ -725,6 +785,132 @@ class SimulationOrchestrator:
             "run_count": len(outcomes),
             "outcome_statistics": aggregated,
             "confidence": 1 - (sum(a["variance"] for a in aggregated.values()) / len(aggregated)) if aggregated else 0,
+        }
+
+    # ================================================================
+    # STEP 4: Universe Map Operations
+    # ================================================================
+
+    async def queue_node_refresh(
+        self,
+        node_id: str,
+        tenant_id: str,
+    ) -> Dict[str, Any]:
+        """
+        STEP 4: Queue a stale node for re-simulation.
+
+        Creates a new run for the node and optionally starts it.
+        Clears the staleness flag after queuing.
+        """
+        node_uuid = uuid.UUID(node_id)
+        tenant_uuid = uuid.UUID(tenant_id)
+
+        # Get the node
+        stmt = select(Node).where(
+            Node.id == node_uuid,
+            Node.tenant_id == tenant_uuid,
+        )
+        result = await self.db.execute(stmt)
+        node = result.scalar_one_or_none()
+
+        if not node:
+            raise ValueError(f"Node {node_id} not found")
+
+        if not node.is_stale:
+            return {
+                "status": "skipped",
+                "reason": "Node is not stale",
+                "node_id": node_id,
+            }
+
+        # Create a run for this node
+        input = CreateRunInput(
+            project_id=str(node.project_id),
+            tenant_id=tenant_id,
+            node_id=node_id,
+            triggered_by=TriggeredBy.BATCH,
+            label=f"Refresh run for stale node",
+        )
+
+        run, _, task_id = await self.create_and_start_run(input)
+
+        # Clear staleness flag
+        node.is_stale = False
+        node.stale_reason = None
+        await self.db.flush()
+
+        return {
+            "status": "queued",
+            "node_id": node_id,
+            "run_id": str(run.id),
+            "task_id": task_id,
+        }
+
+    async def run_node_ensemble(
+        self,
+        node_id: str,
+        tenant_id: str,
+        seeds: List[int],
+        auto_start: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        STEP 4: Run multiple simulations for ensemble aggregation.
+
+        Creates multiple runs with different seeds for a node.
+        Updates node's min_ensemble_size.
+        """
+        node_uuid = uuid.UUID(node_id)
+        tenant_uuid = uuid.UUID(tenant_id)
+
+        # Get the node
+        stmt = select(Node).where(
+            Node.id == node_uuid,
+            Node.tenant_id == tenant_uuid,
+        )
+        result = await self.db.execute(stmt)
+        node = result.scalar_one_or_none()
+
+        if not node:
+            raise ValueError(f"Node {node_id} not found")
+
+        # Update ensemble size requirement
+        node.min_ensemble_size = max(node.min_ensemble_size, len(seeds))
+        await self.db.flush()
+
+        # Create runs for each seed
+        run_ids = []
+        task_ids = []
+
+        for seed in seeds:
+            run_config = RunConfigInput(
+                seed_strategy="single",
+                primary_seed=seed,
+            )
+
+            input = CreateRunInput(
+                project_id=str(node.project_id),
+                tenant_id=tenant_id,
+                node_id=node_id,
+                config=run_config,
+                triggered_by=TriggeredBy.BATCH,
+                label=f"Ensemble run (seed={seed})",
+                seeds=[seed],
+            )
+
+            if auto_start:
+                run, _, task_id = await self.create_and_start_run(input)
+                if task_id:
+                    task_ids.append(task_id)
+            else:
+                run, _ = await self.create_run(input)
+
+            run_ids.append(run.id)
+
+        return {
+            "node_id": node_id,
+            "run_ids": run_ids,
+            "task_ids": task_ids,
+            "ensemble_size": len(seeds),
         }
 
 

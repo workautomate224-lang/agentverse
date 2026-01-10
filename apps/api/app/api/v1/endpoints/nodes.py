@@ -1029,3 +1029,417 @@ async def normalize_child_probabilities(
         before=result.get("before"),
         after=result.get("after"),
     )
+
+
+# =============================================================================
+# STEP 4: Universe Map & Node Details Endpoints
+# Reference: Future_Predictive_AI_Platform_Ultra_Checklist.md STEP 4
+# =============================================================================
+
+
+class NodePatchResponse(BaseModel):
+    """Response for viewing a node's patch (STEP 4)."""
+    patch_id: str
+    node_id: str
+    patch_type: str
+    change_description: dict
+    parameters: dict
+    affected_variables: List[str]
+    environment_overrides: Optional[dict] = None
+    event_script_id: Optional[str] = None
+    nl_description: Optional[str] = None
+    created_at: str
+
+
+class CollapseBranchesRequest(BaseModel):
+    """Request to collapse branches under a parent node (STEP 4)."""
+    parent_node_id: str = Field(..., description="Parent node whose children to collapse")
+    cluster_label: Optional[str] = Field(None, description="Label for the collapsed cluster")
+
+
+class CollapseBranchesResponse(BaseModel):
+    """Response from collapsing branches (STEP 4)."""
+    cluster_id: str
+    parent_node_id: str
+    collapsed_count: int
+    representative_node_id: str
+    cluster_label: Optional[str] = None
+
+
+class BulkPruneRequest(BaseModel):
+    """Request for bulk pruning nodes (STEP 4)."""
+    project_id: str = Field(..., description="Project ID")
+    threshold: float = Field(..., description="Threshold value for pruning")
+
+
+class BulkPruneResponse(BaseModel):
+    """Response from bulk pruning operation (STEP 4)."""
+    pruned_count: int
+    threshold_used: float
+    pruned_node_ids: List[str]
+
+
+class RefreshStaleRequest(BaseModel):
+    """Request to refresh stale nodes (STEP 4)."""
+    project_id: str = Field(..., description="Project ID")
+    max_nodes: Optional[int] = Field(default=10, description="Max nodes to refresh")
+
+
+class RefreshStaleResponse(BaseModel):
+    """Response from refreshing stale nodes (STEP 4)."""
+    queued_count: int
+    queued_node_ids: List[str]
+    task_ids: List[str]
+
+
+class RunEnsembleRequest(BaseModel):
+    """Request to run ensemble simulations for a node (STEP 4)."""
+    seeds: List[int] = Field(default=[42, 123, 456], description="Seeds for ensemble runs")
+    auto_start: bool = Field(default=True, description="Auto-start the runs")
+
+
+class RunEnsembleResponse(BaseModel):
+    """Response from running ensemble (STEP 4)."""
+    node_id: str
+    run_ids: List[str]
+    task_ids: List[str]
+    ensemble_size: int
+
+
+@router.get(
+    "/{node_id}/patch",
+    response_model=NodePatchResponse,
+    summary="View node patch (STEP 4)",
+)
+async def get_node_patch(
+    node_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_ctx: TenantContext = Depends(require_tenant),
+) -> NodePatchResponse:
+    """
+    Get the NodePatch for a specific node.
+
+    STEP 4 Requirement: View Patch button shows the structured patch
+    describing what changed from the parent node.
+
+    Reference: Future_Predictive_AI_Platform_Ultra_Checklist.md STEP 4
+    """
+    from app.services import get_node_service
+
+    node_service = get_node_service(db)
+
+    try:
+        node_uuid = UUID(node_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid node ID format",
+        )
+
+    patch = await node_service.get_node_patch(node_uuid, tenant_ctx.tenant_id)
+
+    if not patch:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No patch found for node {node_id}. Root/baseline nodes have no patch.",
+        )
+
+    return NodePatchResponse(
+        patch_id=str(patch.id),
+        node_id=str(patch.node_id),
+        patch_type=patch.patch_type or "unknown",
+        change_description=patch.change_description or {},
+        parameters=patch.parameters or {},
+        affected_variables=patch.affected_variables or [],
+        environment_overrides=patch.environment_overrides,
+        event_script_id=str(patch.event_script_id) if patch.event_script_id else None,
+        nl_description=patch.nl_description,
+        created_at=patch.created_at.isoformat() if patch.created_at else "",
+    )
+
+
+@router.post(
+    "/collapse-branches",
+    response_model=CollapseBranchesResponse,
+    summary="Collapse branches under a parent (STEP 4)",
+)
+async def collapse_branches(
+    request: CollapseBranchesRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_ctx: TenantContext = Depends(require_tenant),
+) -> CollapseBranchesResponse:
+    """
+    Collapse all child branches under a parent node into a cluster.
+
+    STEP 4 Requirement: Collapse Branches button groups similar nodes
+    for easier visualization without deleting them.
+
+    Reference: Future_Predictive_AI_Platform_Ultra_Checklist.md STEP 4
+    """
+    from app.services import get_node_service
+
+    node_service = get_node_service(db)
+
+    try:
+        parent_uuid = UUID(request.parent_node_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid parent node ID format",
+        )
+
+    try:
+        result = await node_service.collapse_branches(
+            parent_node_id=parent_uuid,
+            tenant_id=tenant_ctx.tenant_id,
+            cluster_label=request.cluster_label,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+    await db.commit()
+
+    return CollapseBranchesResponse(
+        cluster_id=str(result["cluster_id"]),
+        parent_node_id=str(result["parent_node_id"]),
+        collapsed_count=result["collapsed_count"],
+        representative_node_id=str(result["representative_node_id"]),
+        cluster_label=result.get("cluster_label"),
+    )
+
+
+@router.post(
+    "/prune/low-probability",
+    response_model=BulkPruneResponse,
+    summary="Prune nodes below probability threshold (STEP 4)",
+)
+async def prune_low_probability(
+    request: BulkPruneRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_ctx: TenantContext = Depends(require_tenant),
+) -> BulkPruneResponse:
+    """
+    Prune all nodes in a project below a probability threshold.
+
+    STEP 4 Requirement: Prune Low Probability button removes
+    unlikely futures from the active view (keeps for audit).
+
+    Reference: Future_Predictive_AI_Platform_Ultra_Checklist.md STEP 4
+    """
+    from app.services import get_node_service
+
+    node_service = get_node_service(db)
+
+    try:
+        project_uuid = UUID(request.project_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid project ID format",
+        )
+
+    if not 0 <= request.threshold <= 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Threshold must be between 0 and 1",
+        )
+
+    result = await node_service.prune_by_probability(
+        project_id=project_uuid,
+        tenant_id=tenant_ctx.tenant_id,
+        threshold=request.threshold,
+    )
+
+    await db.commit()
+
+    return BulkPruneResponse(
+        pruned_count=result["pruned_count"],
+        threshold_used=result["threshold_used"],
+        pruned_node_ids=[str(nid) for nid in result["pruned_node_ids"]],
+    )
+
+
+@router.post(
+    "/prune/low-reliability",
+    response_model=BulkPruneResponse,
+    summary="Prune nodes below reliability threshold (STEP 4)",
+)
+async def prune_low_reliability(
+    request: BulkPruneRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_ctx: TenantContext = Depends(require_tenant),
+) -> BulkPruneResponse:
+    """
+    Prune all nodes in a project below a reliability threshold.
+
+    STEP 4 Requirement: Prune Low Reliability button removes
+    unreliable nodes from the active view (keeps for audit).
+
+    Reference: Future_Predictive_AI_Platform_Ultra_Checklist.md STEP 4
+    """
+    from app.services import get_node_service
+
+    node_service = get_node_service(db)
+
+    try:
+        project_uuid = UUID(request.project_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid project ID format",
+        )
+
+    if not 0 <= request.threshold <= 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Threshold must be between 0 and 1",
+        )
+
+    result = await node_service.prune_by_reliability(
+        project_id=project_uuid,
+        tenant_id=tenant_ctx.tenant_id,
+        threshold=request.threshold,
+    )
+
+    await db.commit()
+
+    return BulkPruneResponse(
+        pruned_count=result["pruned_count"],
+        threshold_used=result["threshold_used"],
+        pruned_node_ids=[str(nid) for nid in result["pruned_node_ids"]],
+    )
+
+
+@router.post(
+    "/refresh-stale",
+    response_model=RefreshStaleResponse,
+    summary="Refresh stale nodes (STEP 4)",
+)
+async def refresh_stale_nodes(
+    request: RefreshStaleRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_ctx: TenantContext = Depends(require_tenant),
+) -> RefreshStaleResponse:
+    """
+    Queue stale nodes for re-simulation.
+
+    STEP 4 Requirement: Refresh Stale Nodes button triggers
+    re-runs for nodes that are marked as stale due to upstream changes.
+
+    Reference: Future_Predictive_AI_Platform_Ultra_Checklist.md STEP 4
+    """
+    from app.services import get_node_service, get_simulation_orchestrator
+
+    node_service = get_node_service(db)
+    orchestrator = get_simulation_orchestrator(db)
+
+    try:
+        project_uuid = UUID(request.project_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid project ID format",
+        )
+
+    # Get stale nodes (ordered by depth to process ancestors first)
+    stale_nodes = await node_service.get_stale_nodes(
+        project_id=project_uuid,
+        tenant_id=tenant_ctx.tenant_id,
+    )
+
+    # Limit to max_nodes
+    nodes_to_refresh = stale_nodes[:request.max_nodes]
+
+    # Queue runs for each stale node
+    queued_node_ids = []
+    task_ids = []
+
+    for node in nodes_to_refresh:
+        try:
+            result = await orchestrator.queue_node_refresh(
+                node_id=str(node.id),
+                tenant_id=str(tenant_ctx.tenant_id),
+            )
+            queued_node_ids.append(str(node.id))
+            if result.get("task_id"):
+                task_ids.append(result["task_id"])
+        except Exception:
+            # Skip nodes that fail to queue
+            continue
+
+    await db.commit()
+
+    return RefreshStaleResponse(
+        queued_count=len(queued_node_ids),
+        queued_node_ids=queued_node_ids,
+        task_ids=task_ids,
+    )
+
+
+@router.post(
+    "/{node_id}/run-ensemble",
+    response_model=RunEnsembleResponse,
+    summary="Run ensemble simulations for a node (STEP 4)",
+)
+async def run_node_ensemble(
+    node_id: str,
+    request: RunEnsembleRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_ctx: TenantContext = Depends(require_tenant),
+) -> RunEnsembleResponse:
+    """
+    Run multiple simulations with different seeds for ensemble aggregation.
+
+    STEP 4 Requirement: Run Node Ensemble button creates multiple runs
+    with different seeds to compute aggregated outcome statistics.
+
+    Reference: Future_Predictive_AI_Platform_Ultra_Checklist.md STEP 4
+    """
+    from app.services import get_simulation_orchestrator
+
+    orchestrator = get_simulation_orchestrator(db)
+
+    try:
+        node_uuid = UUID(node_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid node ID format",
+        )
+
+    if len(request.seeds) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ensemble requires at least 2 seeds",
+        )
+
+    try:
+        result = await orchestrator.run_node_ensemble(
+            node_id=str(node_uuid),
+            tenant_id=str(tenant_ctx.tenant_id),
+            seeds=request.seeds,
+            auto_start=request.auto_start,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+    await db.commit()
+
+    return RunEnsembleResponse(
+        node_id=str(node_uuid),
+        run_ids=[str(rid) for rid in result["run_ids"]],
+        task_ids=result.get("task_ids", []),
+        ensemble_size=len(request.seeds),
+    )

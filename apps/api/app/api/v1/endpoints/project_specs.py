@@ -13,7 +13,7 @@ This is the spec-compliant replacement for the legacy projects endpoint.
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -752,3 +752,323 @@ async def create_run_from_project(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create run: {str(e)}",
         )
+
+
+# ============================================================================
+# STEP 2: ProjectSnapshot API (Aggregated Project Overview)
+# ============================================================================
+
+class BaselineNodeSummary(BaseModel):
+    """Summary of baseline node for ProjectSnapshot."""
+    node_id: str
+    label: Optional[str]
+    is_baseline: bool
+    has_outcome: bool
+    created_at: str
+
+
+class BaselineRunSummary(BaseModel):
+    """Summary of baseline run for ProjectSnapshot."""
+    run_id: str
+    status: str
+    ticks_executed: Optional[int]
+    seed: Optional[int]
+    worker_id: Optional[str]
+    started_at: Optional[str]
+    completed_at: Optional[str]
+
+
+class OutcomeSummary(BaseModel):
+    """Summary of baseline outcome for ProjectSnapshot."""
+    primary_outcome: str
+    primary_outcome_probability: float
+    key_metrics: List[dict]
+    summary_text: Optional[str]
+
+
+class ReliabilitySummary(BaseModel):
+    """Reliability summary for ProjectSnapshot."""
+    confidence_level: str
+    confidence_score: float
+    run_count: int
+
+
+class ProjectSnapshotResponse(BaseModel):
+    """
+    STEP 2: ProjectSnapshot - Single backend aggregation endpoint.
+
+    Provides truthful project overview including:
+    - Baseline node summary
+    - Baseline run summary (with status=SUCCEEDED verification)
+    - Outcome summary (real numeric values)
+    - Reliability summary
+
+    UI should ONLY show "Baseline Complete" if:
+    - baseline_node exists AND
+    - baseline_run exists AND baseline_run.status == "succeeded" AND
+    - outcome exists
+    """
+    project_id: str
+    project_name: str
+    has_baseline: bool
+    baseline_complete: bool  # True ONLY if node + run + outcome all exist
+
+    # Baseline data (null if no baseline)
+    baseline_node: Optional[BaselineNodeSummary]
+    baseline_run: Optional[BaselineRunSummary]
+    outcome: Optional[OutcomeSummary]
+    reliability: Optional[ReliabilitySummary]
+
+    # Latest node (may differ from baseline)
+    latest_node: Optional[BaselineNodeSummary]
+
+    # Stats
+    total_nodes: int
+    total_runs: int
+    total_completed_runs: int
+
+    # Timestamps
+    created_at: str
+    updated_at: str
+
+
+@router.get(
+    "/{project_id}/snapshot",
+    response_model=ProjectSnapshotResponse,
+    summary="Get project snapshot (STEP 2: Aggregated overview)",
+)
+async def get_project_snapshot(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_ctx: TenantContext = Depends(require_tenant),
+) -> ProjectSnapshotResponse:
+    """
+    STEP 2: ProjectSnapshot API - Single backend aggregation endpoint.
+
+    Returns a complete snapshot of the project state including:
+    - Baseline node (if exists)
+    - Baseline run (if exists, with status)
+    - Outcome data (real numeric values)
+    - Reliability metrics
+
+    The `baseline_complete` field is TRUE only when ALL of:
+    - Baseline node exists
+    - Baseline run exists with status=succeeded
+    - Outcome data exists
+
+    This replaces frontend logic assembly for truthful project overview.
+    """
+    from sqlalchemy import text
+    import json
+
+    # 1. Load project
+    project_query = text("""
+        SELECT id, title, has_baseline, root_node_id, created_at, updated_at
+        FROM project_specs
+        WHERE id = :project_id AND tenant_id = :tenant_id
+    """)
+    project_result = await db.execute(
+        project_query,
+        {"project_id": project_id, "tenant_id": tenant_ctx.tenant_id}
+    )
+    project = project_result.fetchone()
+
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {project_id} not found",
+        )
+
+    # 2. Load baseline node (is_baseline=true)
+    baseline_node_query = text("""
+        SELECT id, label, is_baseline, aggregated_outcome, confidence, created_at
+        FROM nodes
+        WHERE project_id = :project_id AND tenant_id = :tenant_id AND is_baseline = true
+        LIMIT 1
+    """)
+    baseline_node_result = await db.execute(
+        baseline_node_query,
+        {"project_id": project_id, "tenant_id": tenant_ctx.tenant_id}
+    )
+    baseline_node_row = baseline_node_result.fetchone()
+
+    baseline_node = None
+    outcome = None
+    reliability = None
+
+    if baseline_node_row:
+        has_outcome = baseline_node_row.aggregated_outcome is not None
+        baseline_node = BaselineNodeSummary(
+            node_id=str(baseline_node_row.id),
+            label=baseline_node_row.label,
+            is_baseline=baseline_node_row.is_baseline,
+            has_outcome=has_outcome,
+            created_at=baseline_node_row.created_at.isoformat() if baseline_node_row.created_at else "",
+        )
+
+        # Extract outcome if exists
+        if has_outcome:
+            outcome_data = baseline_node_row.aggregated_outcome
+            if isinstance(outcome_data, str):
+                outcome_data = json.loads(outcome_data)
+
+            outcome = OutcomeSummary(
+                primary_outcome=outcome_data.get("primary_outcome", "unknown"),
+                primary_outcome_probability=outcome_data.get("primary_outcome_probability", 0.0),
+                key_metrics=outcome_data.get("key_metrics", []),
+                summary_text=outcome_data.get("summary_text"),
+            )
+
+        # Extract reliability from node confidence
+        if baseline_node_row.confidence:
+            confidence_data = baseline_node_row.confidence
+            if isinstance(confidence_data, str):
+                confidence_data = json.loads(confidence_data)
+
+            reliability = ReliabilitySummary(
+                confidence_level=confidence_data.get("level", "medium"),
+                confidence_score=confidence_data.get("score", 0.5),
+                run_count=confidence_data.get("factors", {}).get("run_count", 0),
+            )
+
+    # 3. Load baseline run (run associated with baseline node)
+    baseline_run = None
+    if baseline_node:
+        run_query = text("""
+            SELECT id, status, timing, actual_seed, worker_id
+            FROM runs
+            WHERE node_id = :node_id AND tenant_id = :tenant_id
+            ORDER BY created_at DESC
+            LIMIT 1
+        """)
+        run_result = await db.execute(
+            run_query,
+            {"node_id": baseline_node.node_id, "tenant_id": tenant_ctx.tenant_id}
+        )
+        run_row = run_result.fetchone()
+
+        if run_row:
+            timing = run_row.timing or {}
+            if isinstance(timing, str):
+                timing = json.loads(timing)
+
+            baseline_run = BaselineRunSummary(
+                run_id=str(run_row.id),
+                status=run_row.status,
+                ticks_executed=timing.get("ticks_executed"),
+                seed=run_row.actual_seed,
+                worker_id=run_row.worker_id,
+                started_at=timing.get("started_at"),
+                completed_at=timing.get("completed_at"),
+            )
+
+    # 4. Load latest node (most recently updated)
+    latest_node_query = text("""
+        SELECT id, label, is_baseline, aggregated_outcome, created_at
+        FROM nodes
+        WHERE project_id = :project_id AND tenant_id = :tenant_id
+        ORDER BY updated_at DESC
+        LIMIT 1
+    """)
+    latest_node_result = await db.execute(
+        latest_node_query,
+        {"project_id": project_id, "tenant_id": tenant_ctx.tenant_id}
+    )
+    latest_node_row = latest_node_result.fetchone()
+
+    latest_node = None
+    if latest_node_row:
+        latest_node = BaselineNodeSummary(
+            node_id=str(latest_node_row.id),
+            label=latest_node_row.label,
+            is_baseline=latest_node_row.is_baseline,
+            has_outcome=latest_node_row.aggregated_outcome is not None,
+            created_at=latest_node_row.created_at.isoformat() if latest_node_row.created_at else "",
+        )
+
+    # 5. Load stats
+    stats_query = text("""
+        SELECT
+            (SELECT COUNT(*) FROM nodes WHERE project_id = :project_id AND tenant_id = :tenant_id) as total_nodes,
+            (SELECT COUNT(*) FROM runs WHERE project_id = :project_id AND tenant_id = :tenant_id) as total_runs,
+            (SELECT COUNT(*) FROM runs WHERE project_id = :project_id AND tenant_id = :tenant_id AND status = 'succeeded') as completed_runs
+    """)
+    stats_result = await db.execute(
+        stats_query,
+        {"project_id": project_id, "tenant_id": tenant_ctx.tenant_id}
+    )
+    stats = stats_result.fetchone()
+
+    # 6. Compute baseline_complete flag (STEP 2 requirement)
+    # TRUE only if ALL conditions are met:
+    # - baseline_node exists
+    # - baseline_run exists with status=succeeded
+    # - outcome exists (aggregated_outcome is not null)
+    baseline_complete = (
+        baseline_node is not None and
+        baseline_run is not None and
+        baseline_run.status == "succeeded" and
+        outcome is not None
+    )
+
+    return ProjectSnapshotResponse(
+        project_id=str(project.id),
+        project_name=project.title,
+        has_baseline=project.has_baseline,
+        baseline_complete=baseline_complete,
+        baseline_node=baseline_node,
+        baseline_run=baseline_run,
+        outcome=outcome,
+        reliability=reliability,
+        latest_node=latest_node,
+        total_nodes=stats.total_nodes if stats else 0,
+        total_runs=stats.total_runs if stats else 0,
+        total_completed_runs=stats.completed_runs if stats else 0,
+        created_at=project.created_at.isoformat() if project.created_at else "",
+        updated_at=project.updated_at.isoformat() if project.updated_at else "",
+    )
+
+
+@router.get(
+    "/{project_id}/snapshot/download",
+    summary="Download project snapshot as JSON file (STEP 2)",
+)
+async def download_project_snapshot(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_ctx: TenantContext = Depends(require_tenant),
+) -> Response:
+    """
+    STEP 2: Download Project Snapshot as JSON file.
+
+    Returns the same data as GET /snapshot but as a downloadable file
+    with proper Content-Disposition header for browser download.
+
+    Use this endpoint for:
+    - Archiving project state
+    - Sharing snapshot with team members
+    - Evidence preservation for audits
+    """
+    import json
+
+    # Get the snapshot data
+    snapshot = await get_project_snapshot(project_id, db, current_user, tenant_ctx)
+
+    # Convert to JSON with proper formatting
+    json_content = json.dumps(snapshot.model_dump(), indent=2, default=str)
+
+    # Generate filename
+    safe_name = snapshot.project_name.replace(" ", "_").replace("/", "-")[:50]
+    filename = f"snapshot_{safe_name}_{project_id[:8]}.json"
+
+    return Response(
+        content=json_content,
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Snapshot-Project-Id": project_id,
+            "X-Snapshot-Baseline-Complete": str(snapshot.baseline_complete).lower(),
+        },
+    )

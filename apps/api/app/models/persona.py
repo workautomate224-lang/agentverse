@@ -452,3 +452,231 @@ class AIResearchJob(Base):
 
     def __repr__(self) -> str:
         return f"<AIResearchJob {self.topic} ({self.status})>"
+
+
+# =============================================================================
+# STEP 3: PersonaSnapshot Model (Immutable Persona Set for Runs)
+# =============================================================================
+
+class PersonaSnapshot(Base):
+    """
+    STEP 3: Immutable snapshot of personas used for a simulation run.
+
+    Requirements:
+    - Created when a Run is created
+    - IMMUTABLE after creation
+    - Contains complete persona data (not just references)
+    - Has unique personas_snapshot_id
+    - Referenced by RunSpec
+
+    This ensures runs always use the exact same personas,
+    regardless of any future modifications to the source personas.
+    """
+
+    __tablename__ = "persona_snapshots"
+
+    # Identity
+    id: Mapped[UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    tenant_id: Mapped[UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    project_id: Mapped[UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("project_specs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+
+    # Source reference (which template/set was snapshotted)
+    source_template_id: Mapped[Optional[UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("persona_templates.id", ondelete="SET NULL"), nullable=True
+    )
+
+    # Snapshot metadata
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Total population size
+    total_personas: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # Segment summary (STEP 3 requirement: explicit weights/proportions)
+    # Structure:
+    # {
+    #   "segments": [
+    #     {"name": "Young Professionals", "count": 30, "weight": 0.30, "criteria": {...}},
+    #     {"name": "Seniors", "count": 20, "weight": 0.20, "criteria": {...}},
+    #     ...
+    #   ],
+    #   "demographics_summary": {
+    #     "age_distribution": {"18-24": 0.15, "25-34": 0.25, ...},
+    #     "gender_distribution": {"Male": 0.48, "Female": 0.52},
+    #     ...
+    #   }
+    # }
+    segment_summary: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+    # Full persona data (immutable copy)
+    # Structure: list of complete persona objects
+    personas_data: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+
+    # Hash of persona data for integrity verification
+    data_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    # Validation report reference (STEP 3 requirement)
+    validation_report_id: Mapped[Optional[UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("persona_validation_reports.id", ondelete="SET NULL", use_alter=True), nullable=True
+    )
+
+    # Confidence/quality metrics
+    confidence_score: Mapped[float] = mapped_column(Float, default=0.8, nullable=False)
+    data_completeness: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
+
+    # Immutability marker (set to True after first run uses it)
+    is_locked: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<PersonaSnapshot {self.id} total={self.total_personas}>"
+
+    def to_dict(self) -> dict:
+        """Return dictionary representation for API responses."""
+        return {
+            "id": str(self.id),
+            "tenant_id": str(self.tenant_id),
+            "project_id": str(self.project_id),
+            "source_template_id": str(self.source_template_id) if self.source_template_id else None,
+            "name": self.name,
+            "description": self.description,
+            "total_personas": self.total_personas,
+            "segment_summary": self.segment_summary,
+            "data_hash": self.data_hash,
+            "confidence_score": self.confidence_score,
+            "data_completeness": self.data_completeness,
+            "is_locked": self.is_locked,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+# =============================================================================
+# STEP 3: PersonaValidationReport Model
+# =============================================================================
+
+class PersonaValidationReport(Base):
+    """
+    STEP 3: Validation report for a persona set.
+
+    Requirements:
+    - Coverage gaps analysis
+    - Duplication rate
+    - Bias risk assessment
+    - Uncertainty warnings
+    - Stored in database
+    - Referenced in confidence/reliability calculations
+    """
+
+    __tablename__ = "persona_validation_reports"
+
+    # Identity
+    id: Mapped[UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    tenant_id: Mapped[UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+
+    # Source reference
+    snapshot_id: Mapped[Optional[UUID]] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True
+    )
+    template_id: Mapped[Optional[UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("persona_templates.id", ondelete="SET NULL"), nullable=True
+    )
+
+    # Validation status
+    status: Mapped[str] = mapped_column(
+        String(50), default="pending", nullable=False
+    )  # pending, passed, failed, warning
+
+    # Overall validation score (0-100)
+    overall_score: Mapped[float] = mapped_column(Float, nullable=False)
+
+    # Coverage gaps analysis (STEP 3 requirement)
+    # Structure:
+    # {
+    #   "gaps": [
+    #     {"dimension": "age", "missing_segment": "65+", "severity": "high"},
+    #     {"dimension": "income", "missing_segment": "Under $25k", "severity": "medium"},
+    #   ],
+    #   "coverage_score": 0.85
+    # }
+    coverage_gaps: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+    # Duplication rate (STEP 3 requirement)
+    # Structure:
+    # {
+    #   "exact_duplicates": 0,
+    #   "near_duplicates": 5,
+    #   "duplication_rate": 0.05,
+    #   "duplicate_clusters": [...]
+    # }
+    duplication_analysis: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+    # Bias risk assessment (STEP 3 requirement)
+    # Structure:
+    # {
+    #   "risks": [
+    #     {"type": "gender_bias", "severity": "low", "description": "Slight over-representation of males"},
+    #     {"type": "age_bias", "severity": "medium", "description": "Under-representation of 65+"},
+    #   ],
+    #   "bias_score": 0.78
+    # }
+    bias_risk: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+    # Uncertainty warnings (STEP 3 requirement)
+    # Structure:
+    # {
+    #   "warnings": [
+    #     {"type": "small_sample", "message": "Only 50 personas - results may have high variance"},
+    #     {"type": "missing_data", "message": "15% of personas missing income data"},
+    #   ],
+    #   "uncertainty_level": "medium"
+    # }
+    uncertainty_warnings: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+    # Detailed statistics
+    statistics: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+    # Recommendations for improvement
+    recommendations: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+
+    # Impact on confidence (how much to adjust simulation confidence)
+    confidence_impact: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<PersonaValidationReport {self.id} status={self.status}>"
+
+    def to_dict(self) -> dict:
+        """Return dictionary representation for API responses."""
+        return {
+            "id": str(self.id),
+            "snapshot_id": str(self.snapshot_id) if self.snapshot_id else None,
+            "template_id": str(self.template_id) if self.template_id else None,
+            "status": self.status,
+            "overall_score": self.overall_score,
+            "coverage_gaps": self.coverage_gaps,
+            "duplication_analysis": self.duplication_analysis,
+            "bias_risk": self.bias_risk,
+            "uncertainty_warnings": self.uncertainty_warnings,
+            "statistics": self.statistics,
+            "recommendations": self.recommendations,
+            "confidence_impact": self.confidence_impact,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }

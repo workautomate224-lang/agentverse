@@ -23,6 +23,9 @@ from app.models.persona import (
     AIResearchJob,
     PersonaSourceType,
     RegionType,
+    # STEP 3: Persona Snapshot Models
+    PersonaSnapshot,
+    PersonaValidationReport,
 )
 from app.models.product import (
     Product,
@@ -112,6 +115,11 @@ from app.models.event_script import (
     EventType as EventScriptType,
     IntensityProfileType,
     DeltaOperation,
+    # STEP 5: Event Audit Models
+    EventCandidate,
+    EventCandidateStatus,
+    EventValidation,
+    EventValidationType,
 )
 # LLM Router Models (GAPS.md GAP-P0-001)
 from app.models.llm import (
@@ -120,6 +128,69 @@ from app.models.llm import (
     LLMCache,
     LLMCallStatus,
     LLMProfileKey,
+)
+# STEP 6: Planning Models
+from app.models.planning import (
+    PlanningSpec,
+    PlanCandidate,
+    PlanEvaluation,
+    PlanTrace,
+    PlanningStatus,
+    PlanCandidateStatus,
+    SearchAlgorithm,
+    ScoringWeights,
+)
+# STEP 7: Reliability Models
+from app.models.reliability import (
+    CalibrationResult,
+    StabilityTest,
+    DriftReport,
+    ReliabilityScore,
+    ParameterVersion,
+    CalibrationMethod,
+    DriftSeverity,
+    ReliabilityLevel,
+    ParameterVersionStatus,
+    ReliabilityScoreComputer,
+)
+# STEP 1: Run Artifacts Models (Audit Infrastructure)
+from app.models.run_artifacts import (
+    WorkerHeartbeat,
+    RunSpec,
+    RunTrace,
+    OutcomeReport,
+    ExecutionStage,
+)
+# STEP 10: Production Readiness Models
+from app.models.production import (
+    # Enums
+    PlanTier,
+    QuotaType,
+    QuotaAction,
+    RiskLevel,
+    SafetyAction,
+    GovernanceActionType,
+    FeatureFlagKey,
+    # Cost Tracking
+    RunCostRecord,
+    PlanningCostRecord,
+    ProjectCostSummary,
+    # Budgets and Quotas
+    TenantQuotaConfig,
+    QuotaUsageRecord,
+    QuotaViolation,
+    # Feature Flags
+    FeatureFlag,
+    TenantFeatureOverride,
+    # Safety Guardrails
+    SafetyRule,
+    SafetyIncident,
+    # Governance Audit
+    GovernanceAuditLog,
+    # Export Integrity
+    ExportBundle,
+    # Constants
+    TIER_DEFAULTS,
 )
 
 __all__ = [
@@ -144,6 +215,9 @@ __all__ = [
     "AIResearchJob",
     "PersonaSourceType",
     "RegionType",
+    # STEP 3: Persona Snapshot Models
+    "PersonaSnapshot",
+    "PersonaValidationReport",
     # Product (3-Model System)
     "Product",
     "ProductRun",
@@ -220,10 +294,70 @@ __all__ = [
     "EventScriptType",
     "IntensityProfileType",
     "DeltaOperation",
+    # STEP 5: Event Audit Models
+    "EventCandidate",
+    "EventCandidateStatus",
+    "EventValidation",
+    "EventValidationType",
     # LLM Router (GAPS.md GAP-P0-001)
     "LLMProfile",
     "LLMCall",
     "LLMCache",
     "LLMCallStatus",
     "LLMProfileKey",
+    # STEP 6: Planning Models
+    "PlanningSpec",
+    "PlanCandidate",
+    "PlanEvaluation",
+    "PlanTrace",
+    "PlanningStatus",
+    "PlanCandidateStatus",
+    "SearchAlgorithm",
+    "ScoringWeights",
+    # STEP 7: Reliability Models
+    "CalibrationResult",
+    "StabilityTest",
+    "DriftReport",
+    "ReliabilityScore",
+    "ParameterVersion",
+    "CalibrationMethod",
+    "DriftSeverity",
+    "ReliabilityLevel",
+    "ParameterVersionStatus",
+    "ReliabilityScoreComputer",
+    # STEP 1: Run Artifacts Models (Audit Infrastructure)
+    "WorkerHeartbeat",
+    "RunSpec",
+    "RunTrace",
+    "OutcomeReport",
+    "ExecutionStage",
+    # STEP 10: Production Readiness Models
+    # Enums
+    "PlanTier",
+    "QuotaType",
+    "QuotaAction",
+    "RiskLevel",
+    "SafetyAction",
+    "GovernanceActionType",
+    "FeatureFlagKey",
+    # Cost Tracking
+    "RunCostRecord",
+    "PlanningCostRecord",
+    "ProjectCostSummary",
+    # Budgets and Quotas
+    "TenantQuotaConfig",
+    "QuotaUsageRecord",
+    "QuotaViolation",
+    # Feature Flags
+    "FeatureFlag",
+    "TenantFeatureOverride",
+    # Safety Guardrails
+    "SafetyRule",
+    "SafetyIncident",
+    # Governance Audit
+    "GovernanceAuditLog",
+    # Export Integrity
+    "ExportBundle",
+    # Constants
+    "TIER_DEFAULTS",
 ]

@@ -745,6 +745,717 @@ async def get_region_demographics(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ============= STEP 3: Persona Validation Endpoints =============
+
+class PersonaValidationResponse(BaseModel):
+    """STEP 3: Persona validation report response."""
+    id: str
+    tenant_id: str
+    template_id: Optional[str] = None
+    status: str
+    overall_score: float
+    coverage_gaps: dict
+    duplication_analysis: dict
+    bias_risk: dict
+    uncertainty_warnings: dict
+    statistics: dict
+    recommendations: list
+    confidence_impact: float
+    created_at: str
+
+
+@router.post("/validate/{project_id}", response_model=PersonaValidationResponse)
+async def validate_persona_set(
+    project_id: UUID,
+    template_id: Optional[UUID] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    STEP 3: Validate a persona set and generate a quality report.
+
+    This endpoint analyzes all active personas in a project and generates
+    a comprehensive validation report including:
+    - Coverage gaps (missing demographic segments)
+    - Duplication analysis (overlapping personas)
+    - Bias risk (over/under-representation)
+    - Uncertainty warnings (data quality issues)
+    - Recommendations for improvement
+
+    The report is stored in the database and can be linked to a PersonaSnapshot
+    for confidence calculations in simulation outcomes.
+
+    Args:
+        project_id: The project UUID to validate personas for
+        template_id: Optional template UUID for filtering
+
+    Returns:
+        PersonaValidationResponse with full analysis results
+    """
+    from app.services.persona_validation import get_persona_validation_service
+
+    try:
+        service = await get_persona_validation_service(db)
+        report = await service.validate_persona_set(
+            tenant_id=str(current_user.tenant_id),
+            project_id=str(project_id),
+            template_id=str(template_id) if template_id else None,
+        )
+        await db.commit()
+        return PersonaValidationResponse(**report)
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Validation failed: {str(e)}")
+
+
+@router.get("/validation-reports/{project_id}", response_model=list[PersonaValidationResponse])
+async def list_validation_reports(
+    project_id: UUID,
+    limit: int = 10,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    STEP 3: List validation reports for a project.
+
+    Returns recent validation reports for the specified project.
+    """
+    from sqlalchemy import text
+
+    query = text("""
+        SELECT id, tenant_id, template_id, status, overall_score,
+               coverage_gaps, duplication_analysis, bias_risk,
+               uncertainty_warnings, statistics, recommendations,
+               confidence_impact, created_at
+        FROM persona_validation_reports
+        WHERE tenant_id = :tenant_id
+        ORDER BY created_at DESC
+        LIMIT :limit
+    """)
+
+    result = await db.execute(query, {
+        "tenant_id": str(current_user.tenant_id),
+        "limit": limit,
+    })
+    rows = result.fetchall()
+
+    reports = []
+    for row in rows:
+        reports.append(PersonaValidationResponse(
+            id=str(row.id),
+            tenant_id=str(row.tenant_id),
+            template_id=str(row.template_id) if row.template_id else None,
+            status=row.status,
+            overall_score=row.overall_score,
+            coverage_gaps=row.coverage_gaps if isinstance(row.coverage_gaps, dict) else {},
+            duplication_analysis=row.duplication_analysis if isinstance(row.duplication_analysis, dict) else {},
+            bias_risk=row.bias_risk if isinstance(row.bias_risk, dict) else {},
+            uncertainty_warnings=row.uncertainty_warnings if isinstance(row.uncertainty_warnings, dict) else {},
+            statistics=row.statistics if isinstance(row.statistics, dict) else {},
+            recommendations=row.recommendations if isinstance(row.recommendations, list) else [],
+            confidence_impact=row.confidence_impact,
+            created_at=row.created_at.isoformat() if row.created_at else "",
+        ))
+
+    return reports
+
+
+# =============================================================================
+# STEP 3: Persona Snapshot Endpoints (Immutable Snapshot Management)
+# =============================================================================
+
+class PersonaSnapshotCreate(BaseModel):
+    """STEP 3: Request to create a persona snapshot."""
+    project_id: UUID
+    template_id: Optional[UUID] = None
+    name: str
+    description: Optional[str] = None
+
+
+class PersonaSnapshotResponse(BaseModel):
+    """STEP 3: Persona snapshot response."""
+    id: str
+    tenant_id: str
+    project_id: str
+    source_template_id: Optional[str] = None
+    name: str
+    description: Optional[str] = None
+    total_personas: int
+    segment_summary: dict
+    data_hash: str
+    confidence_score: float
+    data_completeness: float
+    is_locked: bool
+    validation_report_id: Optional[str] = None
+    created_at: str
+
+
+class SnapshotCompareResponse(BaseModel):
+    """STEP 3: Snapshot comparison response."""
+    snapshot_a: dict
+    snapshot_b: dict
+    differences: dict
+    similarity_score: float
+
+
+@router.post("/snapshots", response_model=PersonaSnapshotResponse)
+async def create_persona_snapshot(
+    request: PersonaSnapshotCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    STEP 3: Save as Snapshot - Create an immutable persona snapshot.
+
+    This endpoint creates a frozen copy of the current persona set for use
+    in simulation runs. Once created, the snapshot is immutable and will
+    be referenced by RunSpec.personas_snapshot_id.
+
+    Args:
+        request: Snapshot creation parameters
+
+    Returns:
+        PersonaSnapshotResponse with the created snapshot details
+    """
+    import hashlib
+    import json
+    from uuid import uuid4
+    from app.models.persona import PersonaSnapshot
+
+    # Get personas from template or project
+    if request.template_id:
+        result = await db.execute(
+            select(PersonaRecord)
+            .where(PersonaRecord.template_id == request.template_id)
+        )
+    else:
+        # Get all personas for the project via templates
+        result = await db.execute(
+            select(PersonaRecord)
+            .join(PersonaTemplate)
+            .where(PersonaTemplate.user_id == current_user.id)
+            .limit(1000)
+        )
+
+    personas = result.scalars().all()
+
+    if not personas:
+        raise HTTPException(status_code=400, detail="No personas found to snapshot")
+
+    # Build personas_data for immutable storage
+    personas_data = []
+    for p in personas:
+        personas_data.append({
+            "id": str(p.id),
+            "demographics": p.demographics,
+            "professional": p.professional,
+            "psychographics": p.psychographics,
+            "behavioral": p.behavioral,
+            "interests": p.interests,
+            "topic_knowledge": p.topic_knowledge,
+            "cultural_context": p.cultural_context,
+            "source_type": p.source_type,
+            "confidence_score": p.confidence_score,
+        })
+
+    # Compute segment summary
+    segment_summary = _compute_segment_summary(personas_data)
+
+    # Compute data hash for integrity verification
+    data_hash = hashlib.sha256(
+        json.dumps(personas_data, sort_keys=True, default=str).encode()
+    ).hexdigest()
+
+    # Create snapshot
+    snapshot = PersonaSnapshot(
+        id=uuid4(),
+        tenant_id=current_user.tenant_id,
+        project_id=request.project_id,
+        source_template_id=request.template_id,
+        name=request.name,
+        description=request.description,
+        total_personas=len(personas_data),
+        segment_summary=segment_summary,
+        personas_data=personas_data,
+        data_hash=data_hash,
+        confidence_score=sum(p.get("confidence_score", 0.8) for p in personas_data) / len(personas_data),
+        data_completeness=1.0,
+        is_locked=True,  # Snapshots are immutable by default
+    )
+
+    db.add(snapshot)
+    await db.commit()
+    await db.refresh(snapshot)
+
+    return PersonaSnapshotResponse(
+        id=str(snapshot.id),
+        tenant_id=str(snapshot.tenant_id),
+        project_id=str(snapshot.project_id),
+        source_template_id=str(snapshot.source_template_id) if snapshot.source_template_id else None,
+        name=snapshot.name,
+        description=snapshot.description,
+        total_personas=snapshot.total_personas,
+        segment_summary=snapshot.segment_summary,
+        data_hash=snapshot.data_hash,
+        confidence_score=snapshot.confidence_score,
+        data_completeness=snapshot.data_completeness,
+        is_locked=snapshot.is_locked,
+        validation_report_id=str(snapshot.validation_report_id) if snapshot.validation_report_id else None,
+        created_at=snapshot.created_at.isoformat(),
+    )
+
+
+@router.get("/snapshots", response_model=list[PersonaSnapshotResponse])
+async def list_persona_snapshots(
+    project_id: UUID,
+    limit: int = 20,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    STEP 3: List all persona snapshots for a project.
+    """
+    from app.models.persona import PersonaSnapshot
+
+    result = await db.execute(
+        select(PersonaSnapshot)
+        .where(
+            PersonaSnapshot.tenant_id == current_user.tenant_id,
+            PersonaSnapshot.project_id == project_id,
+        )
+        .order_by(PersonaSnapshot.created_at.desc())
+        .limit(limit)
+    )
+    snapshots = result.scalars().all()
+
+    return [
+        PersonaSnapshotResponse(
+            id=str(s.id),
+            tenant_id=str(s.tenant_id),
+            project_id=str(s.project_id),
+            source_template_id=str(s.source_template_id) if s.source_template_id else None,
+            name=s.name,
+            description=s.description,
+            total_personas=s.total_personas,
+            segment_summary=s.segment_summary,
+            data_hash=s.data_hash,
+            confidence_score=s.confidence_score,
+            data_completeness=s.data_completeness,
+            is_locked=s.is_locked,
+            validation_report_id=str(s.validation_report_id) if s.validation_report_id else None,
+            created_at=s.created_at.isoformat(),
+        )
+        for s in snapshots
+    ]
+
+
+@router.get("/snapshots/{snapshot_id}", response_model=PersonaSnapshotResponse)
+async def get_persona_snapshot(
+    snapshot_id: UUID,
+    include_data: bool = False,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    STEP 3: View Snapshot JSON - Get detailed snapshot information.
+
+    Args:
+        snapshot_id: The snapshot UUID
+        include_data: If True, includes full personas_data (can be large)
+
+    Returns:
+        PersonaSnapshotResponse with snapshot details
+    """
+    from app.models.persona import PersonaSnapshot
+
+    result = await db.execute(
+        select(PersonaSnapshot)
+        .where(
+            PersonaSnapshot.id == snapshot_id,
+            PersonaSnapshot.tenant_id == current_user.tenant_id,
+        )
+    )
+    snapshot = result.scalar_one_or_none()
+
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+
+    response = PersonaSnapshotResponse(
+        id=str(snapshot.id),
+        tenant_id=str(snapshot.tenant_id),
+        project_id=str(snapshot.project_id),
+        source_template_id=str(snapshot.source_template_id) if snapshot.source_template_id else None,
+        name=snapshot.name,
+        description=snapshot.description,
+        total_personas=snapshot.total_personas,
+        segment_summary=snapshot.segment_summary,
+        data_hash=snapshot.data_hash,
+        confidence_score=snapshot.confidence_score,
+        data_completeness=snapshot.data_completeness,
+        is_locked=snapshot.is_locked,
+        validation_report_id=str(snapshot.validation_report_id) if snapshot.validation_report_id else None,
+        created_at=snapshot.created_at.isoformat(),
+    )
+
+    return response
+
+
+@router.get("/snapshots/{snapshot_id}/data")
+async def get_snapshot_data(
+    snapshot_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    STEP 3: Get full personas data from a snapshot.
+    """
+    from app.models.persona import PersonaSnapshot
+
+    result = await db.execute(
+        select(PersonaSnapshot)
+        .where(
+            PersonaSnapshot.id == snapshot_id,
+            PersonaSnapshot.tenant_id == current_user.tenant_id,
+        )
+    )
+    snapshot = result.scalar_one_or_none()
+
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+
+    return {
+        "snapshot_id": str(snapshot.id),
+        "total_personas": snapshot.total_personas,
+        "data_hash": snapshot.data_hash,
+        "personas_data": snapshot.personas_data,
+    }
+
+
+@router.get("/snapshots/compare")
+async def compare_snapshots(
+    snapshot_a_id: UUID,
+    snapshot_b_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    STEP 3: Compare Snapshots - Compare two persona snapshots.
+
+    Analyzes differences in demographics, distributions, and segment composition.
+
+    Returns:
+        Comparison results with similarity score and detailed differences
+    """
+    from app.models.persona import PersonaSnapshot
+
+    # Get both snapshots
+    result_a = await db.execute(
+        select(PersonaSnapshot)
+        .where(
+            PersonaSnapshot.id == snapshot_a_id,
+            PersonaSnapshot.tenant_id == current_user.tenant_id,
+        )
+    )
+    snapshot_a = result_a.scalar_one_or_none()
+
+    result_b = await db.execute(
+        select(PersonaSnapshot)
+        .where(
+            PersonaSnapshot.id == snapshot_b_id,
+            PersonaSnapshot.tenant_id == current_user.tenant_id,
+        )
+    )
+    snapshot_b = result_b.scalar_one_or_none()
+
+    if not snapshot_a or not snapshot_b:
+        raise HTTPException(status_code=404, detail="One or both snapshots not found")
+
+    # Compare segment summaries
+    differences = _compare_segment_summaries(
+        snapshot_a.segment_summary,
+        snapshot_b.segment_summary
+    )
+
+    # Calculate similarity score
+    similarity_score = _calculate_similarity_score(snapshot_a, snapshot_b)
+
+    return {
+        "snapshot_a": {
+            "id": str(snapshot_a.id),
+            "name": snapshot_a.name,
+            "total_personas": snapshot_a.total_personas,
+            "segment_summary": snapshot_a.segment_summary,
+            "created_at": snapshot_a.created_at.isoformat(),
+        },
+        "snapshot_b": {
+            "id": str(snapshot_b.id),
+            "name": snapshot_b.name,
+            "total_personas": snapshot_b.total_personas,
+            "segment_summary": snapshot_b.segment_summary,
+            "created_at": snapshot_b.created_at.isoformat(),
+        },
+        "differences": differences,
+        "similarity_score": similarity_score,
+    }
+
+
+@router.post("/snapshots/{snapshot_id}/lock")
+async def lock_snapshot(
+    snapshot_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    STEP 3: Lock Snapshot - Mark a snapshot as permanently locked.
+
+    Once locked, a snapshot cannot be modified or deleted.
+    This is typically automatic but can be explicitly enforced.
+
+    Returns:
+        Success message with lock status
+    """
+    from app.models.persona import PersonaSnapshot
+
+    result = await db.execute(
+        select(PersonaSnapshot)
+        .where(
+            PersonaSnapshot.id == snapshot_id,
+            PersonaSnapshot.tenant_id == current_user.tenant_id,
+        )
+    )
+    snapshot = result.scalar_one_or_none()
+
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+
+    if snapshot.is_locked:
+        return {
+            "message": "Snapshot is already locked",
+            "snapshot_id": str(snapshot.id),
+            "is_locked": True,
+        }
+
+    snapshot.is_locked = True
+    await db.commit()
+
+    return {
+        "message": "Snapshot locked successfully",
+        "snapshot_id": str(snapshot.id),
+        "is_locked": True,
+    }
+
+
+@router.get("/snapshots/{snapshot_id}/export")
+async def export_snapshot(
+    snapshot_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    STEP 3: Export Snapshot - Download snapshot as JSON file.
+
+    Returns the complete snapshot data as a downloadable JSON file.
+    """
+    from fastapi.responses import Response
+    import json
+    from app.models.persona import PersonaSnapshot
+
+    result = await db.execute(
+        select(PersonaSnapshot)
+        .where(
+            PersonaSnapshot.id == snapshot_id,
+            PersonaSnapshot.tenant_id == current_user.tenant_id,
+        )
+    )
+    snapshot = result.scalar_one_or_none()
+
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+
+    export_data = {
+        "snapshot_id": str(snapshot.id),
+        "name": snapshot.name,
+        "description": snapshot.description,
+        "total_personas": snapshot.total_personas,
+        "segment_summary": snapshot.segment_summary,
+        "data_hash": snapshot.data_hash,
+        "confidence_score": snapshot.confidence_score,
+        "is_locked": snapshot.is_locked,
+        "created_at": snapshot.created_at.isoformat(),
+        "personas_data": snapshot.personas_data,
+    }
+
+    json_content = json.dumps(export_data, indent=2, default=str)
+    safe_name = snapshot.name.replace(" ", "_").replace("/", "-")[:50]
+    filename = f"persona_snapshot_{safe_name}_{str(snapshot_id)[:8]}.json"
+
+    return Response(
+        content=json_content,
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Snapshot-Id": str(snapshot_id),
+            "X-Snapshot-Hash": snapshot.data_hash,
+        },
+    )
+
+
+@router.post("/snapshots/{snapshot_id}/set-default")
+async def set_default_snapshot(
+    snapshot_id: UUID,
+    project_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    STEP 3: Set as Default Snapshot - Mark a snapshot as the default for a project.
+
+    The default snapshot will be automatically used when creating new runs
+    unless a specific snapshot is specified.
+    """
+    from app.models.persona import PersonaSnapshot
+    from app.models.project_spec import ProjectSpec
+
+    # Verify snapshot exists and belongs to user
+    result = await db.execute(
+        select(PersonaSnapshot)
+        .where(
+            PersonaSnapshot.id == snapshot_id,
+            PersonaSnapshot.tenant_id == current_user.tenant_id,
+        )
+    )
+    snapshot = result.scalar_one_or_none()
+
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+
+    # Update project's default snapshot
+    project_result = await db.execute(
+        select(ProjectSpec)
+        .where(
+            ProjectSpec.id == project_id,
+            ProjectSpec.tenant_id == current_user.tenant_id,
+        )
+    )
+    project = project_result.scalar_one_or_none()
+
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Store default snapshot in project's extra_config
+    if not project.extra_config:
+        project.extra_config = {}
+    project.extra_config["default_persona_snapshot_id"] = str(snapshot_id)
+    project.updated_at = datetime.utcnow()
+
+    await db.commit()
+
+    return {
+        "message": "Default snapshot set successfully",
+        "project_id": str(project_id),
+        "default_snapshot_id": str(snapshot_id),
+        "snapshot_name": snapshot.name,
+    }
+
+
+def _compute_segment_summary(personas_data: list) -> dict:
+    """Compute segment summary from personas data."""
+    if not personas_data:
+        return {"segments": [], "demographics_summary": {}}
+
+    # Analyze age distribution
+    age_dist = {}
+    gender_dist = {}
+    region_dist = {}
+
+    for p in personas_data:
+        demo = p.get("demographics", {})
+
+        # Age
+        age_bracket = demo.get("age_bracket", "Unknown")
+        age_dist[age_bracket] = age_dist.get(age_bracket, 0) + 1
+
+        # Gender
+        gender = demo.get("gender", "Unknown")
+        gender_dist[gender] = gender_dist.get(gender, 0) + 1
+
+        # Region
+        region = demo.get("region", "Unknown")
+        region_dist[region] = region_dist.get(region, 0) + 1
+
+    total = len(personas_data)
+
+    return {
+        "segments": [],  # Can be expanded with clustering
+        "demographics_summary": {
+            "age_distribution": {k: v / total for k, v in age_dist.items()},
+            "gender_distribution": {k: v / total for k, v in gender_dist.items()},
+            "region_distribution": {k: v / total for k, v in region_dist.items()},
+        },
+    }
+
+
+def _compare_segment_summaries(summary_a: dict, summary_b: dict) -> dict:
+    """Compare two segment summaries and return differences."""
+    differences = {
+        "population_diff": 0,
+        "demographic_diffs": {},
+    }
+
+    demo_a = summary_a.get("demographics_summary", {})
+    demo_b = summary_b.get("demographics_summary", {})
+
+    for key in set(list(demo_a.keys()) + list(demo_b.keys())):
+        dist_a = demo_a.get(key, {})
+        dist_b = demo_b.get(key, {})
+
+        diffs = {}
+        for segment in set(list(dist_a.keys()) + list(dist_b.keys())):
+            val_a = dist_a.get(segment, 0)
+            val_b = dist_b.get(segment, 0)
+            if abs(val_a - val_b) > 0.01:  # 1% threshold
+                diffs[segment] = {"a": val_a, "b": val_b, "diff": val_b - val_a}
+
+        if diffs:
+            differences["demographic_diffs"][key] = diffs
+
+    return differences
+
+
+def _calculate_similarity_score(snapshot_a, snapshot_b) -> float:
+    """Calculate similarity score between two snapshots."""
+    if snapshot_a.data_hash == snapshot_b.data_hash:
+        return 1.0
+
+    # Simple similarity based on demographics
+    demo_a = snapshot_a.segment_summary.get("demographics_summary", {})
+    demo_b = snapshot_b.segment_summary.get("demographics_summary", {})
+
+    if not demo_a or not demo_b:
+        return 0.5
+
+    # Calculate cosine similarity on distributions
+    scores = []
+    for key in demo_a.keys():
+        if key in demo_b:
+            dist_a = demo_a[key]
+            dist_b = demo_b[key]
+
+            all_keys = set(list(dist_a.keys()) + list(dist_b.keys()))
+            vec_a = [dist_a.get(k, 0) for k in all_keys]
+            vec_b = [dist_b.get(k, 0) for k in all_keys]
+
+            # Simple dot product / magnitude
+            dot = sum(a * b for a, b in zip(vec_a, vec_b))
+            mag_a = sum(a ** 2 for a in vec_a) ** 0.5
+            mag_b = sum(b ** 2 for b in vec_b) ** 0.5
+
+            if mag_a > 0 and mag_b > 0:
+                scores.append(dot / (mag_a * mag_b))
+
+    return sum(scores) / len(scores) if scores else 0.5
+
+
 # ============= Helper Functions =============
 
 async def _auto_create_world(db: AsyncSession, template_id: UUID) -> None:
