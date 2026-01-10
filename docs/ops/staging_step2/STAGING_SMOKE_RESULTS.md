@@ -15,8 +15,10 @@
 | Worker Verification | PASS | Service running successfully |
 | Database Connectivity | PASS | PostgreSQL connected via internal network |
 | Redis Connectivity | PASS | Redis connected via internal network |
+| Storage Write/Read | PASS | MinIO S3-compatible storage verified |
 | Web Application | PASS | HTTP 200, Next.js serving correctly |
-| CORS Configuration | PASS | Headers present for localhost:3000 |
+| CORS (localhost) | PASS | Headers present for localhost:3000 |
+| CORS (staging web) | PASS | Headers correct for staging web origin |
 | API Latency | PASS | Average ~530ms (includes cold start) |
 
 **Overall Status:** ALL TESTS PASSED
@@ -198,7 +200,7 @@ curl -s https://agentverse-api-staging-production.up.railway.app/nonexistent | j
 
 ---
 
-## 9. CORS Configuration
+## 9. CORS Configuration (localhost)
 
 ### Test: CORS Headers
 
@@ -218,13 +220,101 @@ access-control-allow-origin: http://localhost:3000
 
 ---
 
+## 10. CORS Configuration (Staging Web Origin)
+
+### Test Command
+
+```bash
+curl -s -D - \
+  -H "Origin: https://agentverse-web-staging-production.up.railway.app" \
+  "https://agentverse-api-staging-production.up.railway.app/health"
+```
+
+### Actual Response (2026-01-10 15:14:32 UTC)
+
+```
+HTTP/2 200
+access-control-allow-credentials: true
+access-control-allow-origin: https://agentverse-web-staging-production.up.railway.app
+content-type: application/json
+date: Sat, 10 Jan 2026 15:14:32 GMT
+server: railway-edge
+vary: Origin
+```
+
+### Verification
+
+- **Origin Tested:** `https://agentverse-web-staging-production.up.railway.app`
+- **CORS Origin Returned:** `https://agentverse-web-staging-production.up.railway.app`
+- **Credentials:** `true`
+- **Status:** Staging web frontend can make authenticated cross-origin requests to API
+
+### Status: PASS
+
+---
+
+## 11. Storage Write/Read Test
+
+### Test Command
+
+```bash
+curl -s "https://agentverse-api-staging-production.up.railway.app/health/storage-test" | jq
+```
+
+### Actual Response (2026-01-10 15:14:14 UTC)
+
+```json
+{
+  "timestamp": "2026-01-10T15:14:14.431324+00:00",
+  "environment": "staging",
+  "storage_backend": "s3",
+  "storage_bucket": "agentverse-staging-artifacts",
+  "status": "success",
+  "test_object_key": "smoke-tests/storage-test-dd1721ba.txt",
+  "write_latency_ms": 112.75,
+  "read_latency_ms": 24.47,
+  "content_verified": true
+}
+```
+
+### Object Verification
+
+```bash
+# List objects in bucket
+mc ls staging-minio/agentverse-staging-artifacts/smoke-tests/
+[2026-01-10 23:14:14 +08]   112B STANDARD storage-test-dd1721ba.txt
+
+# Content of test object
+mc cat staging-minio/agentverse-staging-artifacts/smoke-tests/storage-test-dd1721ba.txt
+AgentVerse Storage Smoke Test
+Timestamp: 2026-01-10T15:14:14.431324+00:00
+Environment: staging
+Test ID: dd1721ba
+```
+
+### Storage Configuration
+
+| Setting | Value |
+|---------|-------|
+| Backend | S3 (MinIO) |
+| Bucket | `agentverse-staging-artifacts` |
+| Endpoint (Public) | `https://minio-staging-production.up.railway.app` |
+| Endpoint (Internal) | `http://minio-staging.railway.internal:9000` |
+| Test Object Key | `smoke-tests/storage-test-dd1721ba.txt` |
+
+### Status: PASS
+
+---
+
 ## Service URLs
 
 | Service | URL | Status |
 |---------|-----|--------|
 | API | https://agentverse-api-staging-production.up.railway.app | RUNNING |
 | Web | https://agentverse-web-staging-production.up.railway.app | RUNNING |
+| MinIO | https://minio-staging-production.up.railway.app | RUNNING |
 | API Docs | https://agentverse-api-staging-production.up.railway.app/docs | ACCESSIBLE |
+| Storage Test | https://agentverse-api-staging-production.up.railway.app/health/storage-test | ACCESSIBLE |
 
 ---
 
@@ -234,6 +324,7 @@ access-control-allow-origin: http://localhost:3000
 |---------|-------------------|
 | postgres-staging | SUCCESS |
 | redis-staging | SUCCESS |
+| minio-staging | SUCCESS |
 | agentverse-api-staging | SUCCESS |
 | agentverse-worker-staging | SUCCESS |
 | agentverse-web-staging | SUCCESS |
@@ -260,6 +351,9 @@ Test Environment Verified:
 
 1. API health check response: verified healthy status
 2. Web frontend: HTTP 200 with Next.js headers
-3. All 5 services deployed successfully
-4. Internal networking configured for databases
-5. CORS headers properly configured
+3. All 6 services deployed successfully (including MinIO)
+4. Internal networking configured for databases and storage
+5. CORS headers properly configured for localhost:3000
+6. CORS headers properly configured for staging web origin
+7. Storage write/read test passed with object key: `smoke-tests/storage-test-dd1721ba.txt`
+8. Storage bucket verified: `agentverse-staging-artifacts`

@@ -21,6 +21,24 @@
 
 ---
 
+## Source Repository Confirmation
+
+| Property | Value |
+|----------|-------|
+| Provider | GitHub |
+| Repository | `workautomate224-lang/agentverse` |
+| Repository URL | `https://github.com/workautomate224-lang/agentverse` |
+| Branch | `main` |
+| Latest Deployed Commit | `cdad3b8d4953d7fef499e74d4ed5b36dd191c9c9` |
+| Commit Message | `feat(api): add storage write/read smoke test endpoint` |
+| Commit Author | `workautomate224-lang` |
+| Fork Status | This IS the primary repository (not a fork) |
+| Upstream | N/A (this is the origin) |
+
+**Verification:** Railway auto-deploys from `main` branch on push. The commit SHA above is confirmed via Railway GraphQL API deployment metadata.
+
+---
+
 ## Service Topology
 
 ### 1. API Service (`agentverse-api-staging`)
@@ -95,6 +113,27 @@
 | Connection Variable | `REDIS_URL` |
 | Status | **SUCCESS** |
 
+### MinIO Object Storage (`minio-staging`)
+
+| Property | Value |
+|----------|-------|
+| Service ID | `b2254168-907d-4d99-9341-5d4cff255d43` |
+| Docker Image | `minio/minio:latest` |
+| Internal Hostname | `minio-staging.railway.internal` |
+| API Port | 9000 |
+| Console Port | 9001 |
+| Bucket | `agentverse-staging-artifacts` |
+| Public Endpoint | `https://minio-staging-production.up.railway.app` |
+| Connection Variables | `STORAGE_ENDPOINT_URL`, `STORAGE_BUCKET`, `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` |
+| Status | **SUCCESS** |
+
+**REP Artifact Storage:** MinIO is configured to store REP artifacts including:
+- `manifest.json` - Run configuration
+- `trace.ndjson` - Execution events
+- `llm_ledger.ndjson` - LLM call logs
+- `universe_graph.json` - Node graph
+- `report.md` - Summary report
+
 ---
 
 ## Service Dependencies
@@ -133,7 +172,9 @@ All internal connections via .railway.internal
 |---------|-----|
 | API | https://agentverse-api-staging-production.up.railway.app |
 | Web | https://agentverse-web-staging-production.up.railway.app |
+| MinIO | https://minio-staging-production.up.railway.app |
 | API Docs | https://agentverse-api-staging-production.up.railway.app/docs |
+| Storage Test | https://agentverse-api-staging-production.up.railway.app/health/storage-test |
 
 ---
 
@@ -144,7 +185,8 @@ agentverse-staging/
 ├── Services/
 │   ├── agentverse-api-staging     [SUCCESS]
 │   ├── agentverse-worker-staging  [SUCCESS]
-│   └── agentverse-web-staging     [SUCCESS]
+│   ├── agentverse-web-staging     [SUCCESS]
+│   └── minio-staging              [SUCCESS]
 └── Plugins/
     ├── postgres-staging           [SUCCESS]
     └── redis-staging              [SUCCESS]
@@ -163,6 +205,12 @@ agentverse-staging/
 | SECRET_KEY | API | JWT signing key (staging-specific) |
 | NEXT_PUBLIC_API_URL | Web | API staging URL |
 | NEXTAUTH_URL | Web | Web staging URL |
+| STORAGE_BACKEND | API, Worker | Set to `s3` |
+| STORAGE_BUCKET | API, Worker | `agentverse-staging-artifacts` |
+| STORAGE_ENDPOINT_URL | API, Worker | `http://minio-staging.railway.internal:9000` |
+| STORAGE_ACCESS_KEY | API, Worker | MinIO access key (staging-specific) |
+| STORAGE_SECRET_KEY | API, Worker | MinIO secret key (staging-specific) |
+| STORAGE_USE_SSL | API, Worker | `false` (internal network) |
 
 See `STAGING_VARIABLES.md` for complete configuration.
 
@@ -170,14 +218,18 @@ See `STAGING_VARIABLES.md` for complete configuration.
 
 ## Verification Checklist (Completed)
 
-- [x] All five services show "SUCCESS" status
+- [x] All six services show "SUCCESS" status (including MinIO)
 - [x] API health check returns 200 OK with `environment: staging`
 - [x] Web loads without errors (HTTP 200)
 - [x] Worker deployed and running
 - [x] Database connection verified (internal network)
 - [x] Redis connection verified (internal network)
-- [x] CORS headers properly configured
+- [x] Storage (MinIO) connection verified (internal network)
+- [x] Storage write/read test passed (`smoke-tests/storage-test-dd1721ba.txt`)
+- [x] CORS headers properly configured for localhost
+- [x] CORS headers properly configured for staging web origin
 - [x] API latency acceptable (~530ms average)
+- [x] Deployed repo source confirmed (workautomate224-lang/agentverse)
 
 ---
 
@@ -190,6 +242,11 @@ See `STAGING_VARIABLES.md` for complete configuration.
 | 2026-01-10 | Added email-validator dependency | SUCCESS |
 | 2026-01-10 | Disabled ESLint for web build | SUCCESS |
 | 2026-01-10 | All services verified healthy | SUCCESS |
+| 2026-01-10 | Added MinIO storage service | SUCCESS |
+| 2026-01-10 | Configured storage env vars | SUCCESS |
+| 2026-01-10 | Added storage smoke test endpoint | SUCCESS |
+| 2026-01-10 | Storage write/read test verified | SUCCESS |
+| 2026-01-10 | CORS staging web origin verified | SUCCESS |
 
 ---
 
@@ -218,3 +275,4 @@ RAILWAY_TOKEN="PROJECT_TOKEN" railway logs --service agentverse-api-staging
 - API: `8b516747-7745-431b-9a91-a2eb1cc9eab3`
 - Worker: `b6edcdd4-a1c0-4d7f-9eda-30aeb12dcf3a`
 - Web: `093ac3ad-9bb5-43c0-8028-288b4d8faf5b`
+- MinIO: `b2254168-907d-4d99-9341-5d4cff255d43`
