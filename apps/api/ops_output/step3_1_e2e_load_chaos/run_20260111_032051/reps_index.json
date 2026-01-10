@@ -1,0 +1,41 @@
+{
+  "timestamp": "2026-01-10T19:21:14.878153+00:00",
+  "total_runs": 1,
+  "total_reps": 1,
+  "runs": [
+    {
+      "run_id": "storage-test-cea51cc2",
+      "rep_path": "s3://agentverse-staging-artifacts/smoke-tests/storage-test-abd22c0c.txt"
+    }
+  ],
+  "validation_results": [
+    {
+      "run_id": null,
+      "rep_path": null,
+      "is_valid": false,
+      "errors": [
+        "Simulation error: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column \"name\" of relation \"project_specs\" does not exist\n[SQL: \n                    INSERT INTO project_specs (\n                        id, tenant_id, name, description, spec,\n                        versions, created_at, updated_at\n                    ) VALUES (\n                        $1, $2, $3, $4, $5,\n                        $6, $7, $8\n                    )\n                    ON CONFLICT (id) DO NOTHING\n                ]\n[parameters: (UUID('00000000-0000-0000-0000-000000000002'), UUID('00000000-0000-0000-0000-000000000001'), 'Step 3.1 Validation Project', 'Automated test project for Step 3.1 validation', '{}', '{\"engine\": \"1.0.0\", \"ruleset\": \"1.0.0\"}', datetime.datetime(2026, 1, 10, 19, 21, 14, 5698, tzinfo=datetime.timezone.utc), datetime.datetime(2026, 1, 10, 19, 21, 14, 5703, tzinfo=datetime.timezone.utc))]\n(Background on this error at: https://sqlalche.me/e/20/f405)"
+      ],
+      "method": "ops_test_error_error"
+    },
+    {
+      "run_id": "storage-test-cea51cc2",
+      "rep_path": "s3://agentverse-staging-artifacts/smoke-tests/storage-test-abd22c0c.txt",
+      "is_valid": false,
+      "files_found": [
+        "smoke-tests/storage-test-abd22c0c.txt"
+      ],
+      "files_missing": [
+        "manifest.json",
+        "trace.ndjson",
+        "llm_ledger.ndjson",
+        "universe_graph.json",
+        "report.md"
+      ],
+      "errors": [
+        "Storage test artifact - NOT a full REP"
+      ],
+      "method": "storage_test_fallback"
+    }
+  ]
+}

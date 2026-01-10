@@ -158,10 +158,65 @@ async def run_real_simulation(
         # Use staging test tenant/project IDs
         # These should be pre-created in staging environment
         test_tenant_id = str(uuid.UUID("00000000-0000-0000-0000-000000000001"))
+        test_user_id = str(uuid.UUID("00000000-0000-0000-0000-000000000003"))
         test_project_id = str(uuid.UUID("00000000-0000-0000-0000-000000000002"))
 
-        # Check if test project exists, create if not
         from sqlalchemy import text
+
+        # Step 1: Ensure test tenant exists
+        result = await db.execute(
+            text("SELECT id FROM tenants WHERE id = :id"),
+            {"id": uuid.UUID(test_tenant_id)}
+        )
+        tenant_exists = result.scalar_one_or_none()
+
+        if not tenant_exists:
+            await db.execute(
+                text("""
+                    INSERT INTO tenants (id, slug, name, plan_tier, created_at, updated_at)
+                    VALUES (:id, :slug, :name, :plan_tier, :created_at, :updated_at)
+                    ON CONFLICT (id) DO NOTHING
+                """),
+                {
+                    "id": uuid.UUID(test_tenant_id),
+                    "slug": "step31-test-tenant",
+                    "name": "Step 3.1 Test Tenant",
+                    "plan_tier": "enterprise",
+                    "created_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            )
+            await db.commit()
+            logger.info(f"Created test tenant: {test_tenant_id}")
+
+        # Step 2: Ensure test user exists
+        result = await db.execute(
+            text("SELECT id FROM users WHERE id = :id"),
+            {"id": uuid.UUID(test_user_id)}
+        )
+        user_exists = result.scalar_one_or_none()
+
+        if not user_exists:
+            await db.execute(
+                text("""
+                    INSERT INTO users (id, tenant_id, email, display_name, role, created_at, updated_at)
+                    VALUES (:id, :tenant_id, :email, :display_name, :role, :created_at, :updated_at)
+                    ON CONFLICT (id) DO NOTHING
+                """),
+                {
+                    "id": uuid.UUID(test_user_id),
+                    "tenant_id": uuid.UUID(test_tenant_id),
+                    "email": "step31-test@agentverse.local",
+                    "display_name": "Step 3.1 Test User",
+                    "role": "admin",
+                    "created_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            )
+            await db.commit()
+            logger.info(f"Created test user: {test_user_id}")
+
+        # Step 3: Check if test project exists, create if not
         result = await db.execute(
             text("SELECT id FROM project_specs WHERE id = :id"),
             {"id": uuid.UUID(test_project_id)}
@@ -173,21 +228,22 @@ async def run_real_simulation(
             await db.execute(
                 text("""
                     INSERT INTO project_specs (
-                        id, tenant_id, name, description, spec,
-                        versions, created_at, updated_at
+                        id, tenant_id, owner_id, title, goal_nl, description,
+                        prediction_core, created_at, updated_at
                     ) VALUES (
-                        :id, :tenant_id, :name, :description, :spec,
-                        :versions, :created_at, :updated_at
+                        :id, :tenant_id, :owner_id, :title, :goal_nl, :description,
+                        :prediction_core, :created_at, :updated_at
                     )
                     ON CONFLICT (id) DO NOTHING
                 """),
                 {
                     "id": uuid.UUID(test_project_id),
                     "tenant_id": uuid.UUID(test_tenant_id),
-                    "name": "Step 3.1 Validation Project",
-                    "description": "Automated test project for Step 3.1 validation",
-                    "spec": "{}",
-                    "versions": '{"engine": "1.0.0", "ruleset": "1.0.0"}',
+                    "owner_id": uuid.UUID(test_user_id),
+                    "title": "Step 3.1 Validation Project",
+                    "goal_nl": "Automated test project for Step 3.1 validation",
+                    "description": "This project is used for automated E2E validation testing",
+                    "prediction_core": "general",
                     "created_at": datetime.now(timezone.utc),
                     "updated_at": datetime.now(timezone.utc),
                 }
