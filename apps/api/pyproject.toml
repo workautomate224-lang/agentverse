@@ -15,6 +15,7 @@ dependencies = [
     "email-validator>=2.1.0",
     "sqlalchemy>=2.0.25",
     "asyncpg>=0.29.0",
+    "psycopg2-binary>=2.9.9",  # Required for alembic migrations (sync driver)
     "alembic>=1.13.1",
     "python-jose[cryptography]>=3.3.0",
     "passlib[bcrypt]>=1.7.4",
