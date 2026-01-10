@@ -109,6 +109,10 @@ class Settings(BaseSettings):
     RULESET_VERSION: str = "1.0.0"
     SCHEMA_VERSION: str = "1.0.0"
 
+    # Staging Operations (for chaos testing and Step 3.1 validation)
+    # Set via Railway env var - only used in staging environment
+    STAGING_OPS_API_KEY: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

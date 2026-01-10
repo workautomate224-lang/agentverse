@@ -111,3 +111,65 @@ def compute_tenant_usage(tenant_id: str) -> dict:
         "agents_active": 0,
         "computed_at": datetime.utcnow().isoformat(),
     }
+
+
+# =============================================================================
+# Step 3.2: Worker Heartbeat
+# =============================================================================
+
+@shared_task(name="app.tasks.maintenance.worker_heartbeat")
+def worker_heartbeat() -> dict:
+    """
+    Refresh worker boot_id TTL in Redis.
+
+    This task runs every 30 seconds (via Celery Beat) to keep the
+    worker's boot_info alive in Redis. If the worker dies, the TTL
+    will expire and the boot_info will disappear.
+
+    Used by chaos testing to verify worker is alive.
+    """
+    import redis
+    from app.core.celery_app import WORKER_BOOT_ID, WORKER_BOOT_TIMESTAMP
+    from app.core.config import settings
+
+    try:
+        r = redis.from_url(settings.REDIS_URL)
+
+        # Check if boot_info exists
+        exists = r.exists("staging:worker:boot_info")
+
+        if exists:
+            # Refresh TTL
+            r.expire("staging:worker:boot_info", 300)  # 5 min TTL
+            r.close()
+            return {
+                "status": "alive",
+                "boot_id": WORKER_BOOT_ID,
+                "boot_timestamp": WORKER_BOOT_TIMESTAMP,
+                "heartbeat_at": datetime.utcnow().isoformat(),
+            }
+        else:
+            # Re-store boot info (might have expired)
+            boot_info = {
+                "boot_id": WORKER_BOOT_ID,
+                "boot_timestamp": str(WORKER_BOOT_TIMESTAMP or datetime.utcnow().timestamp()),
+                "hostname": "unknown",
+                "pid": "unknown",
+                "environment": settings.ENVIRONMENT,
+            }
+            r.hset("staging:worker:boot_info", mapping=boot_info)
+            r.expire("staging:worker:boot_info", 300)
+            r.close()
+            return {
+                "status": "restored",
+                "boot_id": WORKER_BOOT_ID,
+                "heartbeat_at": datetime.utcnow().isoformat(),
+            }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "boot_id": WORKER_BOOT_ID,
+            "heartbeat_at": datetime.utcnow().isoformat(),
+        }

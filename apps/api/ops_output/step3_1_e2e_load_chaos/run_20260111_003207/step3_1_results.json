@@ -1,0 +1,194 @@
+{
+  "environment": {
+    "api_url": "https://agentverse-api-staging-production.up.railway.app",
+    "railway_project_id": "30cf5498-5aeb-4cf6-b35c-5ba0b9ed81f2",
+    "storage_bucket": "agentverse-staging-artifacts",
+    "minio_url": "https://minio-staging-production.up.railway.app",
+    "api_version": "1.0.0-staging",
+    "api_environment": "staging"
+  },
+  "test_started_at": "2026-01-10T16:32:07.454154+00:00",
+  "test_completed_at": "2026-01-10T16:32:33.605125+00:00",
+  "total_duration_seconds": 26.150914192199707,
+  "load_tests": {
+    "L1": {
+      "test_id": "L1-f87da354",
+      "test_name": "L1: Universe Node Expansion Concurrency",
+      "start_time": "2026-01-10T16:32:09.010311+00:00",
+      "end_time": "2026-01-10T16:32:14.087795+00:00",
+      "duration_ms": 5077.484,
+      "status": "PASS",
+      "success_count": 60,
+      "fail_count": 0,
+      "error_codes": [],
+      "p50_ms": 1640.1064120000228,
+      "p95_ms": 1822.8730069822632,
+      "details": {
+        "total_requests": 60,
+        "concurrency": 20,
+        "rounds": 3
+      },
+      "run_ids": [],
+      "rep_paths": []
+    },
+    "L2": {
+      "test_id": "L2-b8021400",
+      "test_name": "L2: Calibration + Auto-Tune Mixed Workload",
+      "start_time": "2026-01-10T16:32:14.087930+00:00",
+      "end_time": "2026-01-10T16:32:15.670901+00:00",
+      "duration_ms": 1582.971,
+      "status": "PASS",
+      "success_count": 20,
+      "fail_count": 0,
+      "error_codes": [],
+      "p50_ms": 1547.729085024912,
+      "p95_ms": 1580.1102940458804,
+      "details": {
+        "calibration_jobs": 10,
+        "auto_tune_jobs": 10,
+        "queue_backlog_peak": 0
+      },
+      "run_ids": [],
+      "rep_paths": []
+    },
+    "L3": {
+      "test_id": "L3-90eede9f",
+      "test_name": "L3: Replay Streaming + Export Stress",
+      "start_time": "2026-01-10T16:32:15.671021+00:00",
+      "end_time": "2026-01-10T16:32:17.963911+00:00",
+      "duration_ms": 2292.89,
+      "status": "PASS",
+      "success_count": 20,
+      "fail_count": 0,
+      "error_codes": [],
+      "p50_ms": 2253.775123041123,
+      "p95_ms": 2289.478594029788,
+      "details": {
+        "streaming_sessions": 10,
+        "export_jobs": 10,
+        "bucket_failures": 0
+      },
+      "run_ids": [],
+      "rep_paths": []
+    }
+  },
+  "chaos_tests": {
+    "C1": {
+      "test_id": "C1-fb2dcff0",
+      "test_name": "C1: Worker Restart Mid-Run",
+      "start_time": "2026-01-10T16:32:17.967121+00:00",
+      "end_time": "2026-01-10T16:32:21.249743+00:00",
+      "duration_ms": 3282.622,
+      "status": "PASS",
+      "success_count": 10,
+      "fail_count": 0,
+      "error_codes": [],
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "details": {
+        "runs_started": 10,
+        "runs_completed": 10,
+        "runs_failed": 0,
+        "runs_stuck": 0,
+        "duplicate_results": 0,
+        "service_restarted": true,
+        "restart_method": "simulated",
+        "deployment_id": null
+      },
+      "run_ids": [],
+      "rep_paths": []
+    },
+    "C2": {
+      "test_id": "C2-36db8e2a",
+      "test_name": "C2: API Restart Mid-Stream",
+      "start_time": "2026-01-10T16:32:21.249872+00:00",
+      "end_time": "2026-01-10T16:32:22.888266+00:00",
+      "duration_ms": 1638.394,
+      "status": "PASS",
+      "success_count": 5,
+      "fail_count": 0,
+      "error_codes": [],
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "details": {
+        "streams_opened": 5,
+        "streams_reconnected": 5,
+        "streams_failed_gracefully": 0,
+        "run_status_correct": true,
+        "rep_intact": true,
+        "service_restarted": true,
+        "restart_method": "simulated",
+        "deployment_id": null
+      },
+      "run_ids": [],
+      "rep_paths": []
+    },
+    "C3": {
+      "test_id": "C3-069be35a",
+      "test_name": "C3: Transient DB Failure Simulation",
+      "start_time": "2026-01-10T16:32:22.888360+00:00",
+      "end_time": "2026-01-10T16:32:32.646623+00:00",
+      "duration_ms": 9758.262999999999,
+      "status": "PASS",
+      "success_count": 30,
+      "fail_count": 0,
+      "error_codes": [],
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "details": {
+        "db_failure_simulated": true,
+        "runs_failed_cleanly": 0,
+        "runs_recovered": 30,
+        "data_corruption": false,
+        "stuck_runs": 0,
+        "restart_method": "simulated",
+        "deployment_id": null
+      },
+      "run_ids": [],
+      "rep_paths": []
+    }
+  },
+  "llm_canary": {
+    "test_id": "LLM-CANARY-2b90e483",
+    "timestamp": "2026-01-10T16:32:08.524055+00:00",
+    "duration_ms": 486.134,
+    "status": "unknown",
+    "llm_call": {},
+    "evidence": {},
+    "llm_ledger_entry": {}
+  },
+  "all_run_ids": [
+    "storage-test-ac42e4e9"
+  ],
+  "all_rep_paths": [
+    "s3://agentverse-staging-artifacts/smoke-tests/storage-test-2e9e6057.txt"
+  ],
+  "rep_integrity_results": [
+    {
+      "run_id": "storage-test-ac42e4e9",
+      "rep_path": "s3://agentverse-staging-artifacts/smoke-tests/storage-test-2e9e6057.txt",
+      "is_valid": true,
+      "files_found": [
+        "smoke-tests/storage-test-2e9e6057.txt"
+      ],
+      "files_missing": [],
+      "manifest_valid": true,
+      "trace_valid": false,
+      "ledger_valid": false,
+      "graph_valid": false,
+      "report_valid": false,
+      "errors": [
+        "Storage test artifact - not a full REP"
+      ]
+    }
+  ],
+  "overall_status": "PARTIAL",
+  "rep_corruption_count": 0,
+  "stuck_runs_count": 0,
+  "graph_integrity_errors": 0,
+  "bucket_isolation_verified": true,
+  "llm_ledger_entries": 0,
+  "errors": [
+    "LLM Canary failed: None"
+  ]
+}

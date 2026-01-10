@@ -9,11 +9,27 @@ Queue Architecture:
 - default: General purpose tasks
 - runs: Simulation run execution (priority queue)
 - maintenance: Cleanup, archival tasks
+
+Step 3.2: Worker Boot ID tracking for chaos testing
+- WORKER_BOOT_ID: Unique ID generated on worker startup
+- Stored in Redis for real-time boot verification
 """
 
+import logging
+import os
+import time
+import uuid
+
 from celery import Celery
+from celery.signals import worker_ready, worker_shutdown
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
+
+# Worker boot tracking (Step 3.2)
+WORKER_BOOT_ID: str = str(uuid.uuid4())
+WORKER_BOOT_TIMESTAMP: float | None = None
 
 # Create Celery app
 celery_app = Celery(
@@ -23,6 +39,7 @@ celery_app = Celery(
     include=[
         "app.tasks.run_executor",
         "app.tasks.maintenance",
+        "app.tasks.chaos_tasks",  # Step 3.2: Chaos engineering tasks
         # Legacy tasks (to be deprecated)
         "app.tasks.world_simulation",
     ],
@@ -73,6 +90,11 @@ celery_app.conf.update(
                 "minute": 0,
             },
         },
+        # Worker heartbeat (Step 3.2) - refresh boot_id TTL every 30 seconds
+        "worker-heartbeat": {
+            "task": "app.tasks.maintenance.worker_heartbeat",
+            "schedule": 30.0,
+        },
     },
 )
 
@@ -115,3 +137,68 @@ celery_app.conf.task_queues = {
         "routing_key": "legacy",
     },
 }
+
+
+# =============================================================================
+# Step 3.2: Worker Boot ID Signal Handlers
+# =============================================================================
+
+def _store_boot_info_in_redis():
+    """Store worker boot info in Redis (synchronous)."""
+    global WORKER_BOOT_TIMESTAMP
+    import redis
+
+    WORKER_BOOT_TIMESTAMP = time.time()
+
+    try:
+        r = redis.from_url(settings.REDIS_URL)
+
+        # Store boot info as hash
+        boot_info = {
+            "boot_id": WORKER_BOOT_ID,
+            "boot_timestamp": str(WORKER_BOOT_TIMESTAMP),
+            "hostname": os.environ.get("HOSTNAME", os.environ.get("RAILWAY_SERVICE_NAME", "unknown")),
+            "pid": str(os.getpid()),
+            "environment": settings.ENVIRONMENT,
+        }
+
+        r.hset("staging:worker:boot_info", mapping=boot_info)
+        r.expire("staging:worker:boot_info", 300)  # 5 min TTL (refreshed by heartbeat)
+
+        logger.info(f"Worker boot_id stored in Redis: {WORKER_BOOT_ID}")
+        r.close()
+    except Exception as e:
+        logger.error(f"Failed to store boot_id in Redis: {e}")
+
+
+def _clear_boot_info_from_redis():
+    """Clear worker boot info from Redis on shutdown (synchronous)."""
+    import redis
+
+    try:
+        r = redis.from_url(settings.REDIS_URL)
+        r.delete("staging:worker:boot_info")
+        logger.info(f"Worker boot_id cleared from Redis: {WORKER_BOOT_ID}")
+        r.close()
+    except Exception as e:
+        logger.error(f"Failed to clear boot_id from Redis: {e}")
+
+
+@worker_ready.connect
+def on_worker_ready(sender, **kwargs):
+    """
+    Called when worker is ready to accept tasks.
+    Stores boot_id in Redis for chaos testing verification.
+    """
+    logger.info(f"Worker ready signal received. Boot ID: {WORKER_BOOT_ID}")
+    _store_boot_info_in_redis()
+
+
+@worker_shutdown.connect
+def on_worker_shutdown(sender, **kwargs):
+    """
+    Called when worker is shutting down.
+    Clears boot_id from Redis.
+    """
+    logger.info(f"Worker shutdown signal received. Boot ID: {WORKER_BOOT_ID}")
+    _clear_boot_info_from_redis()

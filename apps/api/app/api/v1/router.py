@@ -50,6 +50,9 @@ from app.api.v1.endpoints import (
     governance,
     # Validation Center (Real-World Validation Playbook)
     validation_center,
+    # Step 3.2: Staging-only Chaos Engineering & Test endpoints
+    ops_chaos,
+    ops_test,
 )
 
 api_router = APIRouter()
@@ -110,3 +113,8 @@ api_router.include_router(governance.router, prefix="/governance", tags=["Govern
 
 # Validation Center (Real-World Validation Playbook)
 api_router.include_router(validation_center.router, prefix="/validation-center", tags=["Validation Center"])
+
+# Step 3.2: Staging-only Chaos Engineering & Test endpoints
+# NOTE: These endpoints have their own prefix defined in the router (/ops/chaos, /ops/test)
+api_router.include_router(ops_chaos.router, tags=["Ops - Chaos Engineering"])
+api_router.include_router(ops_test.router, tags=["Ops - Test Simulation"])
