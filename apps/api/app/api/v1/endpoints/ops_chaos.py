@@ -216,6 +216,43 @@ async def trigger_worker_exit(
         )
 
 
+@router.get("/debug-config")
+async def debug_config(
+    x_api_key: str = Header(..., alias="X-API-Key"),
+):
+    """Debug endpoint to check Redis configuration."""
+    verify_staging_access(x_api_key)
+
+    redis_url = settings.REDIS_URL
+    # Mask the password if present
+    if "@" in redis_url:
+        # URL format: redis://[:password]@host:port/db
+        parts = redis_url.split("@")
+        masked_url = f"***@{parts[-1]}"
+    else:
+        masked_url = redis_url
+
+    # Test Celery broker connection
+    celery_broker_test = "unknown"
+    try:
+        from app.core.celery_app import celery_app
+        # Try to connect to broker
+        conn = celery_app.connection()
+        conn.connect()
+        celery_broker_test = "success"
+        conn.release()
+    except Exception as e:
+        celery_broker_test = f"failed: {e}"
+
+    return {
+        "redis_url_masked": masked_url,
+        "redis_url_length": len(redis_url),
+        "redis_url_starts_with_redis": redis_url.startswith("redis://") or redis_url.startswith("rediss://"),
+        "celery_broker_test": celery_broker_test,
+        "environment": settings.ENVIRONMENT,
+    }
+
+
 @router.get("/worker-status", response_model=WorkerStatusResponse)
 async def get_worker_status(
     x_api_key: str = Header(..., alias="X-API-Key"),
