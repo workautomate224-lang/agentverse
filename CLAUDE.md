@@ -55,7 +55,7 @@ pnpm install                # Install all dependencies
 
 ## Development Workflow
 
-- Push to `https://github.com/sweiloon/agentverse.git`
+- Push to `https://github.com/workautomate224-lang/agentverse.git`
 - Run `pnpm type-check` before commits
 - Use LLMRouter for all LLM calls (enforced by `scripts/check_llm_usage.py`)
 - Reference specs in `docs/` for implementation details
