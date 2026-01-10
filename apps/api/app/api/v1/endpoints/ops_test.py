@@ -173,15 +173,15 @@ async def run_real_simulation(
         if not tenant_exists:
             await db.execute(
                 text("""
-                    INSERT INTO tenants (id, slug, name, plan_tier, created_at, updated_at)
-                    VALUES (:id, :slug, :name, :plan_tier, :created_at, :updated_at)
+                    INSERT INTO tenants (id, slug, name, tier, created_at, updated_at)
+                    VALUES (:id, :slug, :name, :tier, :created_at, :updated_at)
                     ON CONFLICT (id) DO NOTHING
                 """),
                 {
                     "id": uuid.UUID(test_tenant_id),
                     "slug": "step31-test-tenant",
                     "name": "Step 3.1 Test Tenant",
-                    "plan_tier": "enterprise",
+                    "tier": "enterprise",
                     "created_at": datetime.now(timezone.utc),
                     "updated_at": datetime.now(timezone.utc),
                 }
@@ -199,15 +199,15 @@ async def run_real_simulation(
         if not user_exists:
             await db.execute(
                 text("""
-                    INSERT INTO users (id, tenant_id, email, display_name, role, created_at, updated_at)
-                    VALUES (:id, :tenant_id, :email, :display_name, :role, :created_at, :updated_at)
+                    INSERT INTO users (id, tenant_id, email, full_name, role, created_at, updated_at)
+                    VALUES (:id, :tenant_id, :email, :full_name, :role, :created_at, :updated_at)
                     ON CONFLICT (id) DO NOTHING
                 """),
                 {
                     "id": uuid.UUID(test_user_id),
                     "tenant_id": uuid.UUID(test_tenant_id),
                     "email": "step31-test@agentverse.local",
-                    "display_name": "Step 3.1 Test User",
+                    "full_name": "Step 3.1 Test User",
                     "role": "admin",
                     "created_at": datetime.now(timezone.utc),
                     "updated_at": datetime.now(timezone.utc),

@@ -1,0 +1,41 @@
+{
+  "timestamp": "2026-01-10T19:28:47.446678+00:00",
+  "total_runs": 1,
+  "total_reps": 1,
+  "runs": [
+    {
+      "run_id": "storage-test-258819e2",
+      "rep_path": "s3://agentverse-staging-artifacts/smoke-tests/storage-test-5eb62c08.txt"
+    }
+  ],
+  "validation_results": [
+    {
+      "run_id": null,
+      "rep_path": null,
+      "is_valid": false,
+      "errors": [
+        "Simulation error: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: column \"plan_tier\" of relation \"tenants\" does not exist\n[SQL: \n                    INSERT INTO tenants (id, slug, name, plan_tier, created_at, updated_at)\n                    VALUES ($1, $2, $3, $4, $5, $6)\n                    ON CONFLICT (id) DO NOTHING\n                ]\n[parameters: (UUID('00000000-0000-0000-0000-000000000001'), 'step31-test-tenant', 'Step 3.1 Test Tenant', 'enterprise', datetime.datetime(2026, 1, 10, 19, 28, 46, 523594, tzinfo=datetime.timezone.utc), datetime.datetime(2026, 1, 10, 19, 28, 46, 523599, tzinfo=datetime.timezone.utc))]\n(Background on this error at: https://sqlalche.me/e/20/f405)"
+      ],
+      "method": "ops_test_error_error"
+    },
+    {
+      "run_id": "storage-test-258819e2",
+      "rep_path": "s3://agentverse-staging-artifacts/smoke-tests/storage-test-5eb62c08.txt",
+      "is_valid": false,
+      "files_found": [
+        "smoke-tests/storage-test-5eb62c08.txt"
+      ],
+      "files_missing": [
+        "manifest.json",
+        "trace.ndjson",
+        "llm_ledger.ndjson",
+        "universe_graph.json",
+        "report.md"
+      ],
+      "errors": [
+        "Storage test artifact - NOT a full REP"
+      ],
+      "method": "storage_test_fallback"
+    }
+  ]
+}
