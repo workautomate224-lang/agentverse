@@ -1,0 +1,22 @@
+{
+  "timestamp": "2026-01-10T21:07:54.211872+00:00",
+  "total_runs": 1,
+  "total_reps": 0,
+  "runs": [
+    {
+      "run_id": "5c5e838b-0cdf-4892-8245-c553908ceb21",
+      "rep_path": null
+    }
+  ],
+  "validation_results": [
+    {
+      "run_id": "5c5e838b-0cdf-4892-8245-c553908ceb21",
+      "rep_path": null,
+      "is_valid": false,
+      "errors": [
+        "Simulation timed out: Test run completed with status: timeout"
+      ],
+      "method": "ops_test_timeout"
+    }
+  ]
+}
