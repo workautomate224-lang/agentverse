@@ -147,12 +147,22 @@ async def check_storage() -> DependencyHealth:
     """Check object storage (S3) connectivity."""
     start = time.perf_counter()
     try:
-        # Only check if S3 is configured
-        if not getattr(settings, "S3_BUCKET", None):
+        # Check if using local storage
+        backend = getattr(settings, "STORAGE_BACKEND", "local")
+        if backend == "local":
             return DependencyHealth(
                 name="storage",
                 status=HealthStatus.HEALTHY,
                 message="Using local storage",
+            )
+
+        # Check S3-compatible storage
+        bucket = getattr(settings, "STORAGE_BUCKET", None)
+        if not bucket:
+            return DependencyHealth(
+                name="storage",
+                status=HealthStatus.HEALTHY,
+                message="No bucket configured",
             )
 
         import boto3
@@ -162,13 +172,16 @@ async def check_storage() -> DependencyHealth:
             connect_timeout=5,
             read_timeout=5,
             retries={"max_attempts": 1},
+            signature_version="s3v4",
         )
 
         s3 = boto3.client(
             "s3",
-            endpoint_url=getattr(settings, "S3_ENDPOINT_URL", None),
-            aws_access_key_id=getattr(settings, "S3_ACCESS_KEY", None),
-            aws_secret_access_key=getattr(settings, "S3_SECRET_KEY", None),
+            region_name=getattr(settings, "STORAGE_REGION", "us-east-1"),
+            endpoint_url=getattr(settings, "STORAGE_ENDPOINT_URL", None),
+            aws_access_key_id=getattr(settings, "STORAGE_ACCESS_KEY", None),
+            aws_secret_access_key=getattr(settings, "STORAGE_SECRET_KEY", None),
+            use_ssl=getattr(settings, "STORAGE_USE_SSL", True),
             config=config,
         )
 
@@ -180,6 +193,7 @@ async def check_storage() -> DependencyHealth:
             name="storage",
             status=HealthStatus.HEALTHY,
             latency_ms=round(latency, 2),
+            details={"bucket": bucket, "backend": backend},
         )
     except Exception as e:
         latency = (time.perf_counter() - start) * 1000
@@ -314,6 +328,100 @@ async def debug_celery_test() -> dict:
     except Exception as e:
         import traceback
         result["task_submit_test"] = f"failed: {str(e)}"
+        result["traceback"] = traceback.format_exc()
+
+    return result
+
+
+@router.get("/health/storage-test")
+async def storage_smoke_test() -> dict:
+    """
+    Storage write/read smoke test.
+
+    Performs a full write-read cycle to verify S3-compatible storage is working.
+    Returns the test object key and confirmation.
+    """
+    import uuid
+    from datetime import datetime, timezone
+
+    result: dict[str, Any] = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "environment": getattr(settings, "ENVIRONMENT", "development"),
+    }
+
+    backend = getattr(settings, "STORAGE_BACKEND", "local")
+    bucket = getattr(settings, "STORAGE_BUCKET", None)
+
+    result["storage_backend"] = backend
+    result["storage_bucket"] = bucket
+
+    if backend == "local":
+        result["status"] = "skipped"
+        result["message"] = "Local storage backend - S3 test not applicable"
+        return result
+
+    if not bucket:
+        result["status"] = "error"
+        result["message"] = "No bucket configured"
+        return result
+
+    try:
+        import boto3
+        from botocore.config import Config
+
+        config = Config(
+            connect_timeout=10,
+            read_timeout=10,
+            retries={"max_attempts": 2},
+            signature_version="s3v4",
+        )
+
+        s3 = boto3.client(
+            "s3",
+            region_name=getattr(settings, "STORAGE_REGION", "us-east-1"),
+            endpoint_url=getattr(settings, "STORAGE_ENDPOINT_URL", None),
+            aws_access_key_id=getattr(settings, "STORAGE_ACCESS_KEY", None),
+            aws_secret_access_key=getattr(settings, "STORAGE_SECRET_KEY", None),
+            use_ssl=getattr(settings, "STORAGE_USE_SSL", True),
+            config=config,
+        )
+
+        # Generate test object
+        test_id = str(uuid.uuid4())[:8]
+        test_key = f"smoke-tests/storage-test-{test_id}.txt"
+        test_content = f"AgentVerse Storage Smoke Test\nTimestamp: {result['timestamp']}\nEnvironment: {result['environment']}\nTest ID: {test_id}"
+
+        # Write test
+        start = time.perf_counter()
+        s3.put_object(
+            Bucket=bucket,
+            Key=test_key,
+            Body=test_content.encode("utf-8"),
+            ContentType="text/plain",
+        )
+        write_latency = (time.perf_counter() - start) * 1000
+
+        # Read test
+        start = time.perf_counter()
+        response = s3.get_object(Bucket=bucket, Key=test_key)
+        read_content = response["Body"].read().decode("utf-8")
+        read_latency = (time.perf_counter() - start) * 1000
+
+        # Verify content
+        if read_content == test_content:
+            result["status"] = "success"
+            result["test_object_key"] = test_key
+            result["write_latency_ms"] = round(write_latency, 2)
+            result["read_latency_ms"] = round(read_latency, 2)
+            result["content_verified"] = True
+        else:
+            result["status"] = "error"
+            result["message"] = "Content mismatch after read"
+
+    except Exception as e:
+        import traceback
+        result["status"] = "error"
+        result["message"] = str(e)
         result["traceback"] = traceback.format_exc()
 
     return result
