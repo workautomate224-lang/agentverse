@@ -270,7 +270,7 @@ async def run_real_simulation(
             label=run_label,
             config=config_input,
             seeds=[42],  # Deterministic seed for reproducibility
-            triggered_by=TriggeredBy.BATCH,
+            triggered_by=TriggeredBy.API,
         )
 
         # Create and start the run

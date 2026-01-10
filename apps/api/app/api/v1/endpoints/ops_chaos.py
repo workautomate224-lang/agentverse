@@ -121,10 +121,13 @@ async def trigger_worker_exit(
 
     logger.info(f"Chaos worker-exit triggered: correlation_id={correlation_id}")
 
+    before_boot_id = None
     try:
+        logger.info(f"Connecting to Redis: {settings.REDIS_URL[:30]}...")
         r = redis.from_url(settings.REDIS_URL)
 
         # Get current boot_id
+        logger.info("Fetching boot_info from Redis...")
         before_info = await r.hgetall("staging:worker:boot_info")
 
         if not before_info:
@@ -141,7 +144,20 @@ async def trigger_worker_exit(
         logger.info(f"Current boot_id: {before_boot_id}")
 
         # Dispatch exit task to worker
-        exit_worker.delay(request.reason, correlation_id)
+        logger.info("Dispatching exit_worker task via Celery...")
+        try:
+            exit_worker.delay(request.reason, correlation_id)
+            logger.info("Exit task dispatched successfully")
+        except Exception as celery_error:
+            logger.error(f"Celery dispatch failed: {celery_error}")
+            await r.close()
+            return WorkerExitResponse(
+                status="error",
+                correlation_id=correlation_id,
+                before_boot_id=before_boot_id,
+                message=f"Celery dispatch failed: {celery_error}",
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
 
         logger.info(f"Exit task dispatched, polling for restart...")
 
@@ -194,6 +210,7 @@ async def trigger_worker_exit(
         return WorkerExitResponse(
             status="error",
             correlation_id=correlation_id,
+            before_boot_id=before_boot_id,
             message=str(e),
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
