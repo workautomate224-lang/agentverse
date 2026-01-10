@@ -244,11 +244,23 @@ async def debug_config(
     except Exception as e:
         celery_broker_test = f"failed: {e}"
 
+    # Try to send a ping task and get result
+    task_test = "unknown"
+    try:
+        from app.tasks.maintenance import worker_heartbeat
+        result = worker_heartbeat.apply_async()
+        # Wait up to 10 seconds for result
+        task_result = result.get(timeout=10)
+        task_test = f"success: {task_result}"
+    except Exception as e:
+        task_test = f"failed: {e}"
+
     return {
         "redis_url_masked": masked_url,
         "redis_url_length": len(redis_url),
         "redis_url_starts_with_redis": redis_url.startswith("redis://") or redis_url.startswith("rediss://"),
         "celery_broker_test": celery_broker_test,
+        "task_test": task_test,
         "environment": settings.ENVIRONMENT,
     }
 
