@@ -1,0 +1,41 @@
+{
+  "timestamp": "2026-01-10T19:11:08.063102+00:00",
+  "total_runs": 1,
+  "total_reps": 1,
+  "runs": [
+    {
+      "run_id": "storage-test-76d1a873",
+      "rep_path": "s3://agentverse-staging-artifacts/smoke-tests/storage-test-db720451.txt"
+    }
+  ],
+  "validation_results": [
+    {
+      "run_id": null,
+      "rep_path": null,
+      "is_valid": false,
+      "errors": [
+        "Simulation error: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedTableError'>: relation \"project_specs\" does not exist\n[SQL: SELECT id FROM project_specs WHERE id = $1]\n[parameters: (UUID('00000000-0000-0000-0000-000000000002'),)]\n(Background on this error at: https://sqlalche.me/e/20/f405)"
+      ],
+      "method": "ops_test_error_error"
+    },
+    {
+      "run_id": "storage-test-76d1a873",
+      "rep_path": "s3://agentverse-staging-artifacts/smoke-tests/storage-test-db720451.txt",
+      "is_valid": false,
+      "files_found": [
+        "smoke-tests/storage-test-db720451.txt"
+      ],
+      "files_missing": [
+        "manifest.json",
+        "trace.ndjson",
+        "llm_ledger.ndjson",
+        "universe_graph.json",
+        "report.md"
+      ],
+      "errors": [
+        "Storage test artifact - NOT a full REP"
+      ],
+      "method": "storage_test_fallback"
+    }
+  ]
+}

@@ -6,22 +6,22 @@
     "bucket": "agentverse-staging-artifacts",
     "railway_project_id": "30cf5498-5aeb-4cf6-b35c-5ba0b9ed81f2"
   },
-  "test_started_at": "2026-01-10T15:47:40.085164+00:00",
-  "test_completed_at": "2026-01-10T15:47:54.950828+00:00",
-  "total_duration_seconds": 14.865292146045249,
+  "test_started_at": "2026-01-10T16:07:41.933621+00:00",
+  "test_completed_at": "2026-01-10T16:10:27.343025+00:00",
+  "total_duration_seconds": 165.40845688898116,
   "load_tests": {
     "L1": {
-      "test_id": "L1-91813815",
+      "test_id": "L1-7b01fdd8",
       "test_name": "L1: Universe Node Expansion Concurrency",
-      "start_time": "2026-01-10T15:47:40.912751+00:00",
-      "end_time": "2026-01-10T15:47:46.303481+00:00",
-      "duration_ms": 5390.73,
+      "start_time": "2026-01-10T16:07:42.889656+00:00",
+      "end_time": "2026-01-10T16:07:47.801251+00:00",
+      "duration_ms": 4911.595,
       "status": "PASS",
       "success_count": 60,
       "fail_count": 0,
       "error_codes": [],
-      "p50_ms": 1584.1701079625636,
-      "p95_ms": 2196.684059983818,
+      "p50_ms": 1568.7865640211385,
+      "p95_ms": 1733.8206266256748,
       "queue_backlog_peak": 0,
       "bucket_failures": 0,
       "details": {
@@ -31,17 +31,17 @@
       }
     },
     "L2": {
-      "test_id": "L2-0916d96f",
+      "test_id": "L2-4e95a964",
       "test_name": "L2: Calibration + Auto-Tune Mixed Workload",
-      "start_time": "2026-01-10T15:47:46.303694+00:00",
-      "end_time": "2026-01-10T15:47:48.172647+00:00",
-      "duration_ms": 1868.953,
+      "start_time": "2026-01-10T16:07:47.801503+00:00",
+      "end_time": "2026-01-10T16:07:49.883806+00:00",
+      "duration_ms": 2082.303,
       "status": "PASS",
       "success_count": 20,
       "fail_count": 0,
       "error_codes": [],
-      "p50_ms": 1819.4396239996422,
-      "p95_ms": 1864.442771114409,
+      "p50_ms": 2059.0380174980965,
+      "p95_ms": 2078.594390870421,
       "queue_backlog_peak": 0,
       "bucket_failures": 0,
       "details": {
@@ -50,17 +50,17 @@
       }
     },
     "L3": {
-      "test_id": "L3-27ab627d",
+      "test_id": "L3-ac06176d",
       "test_name": "L3: Replay Streaming + Export Stress",
-      "start_time": "2026-01-10T15:47:48.172831+00:00",
-      "end_time": "2026-01-10T15:47:49.512717+00:00",
-      "duration_ms": 1339.886,
+      "start_time": "2026-01-10T16:07:49.884005+00:00",
+      "end_time": "2026-01-10T16:07:51.185043+00:00",
+      "duration_ms": 1301.038,
       "status": "PASS",
       "success_count": 20,
       "fail_count": 0,
       "error_codes": [],
-      "p50_ms": 1122.402034001425,
-      "p95_ms": 1335.1172354043229,
+      "p50_ms": 1287.8141959954519,
+      "p95_ms": 1296.3476443022955,
       "queue_backlog_peak": 0,
       "bucket_failures": 0,
       "details": {
@@ -71,11 +71,11 @@
   },
   "chaos_tests": {
     "C1": {
-      "test_id": "C1-6d1ba0be",
+      "test_id": "C1-fa65d6e5",
       "test_name": "C1: Worker Restart Mid-Run",
-      "start_time": "2026-01-10T15:47:49.512892+00:00",
-      "end_time": "2026-01-10T15:47:50.946710+00:00",
-      "duration_ms": 1433.818,
+      "start_time": "2026-01-10T16:07:51.185207+00:00",
+      "end_time": "2026-01-10T16:08:38.898228+00:00",
+      "duration_ms": 47713.021,
       "status": "PASS",
       "success_count": 10,
       "fail_count": 0,
@@ -91,16 +91,16 @@
         "runs_stuck": 0,
         "duplicate_results": 0,
         "rep_complete": 0,
-        "service_restarted": false,
-        "restart_method": "railway_api"
+        "service_restarted": true,
+        "restart_method": "deploymentRestart"
       }
     },
     "C2": {
-      "test_id": "C2-04df0445",
+      "test_id": "C2-debb125b",
       "test_name": "C2: API Restart Mid-Stream",
-      "start_time": "2026-01-10T15:47:50.946850+00:00",
-      "end_time": "2026-01-10T15:47:52.193204+00:00",
-      "duration_ms": 1246.354,
+      "start_time": "2026-01-10T16:08:38.898385+00:00",
+      "end_time": "2026-01-10T16:09:41.015272+00:00",
+      "duration_ms": 62116.886999999995,
       "status": "PASS",
       "success_count": 5,
       "fail_count": 0,
@@ -111,21 +111,22 @@
       "bucket_failures": 0,
       "details": {
         "streams_opened": 5,
-        "streams_reconnected": 0,
+        "streams_reconnected": 5,
         "streams_failed_gracefully": 0,
         "run_status_correct": true,
         "rep_intact": true,
-        "service_restarted": false
+        "service_restarted": true,
+        "restart_method": "deploymentRestart"
       }
     },
     "C3": {
-      "test_id": "C3-1ea465b1",
+      "test_id": "C3-0fc1e227",
       "test_name": "C3: Transient DB Failure Simulation",
-      "start_time": "2026-01-10T15:47:52.193328+00:00",
-      "end_time": "2026-01-10T15:47:53.873761+00:00",
-      "duration_ms": 1680.433,
+      "start_time": "2026-01-10T16:09:41.015409+00:00",
+      "end_time": "2026-01-10T16:10:26.103107+00:00",
+      "duration_ms": 45087.698000000004,
       "status": "PASS",
-      "success_count": 20,
+      "success_count": 30,
       "fail_count": 0,
       "error_codes": [],
       "p50_ms": 0.0,
@@ -133,26 +134,27 @@
       "queue_backlog_peak": 0,
       "bucket_failures": 0,
       "details": {
-        "db_failure_simulated": false,
+        "db_failure_simulated": true,
         "runs_failed_cleanly": 0,
-        "runs_recovered": 20,
+        "runs_recovered": 30,
         "data_corruption": false,
         "stuck_runs": 0,
-        "method": "health_probe"
+        "method": "health_probe",
+        "restart_method": "deploymentRestart"
       }
     }
   },
   "all_run_ids": [],
   "all_rep_paths": [
-    "s3://agentverse-staging-artifacts/smoke-tests/storage-test-321d6c62.txt"
+    "s3://agentverse-staging-artifacts/smoke-tests/storage-test-fd377e7a.txt"
   ],
   "rep_integrity_results": [
     {
-      "run_id": "storage-test-349d1623",
-      "rep_path": "s3://agentverse-staging-artifacts/smoke-tests/storage-test-321d6c62.txt",
+      "run_id": "storage-test-e4110eae",
+      "rep_path": "s3://agentverse-staging-artifacts/smoke-tests/storage-test-fd377e7a.txt",
       "is_valid": true,
       "files_found": [
-        "smoke-tests/storage-test-321d6c62.txt"
+        "smoke-tests/storage-test-fd377e7a.txt"
       ],
       "files_missing": [],
       "trace_valid": true,

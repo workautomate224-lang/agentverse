@@ -47,6 +47,12 @@ RAILWAY_ENV_ID = "668ced2e-6da8-4b5d-a915-818580666b01"
 RAILWAY_API_SERVICE_ID = "8b516747-7745-431b-9a91-a2eb1cc9eab3"
 RAILWAY_WORKER_SERVICE_ID = "b6edcdd4-a1c0-4d7f-9eda-30aeb12dcf3a"
 
+# Deployment IDs (for deploymentRestart mutation) - obtained via Railway GraphQL API
+# These are the latest active deployment IDs as of 2026-01-10
+RAILWAY_API_DEPLOYMENT_ID = "10fa964e-3b85-46b0-8ab2-49dda6ed4bff"
+RAILWAY_WORKER_DEPLOYMENT_ID = "6e119ef1-90f3-4d1f-9307-54515fe97c78"
+RAILWAY_POSTGRES_DEPLOYMENT_ID = "114a7655-154a-466a-99c2-e550c2c909a6"
+
 # Test parameters
 LOAD_TEST_CONCURRENCY = 20
 LOAD_TEST_ROUNDS = 3
@@ -510,17 +516,45 @@ class LoadChaosRunner:
 
             # Check if Railway token available for actual restart
             if self.railway_token:
-                print("     Attempting worker service restart...")
-                restart_success = await self._restart_service(RAILWAY_WORKER_SERVICE_ID)
+                print("     Attempting worker service restart via Railway API...")
+                restart_success = await self._restart_service(
+                    RAILWAY_WORKER_SERVICE_ID,
+                    default_deployment_id=RAILWAY_WORKER_DEPLOYMENT_ID
+                )
                 results_data["service_restarted"] = restart_success
-                results_data["restart_method"] = "railway_api"
+                results_data["restart_method"] = "deploymentRestart"
 
                 if restart_success:
                     # Wait for service to come back
-                    print("     Waiting for service recovery (30s)...")
-                    await asyncio.sleep(30)
+                    print("     [OK] Worker restart triggered successfully!")
+                    print("     Waiting for service recovery (45s)...")
+                    await asyncio.sleep(45)
+
+                    # Verify worker is back by checking Celery health
+                    for attempt in range(10):
+                        try:
+                            async with session.get(
+                                f"{STAGING_API_URL}/health/ready",
+                                timeout=aiohttp.ClientTimeout(total=10)
+                            ) as resp:
+                                if resp.status == 200:
+                                    data = await resp.json()
+                                    deps = data.get("dependencies", [])
+                                    celery_healthy = any(
+                                        d.get("name") == "celery" and d.get("status") == "healthy"
+                                        for d in deps
+                                    )
+                                    if celery_healthy:
+                                        print(f"     [OK] Worker recovered after {(attempt + 1) * 5}s")
+                                        break
+                        except Exception:
+                            pass
+                        await asyncio.sleep(5)
+                else:
+                    print("     [ERROR] Worker restart failed!")
             else:
                 print("     [SKIP] No Railway token - simulating restart behavior")
+                results_data["restart_method"] = "simulated"
 
             # Test API after "restart"
             tasks = []
@@ -591,26 +625,44 @@ class LoadChaosRunner:
 
             # Check if Railway token available for actual restart
             if self.railway_token:
-                print("     Attempting API service restart...")
-                restart_success = await self._restart_service(RAILWAY_API_SERVICE_ID)
+                print("     Attempting API service restart via Railway API...")
+                restart_success = await self._restart_service(
+                    RAILWAY_API_SERVICE_ID,
+                    default_deployment_id=RAILWAY_API_DEPLOYMENT_ID
+                )
                 results_data["service_restarted"] = restart_success
+                results_data["restart_method"] = "deploymentRestart"
 
                 if restart_success:
+                    print("     [OK] API restart triggered successfully!")
                     print("     Waiting for API recovery (60s)...")
                     await asyncio.sleep(60)
 
                     # Verify API is back
-                    for attempt in range(10):
+                    api_recovered = False
+                    for attempt in range(15):
                         try:
-                            async with session.get(f"{STAGING_API_URL}/health", timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                            async with session.get(
+                                f"{STAGING_API_URL}/health",
+                                timeout=aiohttp.ClientTimeout(total=10)
+                            ) as resp:
                                 if resp.status == 200:
-                                    print(f"     API recovered after {(attempt + 1) * 5}s")
+                                    print(f"     [OK] API recovered after {60 + (attempt + 1) * 5}s total")
                                     results_data["streams_reconnected"] = success_count
+                                    api_recovered = True
                                     break
                         except Exception:
-                            await asyncio.sleep(5)
+                            pass
+                        await asyncio.sleep(5)
+
+                    if not api_recovered:
+                        print("     [WARN] API may still be recovering...")
+                        results_data["streams_failed_gracefully"] = success_count
+                else:
+                    print("     [ERROR] API restart failed!")
             else:
                 print("     [SKIP] No Railway token - simulating API restart behavior")
+                results_data["restart_method"] = "simulated"
                 results_data["streams_failed_gracefully"] = CHAOS_TEST_RUNS - success_count
 
         end_time = datetime.now(timezone.utc)
@@ -647,10 +699,74 @@ class LoadChaosRunner:
             "data_corruption": False,
             "stuck_runs": 0,
             "method": "health_probe",
+            "restart_method": "none",
         }
 
         async with aiohttp.ClientSession() as session:
-            # Test DB health under load
+            # First, test DB health baseline
+            print("     Testing DB health baseline...")
+
+            tasks = []
+            for i in range(10):
+                tasks.append(self._timed_request(
+                    session,
+                    f"{STAGING_API_URL}/health/ready",
+                    f"C3-PRE-{i}"
+                ))
+
+            pre_results = await asyncio.gather(*tasks, return_exceptions=True)
+            pre_success = sum(1 for r in pre_results if not isinstance(r, Exception) and r.get("success"))
+            print(f"     Pre-test success: {pre_success}/10")
+
+            # Simulate DB transient failure via Postgres restart (if token available)
+            if self.railway_token:
+                print("     Attempting Postgres restart to simulate transient DB failure...")
+                restart_success = await self._restart_service(
+                    "f6e14839-4db9-434b-a8f3-0c50b2e8b22f",  # Postgres service ID
+                    default_deployment_id=RAILWAY_POSTGRES_DEPLOYMENT_ID
+                )
+                results_data["db_failure_simulated"] = restart_success
+                results_data["restart_method"] = "deploymentRestart"
+
+                if restart_success:
+                    print("     [OK] Postgres restart triggered - simulating transient failure!")
+                    print("     Waiting for DB recovery (30s)...")
+                    await asyncio.sleep(30)
+
+                    # Test how API handles DB reconnection
+                    print("     Testing API behavior during DB recovery...")
+                    recovery_tasks = []
+                    for i in range(10):
+                        recovery_tasks.append(self._timed_request(
+                            session,
+                            f"{STAGING_API_URL}/health/ready",
+                            f"C3-RECOVERY-{i}"
+                        ))
+                        await asyncio.sleep(1)  # Stagger requests during recovery
+
+                    recovery_results = await asyncio.gather(*recovery_tasks, return_exceptions=True)
+
+                    for result in recovery_results:
+                        if isinstance(result, Exception):
+                            results_data["runs_failed_cleanly"] += 1
+                        elif result.get("success"):
+                            deps = result.get("data", {}).get("dependencies", [])
+                            for dep in deps:
+                                if dep.get("name") == "postgresql":
+                                    if dep.get("status") == "healthy":
+                                        results_data["runs_recovered"] += 1
+                                    else:
+                                        results_data["runs_failed_cleanly"] += 1
+                        else:
+                            results_data["runs_failed_cleanly"] += 1
+                else:
+                    print("     [WARN] Postgres restart failed - falling back to load test")
+                    results_data["method"] = "health_probe"
+            else:
+                print("     [SKIP] No Railway token - using health probe method")
+                results_data["method"] = "health_probe"
+
+            # Standard load test for DB resilience
             print("     Testing DB resilience under concurrent load...")
 
             tasks = []
@@ -788,19 +904,62 @@ class LoadChaosRunner:
                 "request_id": request_id,
             }
 
-    async def _restart_service(self, service_id: str) -> bool:
-        """Restart a Railway service via GraphQL API"""
+    async def _get_latest_deployment_id(self, service_id: str) -> Optional[str]:
+        """Get the latest deployment ID for a service via Railway GraphQL API"""
+        if not self.railway_token:
+            return None
+
+        query = """
+        query {
+            deployments(first: 1, input: {
+                projectId: "%s",
+                serviceId: "%s",
+                environmentId: "%s"
+            }) {
+                edges {
+                    node {
+                        id
+                        status
+                    }
+                }
+            }
+        }
+        """ % (RAILWAY_PROJECT_ID, service_id, RAILWAY_ENV_ID)
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    RAILWAY_API_URL,
+                    json={"query": query},
+                    headers={
+                        "Authorization": f"Bearer {self.railway_token}",
+                        "Content-Type": "application/json",
+                    },
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data.get("errors"):
+                            print(f"     [WARN] GraphQL errors: {data['errors']}")
+                            return None
+                        edges = data.get("data", {}).get("deployments", {}).get("edges", [])
+                        if edges:
+                            return edges[0]["node"]["id"]
+                    return None
+        except Exception as e:
+            print(f"     [WARN] Failed to get deployment ID: {e}")
+            return None
+
+    async def _restart_deployment(self, deployment_id: str) -> bool:
+        """Restart a Railway deployment via GraphQL API using deploymentRestart mutation"""
         if not self.railway_token:
             return False
 
         mutation = """
         mutation {
-            serviceInstanceRedeploy(
-                serviceId: "%s",
-                environmentId: "%s"
-            )
+            deploymentRestart(id: "%s")
         }
-        """ % (service_id, RAILWAY_ENV_ID)
+        """ % deployment_id
 
         try:
             async with aiohttp.ClientSession() as session:
@@ -815,11 +974,40 @@ class LoadChaosRunner:
                 ) as resp:
                     if resp.status == 200:
                         data = await resp.json()
-                        return not data.get("errors")
+                        if data.get("errors"):
+                            print(f"     [ERROR] GraphQL errors: {data['errors']}")
+                            return False
+                        result = data.get("data", {}).get("deploymentRestart", False)
+                        return result is True
+                    print(f"     [ERROR] Railway API returned status {resp.status}")
                     return False
         except Exception as e:
-            print(f"     [ERROR] Service restart failed: {e}")
+            print(f"     [ERROR] Deployment restart failed: {e}")
             return False
+
+    async def _restart_service(self, service_id: str, default_deployment_id: str = None) -> bool:
+        """Restart a Railway service via GraphQL API
+
+        This method first tries to get the latest deployment ID dynamically,
+        then falls back to the provided default deployment ID if that fails.
+        Uses the deploymentRestart mutation for actual service restart.
+        """
+        if not self.railway_token:
+            return False
+
+        # Try to get latest deployment ID dynamically
+        deployment_id = await self._get_latest_deployment_id(service_id)
+
+        if not deployment_id and default_deployment_id:
+            print(f"     [INFO] Using default deployment ID: {default_deployment_id}")
+            deployment_id = default_deployment_id
+
+        if not deployment_id:
+            print(f"     [ERROR] Could not determine deployment ID for service {service_id}")
+            return False
+
+        print(f"     [INFO] Restarting deployment: {deployment_id}")
+        return await self._restart_deployment(deployment_id)
 
     def _compute_overall_status(self):
         """Determine overall test status"""

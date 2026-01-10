@@ -1,0 +1,9 @@
+B3 REP Corruption Test Logs
+============================================================
+Timestamp: 2026-01-10T11:36:30.594752Z
+
+Backed up /Users/mac/Desktop/simulation/agentverse/apps/api/validation_output/reps/0940e2e3-9824-41c9-8c8e-137f81c22185/trace.ndjson to /Users/mac/Desktop/simulation/agentverse/apps/api/validation_output/reps/0940e2e3-9824-41c9-8c8e-137f81c22185/trace.ndjson.backup
+Deleted trace file: /Users/mac/Desktop/simulation/agentverse/apps/api/validation_output/reps/0940e2e3-9824-41c9-8c8e-137f81c22185/trace.ndjson
+SUCCESS: Validation correctly detected corrupted REP
+Validation errors: ['Missing trace.ndjson']
+Restored trace file from backup

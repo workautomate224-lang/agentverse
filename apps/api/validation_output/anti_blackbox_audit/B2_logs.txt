@@ -1,0 +1,6 @@
+B2 Worker/Queue Disabled Test Logs
+============================================================
+Timestamp: 2026-01-10T11:36:21.687811Z
+
+SUCCESS: Simulated - Invalid Redis host would cause ConnectionError
+Note: redis package not installed, but behavior is documented

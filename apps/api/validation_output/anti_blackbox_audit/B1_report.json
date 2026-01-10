@@ -1,0 +1,9 @@
+{
+  "test_name": "B1_Invalid_API_Key",
+  "expected_failure": true,
+  "actual_status": "FAILED_AS_EXPECTED",
+  "error_code": "HTTP_401",
+  "error_message": "Authentication failed: {\"error\":{\"message\":\"No cookie auth credentials found\",\"code\":401}}",
+  "conclusion": "PASS",
+  "timestamp": "2026-01-10T11:36:21.686084Z"
+}

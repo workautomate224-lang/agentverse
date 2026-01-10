@@ -531,23 +531,23 @@ def upgrade():
 
     # Insert default feature flags
     op.execute("""
-        INSERT INTO feature_flags (id, flag_key, label, description, is_enabled_by_default, enabled_tiers, rollout_percentage)
+        INSERT INTO feature_flags (id, flag_key, label, description, is_enabled_by_default, enabled_tiers, rollout_percentage, allow_tenant_override)
         VALUES
-            (gen_random_uuid(), 'ensemble_large', 'Large Ensemble', 'Allow ensemble size > 5', false, ARRAY['professional', 'enterprise'], 100),
-            (gen_random_uuid(), 'ensemble_unlimited', 'Unlimited Ensemble', 'Allow unlimited ensemble size', false, ARRAY['enterprise'], 100),
-            (gen_random_uuid(), 'calibration_basic', 'Basic Calibration', 'Basic calibration features', true, ARRAY['starter', 'professional', 'enterprise'], 100),
-            (gen_random_uuid(), 'calibration_advanced', 'Advanced Calibration', 'Advanced calibration features', false, ARRAY['professional', 'enterprise'], 100),
-            (gen_random_uuid(), 'autotune', 'Autotune', 'Automatic parameter tuning', false, ARRAY['professional', 'enterprise'], 100),
-            (gen_random_uuid(), 'replay_basic', 'Basic Replay', 'Basic replay functionality', true, ARRAY['free', 'starter', 'professional', 'enterprise'], 100),
-            (gen_random_uuid(), 'replay_full_telemetry', 'Full Telemetry Replay', 'Replay with full telemetry', false, ARRAY['starter', 'professional', 'enterprise'], 100),
-            (gen_random_uuid(), 'replay_export', 'Replay Export', 'Export replay data', false, ARRAY['professional', 'enterprise'], 100),
-            (gen_random_uuid(), 'export_json', 'JSON Export', 'Export to JSON format', true, ARRAY['free', 'starter', 'professional', 'enterprise'], 100),
-            (gen_random_uuid(), 'export_csv', 'CSV Export', 'Export to CSV format', false, ARRAY['starter', 'professional', 'enterprise'], 100),
-            (gen_random_uuid(), 'export_full_bundle', 'Full Export Bundle', 'Complete export with all artifacts', false, ARRAY['professional', 'enterprise'], 100),
-            (gen_random_uuid(), 'planning_basic', 'Basic Planning', 'Basic planning features', false, ARRAY['starter', 'professional', 'enterprise'], 100),
-            (gen_random_uuid(), 'planning_deep', 'Deep Planning', 'Planning with depth > 3', false, ARRAY['professional', 'enterprise'], 100),
-            (gen_random_uuid(), 'planning_unlimited', 'Unlimited Planning', 'Unlimited planning depth', false, ARRAY['enterprise'], 100),
-            (gen_random_uuid(), 'safety_override', 'Safety Override', 'Override safety guardrails', false, ARRAY['enterprise'], 100)
+            (gen_random_uuid(), 'ensemble_large', 'Large Ensemble', 'Allow ensemble size > 5', false, ARRAY['professional', 'enterprise'], 100, true),
+            (gen_random_uuid(), 'ensemble_unlimited', 'Unlimited Ensemble', 'Allow unlimited ensemble size', false, ARRAY['enterprise'], 100, true),
+            (gen_random_uuid(), 'calibration_basic', 'Basic Calibration', 'Basic calibration features', true, ARRAY['starter', 'professional', 'enterprise'], 100, true),
+            (gen_random_uuid(), 'calibration_advanced', 'Advanced Calibration', 'Advanced calibration features', false, ARRAY['professional', 'enterprise'], 100, true),
+            (gen_random_uuid(), 'autotune', 'Autotune', 'Automatic parameter tuning', false, ARRAY['professional', 'enterprise'], 100, true),
+            (gen_random_uuid(), 'replay_basic', 'Basic Replay', 'Basic replay functionality', true, ARRAY['free', 'starter', 'professional', 'enterprise'], 100, true),
+            (gen_random_uuid(), 'replay_full_telemetry', 'Full Telemetry Replay', 'Replay with full telemetry', false, ARRAY['starter', 'professional', 'enterprise'], 100, true),
+            (gen_random_uuid(), 'replay_export', 'Replay Export', 'Export replay data', false, ARRAY['professional', 'enterprise'], 100, true),
+            (gen_random_uuid(), 'export_json', 'JSON Export', 'Export to JSON format', true, ARRAY['free', 'starter', 'professional', 'enterprise'], 100, true),
+            (gen_random_uuid(), 'export_csv', 'CSV Export', 'Export to CSV format', false, ARRAY['starter', 'professional', 'enterprise'], 100, true),
+            (gen_random_uuid(), 'export_full_bundle', 'Full Export Bundle', 'Complete export with all artifacts', false, ARRAY['professional', 'enterprise'], 100, true),
+            (gen_random_uuid(), 'planning_basic', 'Basic Planning', 'Basic planning features', false, ARRAY['starter', 'professional', 'enterprise'], 100, true),
+            (gen_random_uuid(), 'planning_deep', 'Deep Planning', 'Planning with depth > 3', false, ARRAY['professional', 'enterprise'], 100, true),
+            (gen_random_uuid(), 'planning_unlimited', 'Unlimited Planning', 'Unlimited planning depth', false, ARRAY['enterprise'], 100, true),
+            (gen_random_uuid(), 'safety_override', 'Safety Override', 'Override safety guardrails', false, ARRAY['enterprise'], 100, false)
         ON CONFLICT (flag_key) DO NOTHING
     """)
 
