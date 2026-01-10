@@ -110,6 +110,15 @@ celery_app.conf.task_routes = {
         "queue": "maintenance",
         "routing_key": "maintenance",
     },
+    # Chaos tasks (Step 3.2) - route to maintenance queue
+    "app.tasks.chaos_tasks.*": {
+        "queue": "maintenance",
+        "routing_key": "maintenance",
+    },
+    "chaos.*": {
+        "queue": "maintenance",
+        "routing_key": "maintenance",
+    },
     # Legacy world simulation (to be deprecated)
     "app.tasks.world_simulation.*": {
         "queue": "legacy",
