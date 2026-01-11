@@ -335,3 +335,108 @@ async def get_worker_status(
             redis_key_used=redis_key,
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
+
+
+@router.post("/purge-queues")
+async def purge_chaos_queues(
+    x_api_key: str = Header(..., alias="X-API-Key"),
+):
+    """
+    Purge all pending chaos tasks from queues.
+
+    Use this to clear stuck exit_worker tasks that are clogging the worker.
+    """
+    verify_staging_access(x_api_key)
+
+    purged = {}
+    try:
+        from app.core.celery_app import celery_app
+
+        # Purge all relevant queues
+        queues_to_purge = ["maintenance", "celery", "default"]
+
+        for queue in queues_to_purge:
+            try:
+                count = celery_app.control.purge()
+                purged[queue] = count if count else 0
+            except Exception as e:
+                purged[queue] = f"error: {e}"
+
+        # Also try to delete specific keys from Redis
+        r = redis.from_url(settings.REDIS_URL)
+
+        # Delete the chaos task keys
+        deleted_keys = 0
+        keys_pattern = "celery-task-meta-*"
+        async for key in r.scan_iter(match=keys_pattern, count=100):
+            await r.delete(key)
+            deleted_keys += 1
+
+        # Purge the maintenance queue directly
+        maintenance_queue_key = "maintenance"
+        maintenance_len = await r.llen(maintenance_queue_key)
+        if maintenance_len > 0:
+            await r.delete(maintenance_queue_key)
+            purged["maintenance_direct"] = maintenance_len
+
+        await r.close()
+
+        return {
+            "status": "success",
+            "purged_queues": purged,
+            "deleted_task_meta_keys": deleted_keys,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    except Exception as e:
+        logger.exception(f"Error purging queues: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "purged_queues": purged,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+
+@router.post("/force-boot-id")
+async def force_register_boot_id(
+    x_api_key: str = Header(..., alias="X-API-Key"),
+):
+    """
+    Force the worker to register its boot_id in Redis.
+
+    Use this if the boot_id TTL expired and heartbeat isn't running.
+    """
+    verify_staging_access(x_api_key)
+
+    try:
+        from app.tasks.maintenance import worker_heartbeat
+
+        # Dispatch heartbeat task
+        result = worker_heartbeat.apply_async()
+        task_id = result.id
+
+        # Wait for result
+        try:
+            hb_result = result.get(timeout=30)
+            return {
+                "status": "success",
+                "task_id": task_id,
+                "heartbeat_result": hb_result,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        except Exception as e:
+            return {
+                "status": "timeout",
+                "task_id": task_id,
+                "message": f"Heartbeat task timed out: {e}",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+
+    except Exception as e:
+        logger.exception(f"Error forcing boot_id: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
