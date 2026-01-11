@@ -360,31 +360,32 @@ async def get_run_status(
     """Get status of a specific run for debugging."""
     verify_staging_access(x_api_key)
 
-    from sqlalchemy import text
-
     try:
         run_uuid = uuid.UUID(run_id)
     except ValueError:
         return {"status": "invalid_uuid", "run_id": run_id}
 
     try:
-        result = await db.execute(
-            text("SELECT id, status, worker_id, label FROM runs WHERE id = :id::uuid"),
-            {"id": str(run_uuid)}
-        )
-        row = result.fetchone()
+        from app.models.node import Run
+        from sqlalchemy import select
 
-        if not row:
+        result = await db.execute(
+            select(Run).where(Run.id == run_uuid)
+        )
+        run = result.scalar_one_or_none()
+
+        if not run:
             return {"status": "not_found", "run_id": run_id}
 
         return {
-            "run_id": str(row[0]),
-            "status": row[1],
-            "worker_id": row[2],
-            "label": row[3],
+            "run_id": str(run.id),
+            "status": run.status,
+            "worker_id": run.worker_id,
+            "label": run.label,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception as e:
+        logger.exception(f"Error getting run status: {e}")
         return {
             "status": "error",
             "run_id": run_id,
