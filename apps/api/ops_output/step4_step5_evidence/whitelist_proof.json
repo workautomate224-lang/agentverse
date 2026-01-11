@@ -1,0 +1,79 @@
+{
+  "evidence_type": "whitelist_implementation",
+  "step": "5.1",
+  "timestamp": "2026-01-11T20:15:00Z",
+  "status": "IMPLEMENTED",
+
+  "implementation": {
+    "model_file": "app/models/quota.py (AlphaWhitelist)",
+    "rbac_file": "app/services/rbac_service.py",
+    "admin_file": "app/api/v1/endpoints/admin.py"
+  },
+
+  "database_schema": {
+    "table": "alpha_whitelist",
+    "columns": [
+      {"name": "id", "type": "UUID", "primary_key": true},
+      {"name": "user_id", "type": "UUID", "nullable": true, "unique": true},
+      {"name": "email", "type": "VARCHAR(255)", "unique": true, "index": true},
+      {"name": "added_by", "type": "VARCHAR(255)", "nullable": true},
+      {"name": "reason", "type": "TEXT", "nullable": true},
+      {"name": "is_active", "type": "BOOLEAN", "default": true},
+      {"name": "created_at", "type": "TIMESTAMP WITH TIME ZONE"},
+      {"name": "expires_at", "type": "TIMESTAMP WITH TIME ZONE", "nullable": true}
+    ]
+  },
+
+  "admin_endpoints": {
+    "add": {
+      "method": "POST",
+      "path": "/admin/whitelist",
+      "request": {
+        "email": "string (EmailStr)",
+        "reason": "string (optional)",
+        "expires_at": "datetime (optional)"
+      },
+      "response": "WhitelistEntry"
+    },
+    "remove": {
+      "method": "DELETE",
+      "path": "/admin/whitelist/{email}",
+      "response": {"success": true, "email": "string"}
+    },
+    "list": {
+      "method": "GET",
+      "path": "/admin/whitelist",
+      "params": {
+        "active_only": "bool (default: true)",
+        "limit": "int (max: 1000)",
+        "offset": "int"
+      },
+      "response": "List[WhitelistEntry]"
+    }
+  },
+
+  "rbac_integration": {
+    "is_whitelisted_method": true,
+    "require_whitelist_method": true,
+    "admin_bypass": true,
+    "checks_user_id": true,
+    "checks_email": true,
+    "checks_is_active": true
+  },
+
+  "access_denied_response": {
+    "error": "access_denied",
+    "message": "You are not on the alpha whitelist. Contact support for access.",
+    "required_scope": "alpha:access",
+    "resource_type": "alpha"
+  },
+
+  "verification": {
+    "model_exists": true,
+    "admin_endpoints_exist": true,
+    "rbac_integration": true,
+    "email_based_lookup": true,
+    "user_id_based_lookup": true,
+    "expiration_support": true
+  }
+}

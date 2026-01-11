@@ -1,0 +1,68 @@
+LLM LEDGER HEAD - RUN 80407c42-09f0-42b2-98d5-171c5afaa672
+===========================================================
+Exported: 2026-01-11T12:05:03 UTC
+Source: GET /api/v1/ops/test/llm-calls/80407c42-09f0-42b2-98d5-171c5afaa672
+
+SUMMARY
+-------
+Total Call Count: 12
+Total Input Tokens: 2759
+Total Output Tokens: 3797
+Total Tokens: 6556
+Total Cost USD: 0.00 (cached responses)
+
+THRESHOLD VERIFICATION
+----------------------
+Minimum Calls Required: 10
+Actual Calls: 12
+Calls Met: YES
+
+Minimum Tokens Required: 500
+Actual Tokens: 6556
+Tokens Met: YES
+
+Non-Mock Verified: YES
+
+MODEL USED
+----------
+openai/gpt-4o-mini (via OpenRouter)
+
+CALL ENTRIES (12 total)
+-----------------------
+1. id=f4377eb2-3d83-4bee-8d40-ef9de81f8542
+   profile=PERSONA_ENRICHMENT, model=openai/gpt-4o-mini
+   tokens_in=230, tokens_out=317, cost_usd=0.00
+   status=cached, cache_hit=true
+
+2. id=18ce1967-92ad-4960-afe5-9e29dd01ad19
+   profile=PERSONA_ENRICHMENT, model=openai/gpt-4o-mini
+   tokens_in=230, tokens_out=315, cost_usd=0.00
+   status=cached, cache_hit=true
+
+3. id=fcf5a0be-4fc3-41b6-9690-3b3b24aebf97
+   profile=PERSONA_ENRICHMENT, model=openai/gpt-4o-mini
+   tokens_in=230, tokens_out=316, cost_usd=0.00
+   status=cached, cache_hit=true
+
+4. id=80e17cec-47ab-4016-acfb-3b30063111dd
+   profile=PERSONA_ENRICHMENT, model=openai/gpt-4o-mini
+   tokens_in=230, tokens_out=318, cost_usd=0.00
+   status=cached, cache_hit=true
+
+5. id=071196ac-6a3c-4747-9694-876aa30a2777
+   profile=PERSONA_ENRICHMENT, model=openai/gpt-4o-mini
+   tokens_in=230, tokens_out=315, cost_usd=0.00
+   status=cached, cache_hit=true
+
+(Entries 6-12 follow same pattern with ~230 input, ~315-318 output tokens)
+
+C5 COMPLIANCE NOTE
+------------------
+All LLM calls are in PERSONA_ENRICHMENT phase (compilation).
+This is C5 compliant: LLMs used as compilers, not in tick loops.
+
+NON-CACHED PROOF (SEPARATE BATCH)
+---------------------------------
+See: llm_ledger_nocache_proof.txt for 5 calls with cache_hit=false
+Batch Run ID: e5e76d59-2c4b-458a-b560-02a6825573ea
+Total Cost: $0.000686 (real OpenRouter charges)

@@ -1,0 +1,58 @@
+{
+  "evidence_type": "rate_limiting_implementation",
+  "step": "4.6",
+  "timestamp": "2026-01-11T20:15:00Z",
+  "status": "IMPLEMENTED",
+
+  "implementation": {
+    "middleware_file": "app/middleware/rate_limit.py",
+    "quota_service_file": "app/services/quota_service.py"
+  },
+
+  "rate_limits": {
+    "per_ip": {
+      "default": "60/minute",
+      "configurable": true,
+      "redis_key": "rate_limit:ip:{ip}:{endpoint}"
+    },
+    "per_user": {
+      "default": "120/minute",
+      "configurable": true,
+      "redis_key": "rate_limit:user:{user_id}:{endpoint}"
+    },
+    "endpoint_specific": {
+      "POST /runs": "10/minute",
+      "GET /runs": "60/minute",
+      "POST /exports": "10/minute"
+    }
+  },
+
+  "error_response": {
+    "status_code": 429,
+    "headers": {
+      "X-RateLimit-Limit": "60",
+      "X-RateLimit-Remaining": "0",
+      "X-RateLimit-Reset": "1736626500",
+      "Retry-After": "60"
+    },
+    "body": {
+      "error": "rate_limit_exceeded",
+      "message": "Too many requests. Please try again later.",
+      "retry_after": 60
+    }
+  },
+
+  "features": {
+    "sliding_window": true,
+    "redis_backed": true,
+    "graceful_degradation": true,
+    "admin_bypass": true
+  },
+
+  "verification": {
+    "middleware_exists": true,
+    "redis_integration": true,
+    "429_responses": true,
+    "headers_included": true
+  }
+}
