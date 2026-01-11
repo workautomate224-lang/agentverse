@@ -93,9 +93,14 @@ def get_worker_id() -> str:
     return f"{hostname}-{pid}"
 
 
-# Async database session for background tasks
-engine = create_async_engine(settings.DATABASE_URL, echo=False)
-AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+# BUG-006 FIX: Create engine per-task to avoid event loop mismatch
+# Do NOT create engine at module level - it causes "attached to a different loop" errors
+# when Celery tasks create new event loops.
+
+def get_async_session():
+    """Create fresh async session with new engine for current event loop."""
+    engine = create_async_engine(settings.DATABASE_URL, echo=False)
+    return sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
 def run_async(coro):
@@ -159,6 +164,8 @@ async def _execute_run(run_id: str, context: JobContext) -> dict:
     start_time = time.perf_counter()
     worker_id = get_worker_id()
 
+    # BUG-006 FIX: Create fresh session factory for current event loop
+    AsyncSessionLocal = get_async_session()
     async with AsyncSessionLocal() as db:
         try:
             # Phase 1: Worker assignment and heartbeat
@@ -1222,7 +1229,9 @@ async def _execute_simulation(
 
                     # Agent lifecycle: Observe -> Evaluate -> Decide -> Act -> Update
                     # §3.1 Evidence Pack: Record each loop stage execution
-                    observation = agent.observe(environment, peer_states)
+                    # BUG-007 FIX: agent.observe() expects List[Dict], not dict
+                    # Convert peer_states dict values to list for observe() method
+                    observation = agent.observe(environment, list(peer_states.values()))
                     execution_counters.record_observe()
 
                     evaluation = agent.evaluate(observation)
@@ -1238,17 +1247,18 @@ async def _execute_simulation(
                         events_processed.extend(action_results)
 
                     # Apply rule engine for behavioral modifications
+                    # Get peer IDs for this agent
+                    peer_ids = [str(p.id) for p in agent_pool.get_peers(agent)]
                     rule_context = RuleContext(
                         agent_id=str(agent.id),
                         tick=tick,
-                        seed=agent_rng.seed,
+                        rng_seed=agent_rng.seed,  # BUG-008 fix: was 'seed', should be 'rng_seed'
                         environment=environment,
                         agent_state=agent.to_full_state(),
-                        peer_states={
-                            aid: s for aid, s in peer_states.items()
-                            if aid in [str(p.id) for p in agent_pool.get_peers(agent)]
-                        },
-                        global_metrics=outcome_tracker.get_current_metrics(),
+                        peer_states=[
+                            s for aid, s in peer_states.items() if aid in peer_ids
+                        ],  # BUG-008b fix: RuleContext expects List, not Dict
+                        metadata={"global_metrics": outcome_tracker.get_current_metrics()},
                     )
 
                     # Run rules for this agent
@@ -1797,6 +1807,8 @@ def cancel_run(self, run_id: str, context: dict) -> dict:
 
 async def _cancel_run(run_id: str, context: JobContext) -> dict:
     """Cancel a run and clean up resources."""
+    # BUG-006 FIX: Create fresh session factory for current event loop
+    AsyncSessionLocal = get_async_session()
     async with AsyncSessionLocal() as db:
         await _update_run_status(db, run_id, "cancelled")
         await db.commit()

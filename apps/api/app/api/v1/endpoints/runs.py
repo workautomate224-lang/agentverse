@@ -390,11 +390,15 @@ async def start_run(
             detail=f"Run {run_id} not found",
         )
 
-    if run.status not in ("pending", "queued"):
+    if run.status not in ("created", "pending", "queued"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Run must be pending or queued to start. Current status: {run.status}",
+            detail=f"Run must be created, pending or queued to start. Current status: {run.status}",
         )
+
+    # Auto-queue if status is created
+    if run.status == "created":
+        run = await orchestrator.queue_run(run, str(tenant_ctx.tenant_id))
 
     try:
         task_id = await orchestrator.start_run(run, tenant_ctx.tenant_id)

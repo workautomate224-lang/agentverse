@@ -2,6 +2,7 @@
 Authentication Endpoints
 """
 
+import re
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -18,6 +19,7 @@ from app.core.security import (
     verify_password,
 )
 from app.models.user import User
+from app.models.tenant import Tenant
 from app.schemas.user import (
     LoginRequest,
     RefreshTokenRequest,
@@ -60,6 +62,24 @@ async def register(
     db.add(user)
     await db.flush()
     await db.refresh(user)
+
+    # Create tenant for multi-tenancy support (C6 constraint)
+    # The tenant ID matches the user ID for single-user tenants
+    tenant_name = user_in.full_name or user_in.email.split("@")[0]
+    # Generate slug from email, ensuring uniqueness
+    base_slug = re.sub(r"[^a-z0-9-]", "-", user_in.email.split("@")[0].lower())
+    tenant_slug = f"{base_slug}-{str(user.id)[:8]}"
+
+    tenant = Tenant(
+        id=user.id,
+        name=tenant_name,
+        slug=tenant_slug,
+        tier=user.tier,
+        settings={},
+    )
+
+    db.add(tenant)
+    await db.flush()
 
     return user
 

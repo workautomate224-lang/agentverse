@@ -724,7 +724,7 @@ async def create_run_from_project(
         config=config_input,
         seeds=seeds,
         user_id=str(current_user.id),
-        tenant_id=tenant_ctx.tenant_id,
+        tenant_id=str(tenant_ctx.tenant_id),
     )
 
     try:
