@@ -331,16 +331,34 @@ class SimulationOrchestrator:
             priority=priority,
         )
 
-        # Submit to queue
+        # Submit to queue with broker connection retry
+        # Fix for "[Errno 111] Connection refused" - establish fresh connection first
         try:
-            task = execute_run.apply_async(
-                args=[str(run.id), context.to_dict()],
-                priority=priority.value,
-            )
-            return task.id
+            import logging
+            from app.core.celery_app import celery_app
+
+            # Establish fresh broker connection before dispatch
+            for attempt in range(3):
+                try:
+                    conn = celery_app.connection()
+                    conn.connect()
+                    conn.release()
+
+                    task = execute_run.apply_async(
+                        args=[str(run.id), context.to_dict()],
+                        priority=priority.value,
+                    )
+                    return task.id
+                except Exception as retry_error:
+                    logging.warning(f"Celery dispatch attempt {attempt + 1} failed: {retry_error}")
+                    if attempt == 2:
+                        raise
+                    import asyncio
+                    await asyncio.sleep(1)
+
         except Exception as e:
             import logging
-            logging.error(f"Failed to submit task: {e}, type(execute_run)={type(execute_run)}, priority={priority}, priority.value={priority.value}")
+            logging.error(f"Failed to submit task after 3 attempts: {e}")
             raise
 
     async def create_and_start_run(
