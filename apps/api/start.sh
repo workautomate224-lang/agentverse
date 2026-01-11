@@ -19,4 +19,6 @@ fi
 echo "Starting API server..."
 
 # Start the API
-exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
+# --proxy-headers and --forwarded-allow-ips are required for Railway's edge proxy
+# so FastAPI generates correct HTTPS redirect URLs instead of HTTP
+exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips='*'
