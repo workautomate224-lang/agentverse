@@ -1,6 +1,0 @@
-B1 Invalid API Key Test Logs
-============================================================
-Timestamp: 2026-01-10T11:36:21.686602Z
-
-SUCCESS: API correctly rejected invalid key with HTTP 401
-Response: {"error":{"message":"No cookie auth credentials found","code":401}}

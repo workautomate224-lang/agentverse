@@ -1,9 +1,0 @@
-{
-  "test_name": "B3_REP_Corruption",
-  "expected_failure": true,
-  "actual_status": "FAILED_AS_EXPECTED",
-  "error_code": "REP_VALIDATION_ERROR",
-  "error_message": "Missing trace.ndjson",
-  "conclusion": "PASS",
-  "timestamp": "2026-01-10T11:36:30.594282Z"
-}

@@ -1,16 +1,19 @@
-# Environment files
+# ===========================================
+# Environment Files (NEVER commit secrets)
+# ===========================================
 .env
 .env.local
+.env.production
 .env.production.local
+.env.staging
 .env.backup
 .env.bak
 .env.test
 *.env
 
-# Keep .env.production as template but ignore actual secrets
-!.env.production
-
+# ===========================================
 # Python
+# ===========================================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -22,41 +25,84 @@ venv/
 *.egg-info/
 dist/
 build/
+.eggs/
+*.egg
+.pytest_cache/
+.mypy_cache/
 
-# Node
+# ===========================================
+# Node.js
+# ===========================================
 node_modules/
 .next/
 out/
 .npm
 *.tsbuildinfo
+.turbo/
 
-# IDE
+# ===========================================
+# IDE & Editors
+# ===========================================
 .idea/
 .vscode/
 *.swp
 *.swo
+*.sublime-*
+.project
+.classpath
+.settings/
 
-# OS
+# ===========================================
+# Operating System
+# ===========================================
 .DS_Store
 Thumbs.db
+*.bak
+*.tmp
+*~
 
-# Docker volumes
+# ===========================================
+# Docker
+# ===========================================
 postgres_data*/
 redis_data*/
 
-# Backups
-backups/
-
-# Logs
+# ===========================================
+# Logs & Debug
+# ===========================================
 *.log
 logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Coverage
+# ===========================================
+# Test Output & Coverage
+# ===========================================
 coverage/
 .nyc_output/
 htmlcov/
 .coverage
+test_results/
+tests/test_results/
 
-# Documentation (private)
-docs/
-!docs/ops/
+# ===========================================
+# Build & Deployment Artifacts
+# ===========================================
+ops_output/
+.vercel/
+*.tgz
+
+# ===========================================
+# Test Credentials (NEVER commit)
+# ===========================================
+.test-credentials.json
+*credentials*.json
+
+# ===========================================
+# Temporary & Cache
+# ===========================================
+.cache/
+*.cache
+tmp/
+temp/
