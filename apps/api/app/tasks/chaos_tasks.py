@@ -17,13 +17,16 @@ from celery import shared_task
 logger = logging.getLogger(__name__)
 
 
-@shared_task(name="chaos.exit_worker")
+@shared_task(name="chaos.exit_worker", acks_late=False)
 def exit_worker(reason: str, correlation_id: str) -> dict:
     """
     Intentionally exit the MAIN worker process for chaos testing.
 
     This kills the main Celery process (not just the fork worker)
     so Railway will restart it with a new WORKER_BOOT_ID.
+
+    IMPORTANT: acks_late=False ensures the task is acknowledged immediately
+    when received, preventing it from being redelivered when the worker exits.
 
     Args:
         reason: Why the exit is being triggered (for logging)
