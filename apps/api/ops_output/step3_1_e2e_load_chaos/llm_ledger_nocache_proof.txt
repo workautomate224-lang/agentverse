@@ -1,0 +1,101 @@
+LLM LEDGER NON-CACHED PROOF FOR STEP 3.1 A3 VALIDATION
+=======================================================
+Exported: 2026-01-11T11:02:29 UTC
+Batch Run ID: e5e76d59-2c4b-458a-b560-02a6825573ea
+Source: POST /api/v1/ops/test/llm-nocache?num_calls=5
+
+SUMMARY
+-------
+Total Call Count: 5
+Total Tokens: 1498
+Total Cost USD: $0.000686 (NON-CACHED - REAL CHARGES)
+Cache Hits: 0
+Cache Misses: 5
+Cache Hit Rate: 0% (ALL CALLS BYPASSED CACHE)
+
+MODEL USED
+----------
+openai/gpt-4o-mini (via OpenRouter)
+
+CALL ENTRIES (All 5 - All cache_hit=false)
+------------------------------------------
+Entry 1:
+  call_id: 62b14a9e-e8fd-4808-a9b6-6383f82b05cd
+  profile_key: PERSONA_ENRICHMENT
+  model: openai/gpt-4o-mini
+  input_tokens: 94
+  output_tokens: 192
+  total_tokens: 286
+  cost_usd: 0.0001293
+  cache_hit: false
+  response_time_ms: 3940
+  nonce: 1768129324705787
+
+Entry 2:
+  call_id: 794a3d50-058a-443b-924f-2a14f3130cb7
+  profile_key: PERSONA_ENRICHMENT
+  model: openai/gpt-4o-mini
+  input_tokens: 94
+  output_tokens: 153
+  total_tokens: 247
+  cost_usd: 0.0001059
+  cache_hit: false
+  response_time_ms: 3211
+  nonce: 1768129324705788
+
+Entry 3:
+  call_id: 154c35ec-d27b-4760-80e2-43a4749f4493
+  profile_key: PERSONA_ENRICHMENT
+  model: openai/gpt-4o-mini
+  input_tokens: 96
+  output_tokens: 219
+  total_tokens: 315
+  cost_usd: 0.0001458
+  cache_hit: false
+  response_time_ms: 5186
+  nonce: 1768129324705789
+
+Entry 4:
+  call_id: 17bf9937-cf80-4ac4-988c-c83e863ebbf5
+  profile_key: PERSONA_ENRICHMENT
+  model: openai/gpt-4o-mini
+  input_tokens: 94
+  output_tokens: 269
+  total_tokens: 363
+  cost_usd: 0.0001755
+  cache_hit: false
+  response_time_ms: 8106
+  nonce: 1768129324705790
+
+Entry 5:
+  call_id: a893acac-dc07-4089-8ead-ddde9d2c9ce5
+  profile_key: PERSONA_ENRICHMENT
+  model: openai/gpt-4o-mini
+  input_tokens: 94
+  output_tokens: 193
+  total_tokens: 287
+  cost_usd: 0.0001299
+  cache_hit: false
+  response_time_ms: 4009
+  nonce: 1768129324705791
+
+C5 COMPLIANCE NOTE
+------------------
+All LLM calls are in PERSONA_ENRICHMENT phase (compilation).
+This is C5 compliant: LLMs used as compilers, not in tick loops.
+
+VERIFICATION CONCLUSION
+-----------------------
+✅ All 5 calls show cache_hit: false
+✅ All 5 calls show non-zero cost_usd
+✅ Total cost: $0.000686 (real OpenRouter charges)
+✅ Real model used: openai/gpt-4o-mini via OpenRouter
+✅ C5 compliant: compilation phase only
+
+COMMAND USED TO GENERATE
+------------------------
+curl -s -X POST \
+  -H "X-API-Key: staging-ops-step3-key-2026" \
+  "https://agentverse-api-staging-production.up.railway.app/api/v1/ops/test/llm-nocache?num_calls=5"
+
+This proves non-mock, non-cached LLM usage for Step 3.1 A3 criterion.

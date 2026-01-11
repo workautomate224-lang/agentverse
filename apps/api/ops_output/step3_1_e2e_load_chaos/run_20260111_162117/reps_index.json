@@ -1,0 +1,22 @@
+{
+  "timestamp": "2026-01-11T08:26:47.526786+00:00",
+  "total_runs": 1,
+  "total_reps": 0,
+  "runs": [
+    {
+      "run_id": "33747500-da0c-47dd-b0bf-a56251c831d8",
+      "rep_path": null
+    }
+  ],
+  "validation_results": [
+    {
+      "run_id": "33747500-da0c-47dd-b0bf-a56251c831d8",
+      "rep_path": null,
+      "is_valid": false,
+      "errors": [
+        "Simulation timed out: Test run completed with status: timeout, 12 LLM calls made"
+      ],
+      "method": "ops_test_timeout"
+    }
+  ]
+}

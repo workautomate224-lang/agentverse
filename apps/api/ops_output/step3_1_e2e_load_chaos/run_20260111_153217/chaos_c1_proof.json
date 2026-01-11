@@ -1,0 +1,12 @@
+{
+  "timestamp": "2026-01-11T07:38:47.825732+00:00",
+  "test_id": "C1-e3869638",
+  "status": "PASS",
+  "before_boot_id": "6a3ae7b4-3b62-4f54-bc1a-fdef555d9282",
+  "after_boot_id": "b0119c81-d590-41a6-af5e-3d38bf7849f8",
+  "boot_id_changed": true,
+  "time_to_restart_seconds": 64.17,
+  "restart_method": "chaos_endpoint_real_restart",
+  "duration_ms": 64499.048,
+  "proof_valid": true
+}

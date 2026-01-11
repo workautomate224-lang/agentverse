@@ -1,0 +1,32 @@
+{
+  "timestamp": "2026-01-11T05:44:25.020134+00:00",
+  "total_runs": 1,
+  "total_reps": 1,
+  "runs": [
+    {
+      "run_id": "storage-test-000cf840",
+      "rep_path": "s3://agentverse-staging-artifacts/smoke-tests/storage-test-06d45b61.txt"
+    }
+  ],
+  "validation_results": [
+    {
+      "run_id": "storage-test-000cf840",
+      "rep_path": "s3://agentverse-staging-artifacts/smoke-tests/storage-test-06d45b61.txt",
+      "is_valid": false,
+      "files_found": [
+        "smoke-tests/storage-test-06d45b61.txt"
+      ],
+      "files_missing": [
+        "manifest.json",
+        "trace.ndjson",
+        "llm_ledger.ndjson",
+        "universe_graph.json",
+        "report.md"
+      ],
+      "errors": [
+        "Storage test artifact - NOT a full REP"
+      ],
+      "method": "storage_test_fallback"
+    }
+  ]
+}

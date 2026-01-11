@@ -1,0 +1,12 @@
+{
+  "timestamp": "2026-01-11T07:17:00.672877+00:00",
+  "test_id": "C1-e893b611",
+  "status": "FAIL",
+  "before_boot_id": "2847556f-d3fa-4452-9b96-499b379e0d3e",
+  "after_boot_id": null,
+  "boot_id_changed": false,
+  "time_to_restart_seconds": null,
+  "restart_method": "chaos_endpoint_timeout",
+  "duration_ms": 120615.72099999999,
+  "proof_valid": false
+}

@@ -1,0 +1,28 @@
+LLM LEDGER HEAD - STEP 3.1 NON-CACHED PROOF
+============================================
+Exported: 2026-01-11T11:02:29 UTC
+Batch Run ID: e5e76d59-2c4b-458a-b560-02a6825573ea
+
+SUMMARY (Non-Cached Proof Run)
+------------------------------
+Total Call Count: 5
+Total Tokens: 1498
+Total Cost USD: $0.000686
+Cache Hits: 0 / Cache Misses: 5
+
+ENTRIES (First 30 lines - All cache_hit=false)
+----------------------------------------------
+1. call_id=62b14a9e-e8fd-4808-a9b6-6383f82b05cd
+   profile=PERSONA_ENRICHMENT, model=openai/gpt-4o-mini
+   tokens_in=94, tokens_out=192, total=286
+   cost_usd=0.0001293, cache_hit=false
+
+2. call_id=794a3d50-058a-443b-924f-2a14f3130cb7
+   profile=PERSONA_ENRICHMENT, model=openai/gpt-4o-mini
+   tokens_in=94, tokens_out=153, total=247
+   cost_usd=0.0001059, cache_hit=false
+
+3. call_id=154c35ec-d27b-4760-80e2-43a4749f4493
+   profile=PERSONA_ENRICHMENT, model=openai/gpt-4o-mini
+   tokens_in=96, tokens_out=219, total=315
+   cost_usd=0.0001458, cache_hit=false

@@ -1,0 +1,12 @@
+{
+  "timestamp": "2026-01-11T05:50:01.756566+00:00",
+  "test_id": "C1-ce3b1811",
+  "status": "FAIL",
+  "before_boot_id": null,
+  "after_boot_id": null,
+  "boot_id_changed": false,
+  "time_to_restart_seconds": null,
+  "restart_method": "chaos_endpoint_error_error",
+  "duration_ms": 266.27299999999997,
+  "proof_valid": false
+}

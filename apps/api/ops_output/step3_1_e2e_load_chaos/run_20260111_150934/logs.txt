@@ -1,0 +1,93 @@
+======================================================================
+STEP 3.1 E2E LOAD & CHAOS VALIDATION LOG
+======================================================================
+
+Started:  2026-01-11T07:09:34.860019+00:00
+Finished: 2026-01-11T07:17:00.664208+00:00
+Duration: 445.8s
+Status:   PARTIAL
+
+----------------------------------------------------------------------
+ENVIRONMENT
+----------------------------------------------------------------------
+  api_url: https://agentverse-api-staging-production.up.railway.app
+  railway_project_id: 30cf5498-5aeb-4cf6-b35c-5ba0b9ed81f2
+  storage_bucket: agentverse-staging-artifacts
+  minio_url: https://minio-staging-production.up.railway.app
+  staging_ops_api_key_configured: True
+  api_version: 1.0.0-staging
+  api_environment: staging
+
+----------------------------------------------------------------------
+LLM CANARY TEST
+----------------------------------------------------------------------
+  Status: success
+  Request ID: gen-1768115376-WcDD0crTYrE3mVHcWR2B
+  Model: openai/gpt-4o-mini
+  Tokens: 17
+  Cost: $0.000004
+
+----------------------------------------------------------------------
+LOAD TESTS
+----------------------------------------------------------------------
+  [L1] L1: API Concurrency Load Test
+    Status: PASS
+    Success: 60, Fail: 0
+    P50: 1862.2ms, P95: 2160.6ms
+    Duration: 5898.3ms
+  [L2] L2: API Mixed Workload Load Test
+    Status: PASS
+    Success: 20, Fail: 0
+    P50: 1975.9ms, P95: 1982.5ms
+    Duration: 1985.5ms
+  [L3] L3: Storage Stress Load Test
+    Status: PASS
+    Success: 20, Fail: 0
+    P50: 2462.9ms, P95: 2837.3ms
+    Duration: 2838.9ms
+
+----------------------------------------------------------------------
+CHAOS TESTS
+----------------------------------------------------------------------
+  [C1] C1: Worker Restart Mid-Run
+    Status: FAIL
+    Method: chaos_endpoint_timeout
+    Before boot_id: 2847556f-d3fa-4452-9b96-499b379e0d3e
+    After boot_id: None
+    Boot ID Changed: False
+    Time to Restart: Nones
+    Duration: 120615.7ms
+  [C2] C2: API Restart Mid-Stream
+    Status: SKIP
+    Method: simulated
+    Duration: 1752.2ms
+  [C3] C3: Transient DB Failure Simulation
+    Status: SKIP
+    Method: simulated
+    Duration: 9029.1ms
+
+----------------------------------------------------------------------
+REP VALIDATION
+----------------------------------------------------------------------
+  Total REPs: 1
+  Valid REPs: 0
+  Run IDs: 1
+  LLM Ledger Entries: 1
+
+  REP #1:
+    Run ID: 7effbc24-d8e4-42f4-a2e5-989164f7ec7e
+    Valid: False
+    Method: ops_test_timeout
+    Files: []
+    Errors: ['Simulation timed out: Test run completed with status: timeout, 12 LLM calls made']
+
+----------------------------------------------------------------------
+ERRORS
+----------------------------------------------------------------------
+  - 2 chaos tests SKIPPED (no deployment permissions)
+  - C1 not PASS: status=FAIL
+  - No valid REPs: found 0
+
+======================================================================
+END OF LOG - Status: PARTIAL
+======================================================================
