@@ -211,3 +211,5 @@ def on_worker_shutdown(sender, **kwargs):
     """
     logger.info(f"Worker shutdown signal received. Boot ID: {WORKER_BOOT_ID}")
     _clear_boot_info_from_redis()
+
+# Trigger redeploy 20260111_103847
