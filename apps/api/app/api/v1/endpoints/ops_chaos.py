@@ -146,23 +146,38 @@ async def trigger_worker_exit(
 
         logger.info(f"Current boot_id: {before_boot_id}")
 
-        # Dispatch exit task to worker
+        # Close Redis connection before Celery dispatch to avoid socket conflicts
+        await r.close()
+
+        # Dispatch exit task to worker with retry
         logger.info("Dispatching exit_worker task via Celery...")
-        try:
-            exit_worker.delay(request.reason, correlation_id)
-            logger.info("Exit task dispatched successfully")
-        except Exception as celery_error:
-            logger.error(f"Celery dispatch failed: {celery_error}")
-            await r.close()
+        dispatch_success = False
+        dispatch_error = None
+        for attempt in range(3):
+            try:
+                exit_worker.delay(request.reason, correlation_id)
+                logger.info(f"Exit task dispatched successfully on attempt {attempt + 1}")
+                dispatch_success = True
+                break
+            except Exception as celery_error:
+                dispatch_error = celery_error
+                logger.warning(f"Celery dispatch attempt {attempt + 1} failed: {celery_error}")
+                await asyncio.sleep(1)
+
+        if not dispatch_success:
+            logger.error(f"All Celery dispatch attempts failed: {dispatch_error}")
             return WorkerExitResponse(
                 status="error",
                 correlation_id=correlation_id,
                 before_boot_id=before_boot_id,
-                message=f"Celery dispatch failed: {celery_error}",
+                message=f"Celery dispatch failed after 3 attempts: {dispatch_error}",
                 timestamp=datetime.now(timezone.utc).isoformat(),
             )
 
         logger.info(f"Exit task dispatched, polling for restart...")
+
+        # Reconnect to Redis for polling
+        r = redis.from_url(settings.REDIS_URL)
 
         # Poll for boot_id change
         after_boot_id = None
