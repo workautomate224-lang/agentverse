@@ -744,3 +744,137 @@ async def run_migrations(
             message=str(e),
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
+
+
+@router.post("/llm-nocache")
+async def make_nocache_llm_calls(
+    x_api_key: str = Header(..., alias="X-API-Key"),
+    num_calls: int = 5,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Make cache-busting PERSONA_ENRICHMENT LLM calls for Step 3.1 validation.
+
+    This endpoint:
+    1. Adds a unique nonce to each prompt to bypass cache
+    2. Makes real OpenRouter calls with skip_cache=True
+    3. Returns call details including cache_hit=false and actual cost
+
+    Use this to prove non-mock LLM usage for Step 3.1 A3 criterion.
+    """
+    verify_staging_access(x_api_key)
+
+    import time
+
+    # Create a unique run_id for this batch
+    batch_run_id = str(uuid.uuid4())
+    nonce_base = int(time.time() * 1000000)  # Microsecond precision
+
+    logger.info(f"Starting {num_calls} cache-busting LLM calls, batch_run_id={batch_run_id}")
+
+    results = []
+
+    try:
+        from app.services.llm_router import LLMRouter, LLMRouterContext
+
+        llm_router = LLMRouter(db)
+        llm_context = LLMRouterContext(
+            tenant_id="00000000-0000-0000-0000-000000000001",
+            project_id="00000000-0000-0000-0000-000000000002",
+            run_id=batch_run_id,
+            phase="compilation",  # C5 compliant
+        )
+
+        # Diverse personas for testing
+        test_personas = [
+            {"age": 29, "gender": "female", "occupation": "data scientist", "income": "$90,000"},
+            {"age": 52, "gender": "male", "occupation": "restaurant owner", "income": "$120,000"},
+            {"age": 38, "gender": "non-binary", "occupation": "graphic designer", "income": "$65,000"},
+            {"age": 67, "gender": "female", "occupation": "retired nurse", "income": "$45,000"},
+            {"age": 24, "gender": "male", "occupation": "graduate student", "income": "$22,000"},
+        ]
+
+        for i in range(min(num_calls, len(test_personas))):
+            persona = test_personas[i]
+            nonce = nonce_base + i
+
+            # Add unique nonce to prompt to bypass semantic cache
+            demo_text = "\n".join([f"- {k}: {v}" for k, v in persona.items()])
+            prompt = f"""[NONCE:{nonce}] Expand this persona into simulation attributes.
+
+DEMOGRAPHICS:
+{demo_text}
+
+Generate JSON with perception_weights, bias_parameters, action_priors.
+Each value should be a float 0-1.
+"""
+            try:
+                response = await llm_router.complete(
+                    profile_key="PERSONA_ENRICHMENT",
+                    messages=[
+                        {"role": "system", "content": "You are a persona expansion system. Output valid JSON only."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    context=llm_context,
+                    temperature_override=0.7,
+                    max_tokens_override=500,
+                    skip_cache=True,  # Force bypass cache
+                )
+
+                results.append({
+                    "call_index": i + 1,
+                    "call_id": response.call_id,
+                    "profile_key": response.profile_key,
+                    "model": response.model,
+                    "input_tokens": response.input_tokens,
+                    "output_tokens": response.output_tokens,
+                    "total_tokens": response.total_tokens,
+                    "cost_usd": response.cost_usd,
+                    "cache_hit": response.cache_hit,
+                    "response_time_ms": response.response_time_ms,
+                    "nonce": nonce,
+                })
+
+                logger.info(f"LLM call {i+1}/{num_calls}: tokens={response.total_tokens}, cost=${response.cost_usd:.6f}, cache_hit={response.cache_hit}")
+
+            except Exception as call_err:
+                logger.warning(f"LLM call {i+1} failed: {call_err}")
+                results.append({
+                    "call_index": i + 1,
+                    "error": str(call_err),
+                    "cache_hit": None,
+                })
+
+        await db.commit()
+
+        # Calculate totals
+        successful_calls = [r for r in results if "error" not in r]
+        total_tokens = sum(r.get("total_tokens", 0) for r in successful_calls)
+        total_cost = sum(r.get("cost_usd", 0) for r in successful_calls)
+        cache_hits = sum(1 for r in successful_calls if r.get("cache_hit"))
+        cache_misses = sum(1 for r in successful_calls if r.get("cache_hit") == False)
+
+        return {
+            "status": "success",
+            "batch_run_id": batch_run_id,
+            "summary": {
+                "total_calls": len(results),
+                "successful_calls": len(successful_calls),
+                "total_tokens": total_tokens,
+                "total_cost_usd": round(total_cost, 6),
+                "cache_hits": cache_hits,
+                "cache_misses": cache_misses,
+            },
+            "calls": results,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    except Exception as e:
+        logger.exception(f"Error in llm-nocache: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "batch_run_id": batch_run_id,
+            "calls": results,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
