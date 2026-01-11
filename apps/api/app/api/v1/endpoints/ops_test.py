@@ -351,6 +351,37 @@ async def run_real_simulation(
         )
 
 
+@router.get("/run-status/{run_id}")
+async def get_run_status(
+    run_id: str,
+    x_api_key: str = Header(..., alias="X-API-Key"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get status of a specific run for debugging."""
+    verify_staging_access(x_api_key)
+
+    from sqlalchemy import text
+
+    result = await db.execute(
+        text("SELECT id, status, error, config, timing, outputs FROM runs WHERE id = :id"),
+        {"id": uuid.UUID(run_id)}
+    )
+    row = result.fetchone()
+
+    if not row:
+        return {"status": "not_found", "run_id": run_id}
+
+    return {
+        "run_id": str(row[0]),
+        "status": row[1],
+        "error": row[2],
+        "config": row[3],
+        "timing": row[4],
+        "outputs": row[5],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 @router.get("/config-check")
 async def check_config(
     x_api_key: str = Header(..., alias="X-API-Key"),
