@@ -27,22 +27,13 @@ const nextConfig = {
     NEXT_PUBLIC_APP_NAME: 'AgentVerse',
   },
   async rewrites() {
-    // Get the backend URL from environment, defaulting to localhost for development only
-    const backendUrl = process.env.BACKEND_API_URL || 'http://localhost:8000';
-
+    // Note: /api/health is handled by src/app/api/health/route.ts (runtime handler)
+    // Note: /api/v1/* is handled by src/app/api/v1/[...path]/route.ts (runtime handler)
+    // Rewrites here are evaluated at build time, not runtime, so they won't work
+    // for dynamic backend URLs in production deployments.
     return {
-      // beforeFiles are checked before pages/api routes
       beforeFiles: [],
-      // afterFiles are checked after pages/api routes
-      afterFiles: [
-        {
-          // Proxy health check endpoint
-          source: '/api/health',
-          destination: `${backendUrl}/health`,
-        },
-      ],
-      // fallback rewrites are checked last (after all routes)
-      // Note: API route handler at src/app/api/v1/[...path]/route.ts handles all /api/v1/* requests
+      afterFiles: [],
       fallback: [],
     };
   },
