@@ -70,8 +70,9 @@ def exit_worker(reason: str, correlation_id: str) -> dict:
         # Fallback: exit this fork worker
         os._exit(1)
 
-    # Also exit this fork worker
-    os._exit(0)
+    # Exit with code 1 (failure) to trigger Railway's restart policy
+    # Railway only restarts on non-zero exit codes with ON_FAILURE policy
+    os._exit(1)
 
     # This line is never reached
     return {"status": "exiting", "boot_id": WORKER_BOOT_ID}
