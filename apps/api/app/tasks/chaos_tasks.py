@@ -54,26 +54,45 @@ def exit_worker(reason: str, correlation_id: str) -> dict:
         f"correlation_id={correlation_id}"
     )
 
+    # Log process info for debugging
+    current_pid = os.getpid()
+    parent_pid = os.getppid()
+    logger.warning(f"CHAOS: Current PID={current_pid}, Parent PID={parent_pid}")
+
     # Log the exit trace
-    logger.info(f"Worker {WORKER_BOOT_ID} main process exiting for chaos test. Goodbye!")
+    logger.info(f"Worker {WORKER_BOOT_ID} exiting for chaos test. Goodbye!")
 
-    # Get the main Celery process PID (parent of this fork worker)
-    main_pid = os.getppid()
-    logger.warning(f"CHAOS: Killing main Celery process PID={main_pid}")
-
-    # Send SIGKILL to the main Celery process for immediate termination
-    # SIGKILL cannot be caught/ignored, ensuring non-zero exit code
-    # Railway's ON_FAILURE restart policy will then restart the container
+    # Method 1: Use Celery control to broadcast shutdown to all workers
+    # This is more reliable than trying to kill PID 1 in Docker
     try:
-        os.kill(main_pid, signal.SIGKILL)
+        from app.core.celery_app import celery_app
+        logger.warning("CHAOS: Broadcasting shutdown via Celery control...")
+        celery_app.control.shutdown()
+    except Exception as e:
+        logger.error(f"Celery control.shutdown() failed: {e}")
+
+    # Method 2: Kill the process tree from this fork worker
+    # Try to terminate the parent process group
+    try:
+        logger.warning(f"CHAOS: Killing process group {parent_pid}...")
+        os.killpg(parent_pid, signal.SIGKILL)
+    except (OSError, ProcessLookupError) as e:
+        logger.warning(f"killpg failed (expected in some setups): {e}")
+
+    # Method 3: Direct SIGKILL to parent
+    try:
+        logger.warning(f"CHAOS: Sending SIGKILL to parent PID {parent_pid}...")
+        os.kill(parent_pid, signal.SIGKILL)
     except OSError as e:
-        logger.error(f"Failed to kill main process: {e}")
+        logger.error(f"Failed to kill parent: {e}")
 
-    # Give SIGKILL a moment to take effect, then force exit this worker
+    # Method 4: Exit this fork worker - Celery's prefork pool will handle it
+    # If Celery is using --pool=prefork, the worker will restart this process
+    # If using --pool=solo, this will exit the entire worker
     import time
-    time.sleep(0.5)
+    time.sleep(1)  # Give control commands time to propagate
 
-    # This should not be reached if SIGKILL worked, but just in case
+    logger.warning("CHAOS: Force exiting this worker process...")
     os._exit(137)  # 128 + 9 (SIGKILL signal number)
 
     # This line is never reached
