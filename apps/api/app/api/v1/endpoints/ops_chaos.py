@@ -21,7 +21,6 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 from app.core.config import settings
-from app.tasks.chaos_tasks import exit_worker
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +147,9 @@ async def trigger_worker_exit(
 
         # Close Redis connection before Celery dispatch to avoid socket conflicts
         await r.close()
+
+        # Import task inside function to get fresh Celery connection (like debug-config)
+        from app.tasks.chaos_tasks import exit_worker
 
         # Dispatch exit task to worker with retry
         logger.info("Dispatching exit_worker task via Celery...")
