@@ -10,6 +10,7 @@ Only enabled in staging environment.
 
 import logging
 import os
+import signal
 
 from celery import shared_task
 
@@ -19,19 +20,17 @@ logger = logging.getLogger(__name__)
 @shared_task(name="chaos.exit_worker")
 def exit_worker(reason: str, correlation_id: str) -> dict:
     """
-    Intentionally exit the worker process for chaos testing.
+    Intentionally exit the MAIN worker process for chaos testing.
 
-    Railway will auto-restart the worker, which will:
-    1. Generate a new WORKER_BOOT_ID
-    2. Store the new boot_id in Redis
-    3. Allow the chaos endpoint to verify the restart
+    This kills the main Celery process (not just the fork worker)
+    so Railway will restart it with a new WORKER_BOOT_ID.
 
     Args:
         reason: Why the exit is being triggered (for logging)
         correlation_id: Unique ID to track this chaos operation
 
     Returns:
-        This task will NOT return normally - it calls os._exit(0)
+        This task will NOT return normally - it kills the main process
     """
     from app.core.celery_app import WORKER_BOOT_ID
     from app.core.config import settings
@@ -53,11 +52,22 @@ def exit_worker(reason: str, correlation_id: str) -> dict:
     )
 
     # Log the exit trace
-    logger.info(f"Worker {WORKER_BOOT_ID} exiting for chaos test. Goodbye!")
+    logger.info(f"Worker {WORKER_BOOT_ID} main process exiting for chaos test. Goodbye!")
 
-    # Force exit - Railway will restart the worker
-    # Using os._exit(0) for immediate exit without cleanup
-    # This simulates a crash/restart scenario
+    # Get the main Celery process PID (parent of this fork worker)
+    main_pid = os.getppid()
+    logger.warning(f"CHAOS: Killing main Celery process PID={main_pid}")
+
+    # Send SIGTERM to the main Celery process to trigger a clean shutdown
+    # Railway will then restart the entire container
+    try:
+        os.kill(main_pid, signal.SIGTERM)
+    except OSError as e:
+        logger.error(f"Failed to kill main process: {e}")
+        # Fallback: exit this fork worker
+        os._exit(1)
+
+    # Also exit this fork worker
     os._exit(0)
 
     # This line is never reached
