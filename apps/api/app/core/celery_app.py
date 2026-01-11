@@ -212,4 +212,4 @@ def on_worker_shutdown(sender, **kwargs):
     logger.info(f"Worker shutdown signal received. Boot ID: {WORKER_BOOT_ID}")
     _clear_boot_info_from_redis()
 
-# Trigger redeploy 20260111_121720 - chaos C1 test
+# Trigger redeploy 20260111_042230 - verify new boot_id after chaos kill
