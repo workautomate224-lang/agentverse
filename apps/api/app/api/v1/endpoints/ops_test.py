@@ -362,9 +362,14 @@ async def get_run_status(
 
     from sqlalchemy import text
 
+    try:
+        run_uuid = uuid.UUID(run_id)
+    except ValueError:
+        return {"status": "invalid_uuid", "run_id": run_id}
+
     result = await db.execute(
-        text("SELECT id, status, error, config, timing, outputs FROM runs WHERE id = :id"),
-        {"id": uuid.UUID(run_id)}
+        text("SELECT id, status, error, config, timing, outputs FROM runs WHERE id = :id::uuid"),
+        {"id": str(run_uuid)}
     )
     row = result.fetchone()
 
