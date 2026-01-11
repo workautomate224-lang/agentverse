@@ -33,7 +33,8 @@ COPY alembic.ini ./
 # Copy startup scripts
 COPY start.sh ./
 COPY start-worker.sh ./
-RUN chmod +x start.sh start-worker.sh
+COPY entrypoint.sh ./
+RUN chmod +x start.sh start-worker.sh entrypoint.sh
 
 # Install the package
 RUN pip install .
@@ -41,5 +42,6 @@ RUN pip install .
 # Expose port
 EXPOSE 8000
 
-# Default command - run migrations then start API
-CMD ["./start.sh"]
+# Default command - uses MODE env var to run API (default) or worker
+# Set MODE=worker for Celery worker with Beat scheduler
+CMD ["./entrypoint.sh"]
