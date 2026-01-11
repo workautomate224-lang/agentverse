@@ -394,6 +394,109 @@ async def get_run_status(
         }
 
 
+@router.get("/llm-calls/{run_id}")
+async def get_run_llm_calls(
+    run_id: str,
+    x_api_key: str = Header(..., alias="X-API-Key"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get LLM calls for a specific run.
+
+    Returns summary of LLM usage for Step 3.1 validation:
+    - Total calls
+    - Total tokens (input + output)
+    - Total cost
+    - Non-mock proof (real LLM calls made)
+    """
+    verify_staging_access(x_api_key)
+
+    try:
+        run_uuid = uuid.UUID(run_id)
+    except ValueError:
+        return {"status": "invalid_uuid", "run_id": run_id}
+
+    try:
+        from app.models.llm import LLMCall
+        from sqlalchemy import select, func
+
+        # Get count and aggregates
+        result = await db.execute(
+            select(
+                func.count(LLMCall.id).label("call_count"),
+                func.coalesce(func.sum(LLMCall.input_tokens), 0).label("total_input_tokens"),
+                func.coalesce(func.sum(LLMCall.output_tokens), 0).label("total_output_tokens"),
+                func.coalesce(func.sum(LLMCall.total_tokens), 0).label("total_tokens"),
+                func.coalesce(func.sum(LLMCall.cost_usd), 0).label("total_cost_usd"),
+            ).where(LLMCall.run_id == run_uuid)
+        )
+        row = result.fetchone()
+
+        # Get sample of recent calls
+        samples_result = await db.execute(
+            select(
+                LLMCall.id,
+                LLMCall.profile_key,
+                LLMCall.model_used,
+                LLMCall.input_tokens,
+                LLMCall.output_tokens,
+                LLMCall.cost_usd,
+                LLMCall.status,
+                LLMCall.cache_hit,
+            ).where(LLMCall.run_id == run_uuid).limit(5)
+        )
+        samples = samples_result.fetchall()
+
+        call_count = row[0] if row else 0
+        total_input_tokens = row[1] if row else 0
+        total_output_tokens = row[2] if row else 0
+        total_tokens = row[3] if row else 0
+        total_cost_usd = float(row[4]) if row else 0.0
+
+        # Non-mock threshold: >=10 calls and >=500 tokens
+        non_mock_verified = call_count >= 10 and total_tokens >= 500
+
+        return {
+            "run_id": run_id,
+            "llm_summary": {
+                "call_count": call_count,
+                "total_input_tokens": total_input_tokens,
+                "total_output_tokens": total_output_tokens,
+                "total_tokens": total_tokens,
+                "total_cost_usd": round(total_cost_usd, 6),
+            },
+            "non_mock_verified": non_mock_verified,
+            "thresholds": {
+                "min_calls": 10,
+                "min_tokens": 500,
+                "calls_met": call_count >= 10,
+                "tokens_met": total_tokens >= 500,
+            },
+            "sample_calls": [
+                {
+                    "id": str(s[0]),
+                    "profile_key": s[1],
+                    "model": s[2],
+                    "input_tokens": s[3],
+                    "output_tokens": s[4],
+                    "cost_usd": float(s[5]) if s[5] else 0,
+                    "status": s[6],
+                    "cache_hit": s[7],
+                }
+                for s in samples
+            ],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        logger.exception(f"Error getting LLM calls: {e}")
+        return {
+            "status": "error",
+            "run_id": run_id,
+            "message": str(e),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+
 @router.get("/config-check")
 async def check_config(
     x_api_key: str = Header(..., alias="X-API-Key"),
