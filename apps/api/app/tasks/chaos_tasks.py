@@ -61,18 +61,20 @@ def exit_worker(reason: str, correlation_id: str) -> dict:
     main_pid = os.getppid()
     logger.warning(f"CHAOS: Killing main Celery process PID={main_pid}")
 
-    # Send SIGTERM to the main Celery process to trigger a clean shutdown
-    # Railway will then restart the entire container
+    # Send SIGKILL to the main Celery process for immediate termination
+    # SIGKILL cannot be caught/ignored, ensuring non-zero exit code
+    # Railway's ON_FAILURE restart policy will then restart the container
     try:
-        os.kill(main_pid, signal.SIGTERM)
+        os.kill(main_pid, signal.SIGKILL)
     except OSError as e:
         logger.error(f"Failed to kill main process: {e}")
-        # Fallback: exit this fork worker
-        os._exit(1)
 
-    # Exit with code 1 (failure) to trigger Railway's restart policy
-    # Railway only restarts on non-zero exit codes with ON_FAILURE policy
-    os._exit(1)
+    # Give SIGKILL a moment to take effect, then force exit this worker
+    import time
+    time.sleep(0.5)
+
+    # This should not be reached if SIGKILL worked, but just in case
+    os._exit(137)  # 128 + 9 (SIGKILL signal number)
 
     # This line is never reached
     return {"status": "exiting", "boot_id": WORKER_BOOT_ID}
