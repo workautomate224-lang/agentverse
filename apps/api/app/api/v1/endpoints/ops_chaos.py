@@ -148,7 +148,8 @@ async def trigger_worker_exit(
         # Close Redis connection before Celery dispatch to avoid socket conflicts
         await r.close()
 
-        # Import task inside function to get fresh Celery connection (like debug-config)
+        # Connect to Celery broker first (like debug-config does)
+        from app.core.celery_app import celery_app
         from app.tasks.chaos_tasks import exit_worker
 
         # Dispatch exit task to worker with retry
@@ -157,7 +158,13 @@ async def trigger_worker_exit(
         dispatch_error = None
         for attempt in range(3):
             try:
-                exit_worker.delay(request.reason, correlation_id)
+                # Establish fresh broker connection before dispatch
+                conn = celery_app.connection()
+                conn.connect()
+                conn.release()
+
+                # Use apply_async like debug-config does
+                exit_worker.apply_async(args=[request.reason, correlation_id])
                 logger.info(f"Exit task dispatched successfully on attempt {attempt + 1}")
                 dispatch_success = True
                 break
