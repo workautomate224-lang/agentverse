@@ -351,6 +351,26 @@ async def run_real_simulation(
         )
 
 
+@router.get("/config-check")
+async def check_config(
+    x_api_key: str = Header(..., alias="X-API-Key"),
+):
+    """Check critical configuration for simulation runs."""
+    verify_staging_access(x_api_key)
+
+    return {
+        "environment": settings.ENVIRONMENT,
+        "openrouter_configured": bool(settings.OPENROUTER_API_KEY),
+        "openrouter_key_length": len(settings.OPENROUTER_API_KEY) if settings.OPENROUTER_API_KEY else 0,
+        "default_model": settings.DEFAULT_MODEL,
+        "database_url_configured": bool(settings.DATABASE_URL),
+        "redis_url_configured": bool(settings.REDIS_URL),
+        "storage_bucket": settings.STORAGE_BUCKET,
+        "simulation_timeout_seconds": settings.SIMULATION_TIMEOUT_SECONDS,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 @router.get("/status", response_model=TestStatusResponse)
 async def get_test_status(
     x_api_key: str = Header(..., alias="X-API-Key"),
