@@ -1,0 +1,41 @@
+{
+  "timestamp": "2026-01-11T02:37:11.716304+00:00",
+  "total_runs": 1,
+  "total_reps": 1,
+  "runs": [
+    {
+      "run_id": "storage-test-299f7f5e",
+      "rep_path": "s3://agentverse-staging-artifacts/smoke-tests/storage-test-6180619d.txt"
+    }
+  ],
+  "validation_results": [
+    {
+      "run_id": null,
+      "rep_path": null,
+      "is_valid": false,
+      "errors": [
+        "Simulation error: [Errno 111] Connection refused"
+      ],
+      "method": "ops_test_error_error"
+    },
+    {
+      "run_id": "storage-test-299f7f5e",
+      "rep_path": "s3://agentverse-staging-artifacts/smoke-tests/storage-test-6180619d.txt",
+      "is_valid": false,
+      "files_found": [
+        "smoke-tests/storage-test-6180619d.txt"
+      ],
+      "files_missing": [
+        "manifest.json",
+        "trace.ndjson",
+        "llm_ledger.ndjson",
+        "universe_graph.json",
+        "report.md"
+      ],
+      "errors": [
+        "Storage test artifact - NOT a full REP"
+      ],
+      "method": "storage_test_fallback"
+    }
+  ]
+}

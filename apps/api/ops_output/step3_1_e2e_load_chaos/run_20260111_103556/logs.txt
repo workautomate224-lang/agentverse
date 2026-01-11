@@ -1,0 +1,93 @@
+======================================================================
+STEP 3.1 E2E LOAD & CHAOS VALIDATION LOG
+======================================================================
+
+Started:  2026-01-11T02:35:56.919849+00:00
+Finished: 2026-01-11T02:36:19.598295+00:00
+Duration: 22.7s
+Status:   PARTIAL
+
+----------------------------------------------------------------------
+ENVIRONMENT
+----------------------------------------------------------------------
+  api_url: https://agentverse-api-staging-production.up.railway.app
+  railway_project_id: 30cf5498-5aeb-4cf6-b35c-5ba0b9ed81f2
+  storage_bucket: agentverse-staging-artifacts
+  minio_url: https://minio-staging-production.up.railway.app
+  staging_ops_api_key_configured: False
+  api_version: 1.0.0-staging
+  api_environment: staging
+
+----------------------------------------------------------------------
+LLM CANARY TEST
+----------------------------------------------------------------------
+  Status: success
+  Request ID: gen-1768098958-aI24zxrgzEHg3g0FPf4f
+  Model: openai/gpt-4o-mini
+  Tokens: 17
+  Cost: $0.000004
+
+----------------------------------------------------------------------
+LOAD TESTS
+----------------------------------------------------------------------
+  [L1] L1: API Concurrency Load Test
+    Status: PASS
+    Success: 60, Fail: 0
+    P50: 1834.0ms, P95: 1908.3ms
+    Duration: 5367.4ms
+  [L2] L2: API Mixed Workload Load Test
+    Status: PASS
+    Success: 20, Fail: 0
+    P50: 1713.2ms, P95: 1721.7ms
+    Duration: 1724.2ms
+  [L3] L3: Storage Stress Load Test
+    Status: PASS
+    Success: 20, Fail: 0
+    P50: 1357.9ms, P95: 2484.5ms
+    Duration: 2487.9ms
+
+----------------------------------------------------------------------
+CHAOS TESTS
+----------------------------------------------------------------------
+  [C1] C1: Worker Restart Mid-Run
+    Status: SKIP
+    Method: no_credentials
+    Before boot_id: None
+    After boot_id: None
+    Boot ID Changed: False
+    Time to Restart: Nones
+    Duration: 0.1ms
+  [C2] C2: API Restart Mid-Stream
+    Status: SKIP
+    Method: simulated
+    Duration: 1487.4ms
+  [C3] C3: Transient DB Failure Simulation
+    Status: SKIP
+    Method: simulated
+    Duration: 8544.4ms
+
+----------------------------------------------------------------------
+REP VALIDATION
+----------------------------------------------------------------------
+  Total REPs: 1
+  Valid REPs: 0
+  Run IDs: 1
+  LLM Ledger Entries: 1
+
+  REP #1:
+    Run ID: storage-test-85465f8c
+    Valid: False
+    Method: storage_test_fallback
+    Files: ['smoke-tests/storage-test-6fdd89ee.txt']
+    Errors: ['Storage test artifact - NOT a full REP']
+
+----------------------------------------------------------------------
+ERRORS
+----------------------------------------------------------------------
+  - 3 chaos tests SKIPPED (no deployment permissions)
+  - C1 not PASS: status=SKIP
+  - No valid REPs: found 0
+
+======================================================================
+END OF LOG - Status: PARTIAL
+======================================================================

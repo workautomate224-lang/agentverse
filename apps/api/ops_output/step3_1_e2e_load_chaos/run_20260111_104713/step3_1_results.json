@@ -1,0 +1,221 @@
+{
+  "environment": {
+    "api_url": "https://agentverse-api-staging-production.up.railway.app",
+    "railway_project_id": "30cf5498-5aeb-4cf6-b35c-5ba0b9ed81f2",
+    "storage_bucket": "agentverse-staging-artifacts",
+    "minio_url": "https://minio-staging-production.up.railway.app",
+    "staging_ops_api_key_configured": true,
+    "api_version": "1.0.0-staging",
+    "api_environment": "staging"
+  },
+  "test_started_at": "2026-01-11T02:47:13.789907+00:00",
+  "test_completed_at": "2026-01-11T02:54:39.292997+00:00",
+  "total_duration_seconds": 445.50302481651306,
+  "load_tests": {
+    "L1": {
+      "test_id": "L1-153d296d",
+      "test_name": "L1: API Concurrency Load Test",
+      "start_time": "2026-01-11T02:47:15.572441+00:00",
+      "end_time": "2026-01-11T02:47:21.132109+00:00",
+      "duration_ms": 5559.668000000001,
+      "status": "PASS",
+      "success_count": 60,
+      "fail_count": 0,
+      "error_codes": [],
+      "p50_ms": 1668.1988430209458,
+      "p95_ms": 2167.0552770374343,
+      "details": {
+        "total_requests": 60,
+        "concurrency": 20,
+        "rounds": 3,
+        "test_type": "api_health_load",
+        "note": "API load test only - real runs require auth"
+      },
+      "run_ids": [],
+      "rep_paths": []
+    },
+    "L2": {
+      "test_id": "L2-9a365147",
+      "test_name": "L2: API Mixed Workload Load Test",
+      "start_time": "2026-01-11T02:47:21.132220+00:00",
+      "end_time": "2026-01-11T02:47:23.259230+00:00",
+      "duration_ms": 2127.0099999999998,
+      "status": "PASS",
+      "success_count": 20,
+      "fail_count": 0,
+      "error_codes": [],
+      "p50_ms": 2085.0143269635737,
+      "p95_ms": 2123.621328966692,
+      "details": {
+        "calibration_jobs": 10,
+        "auto_tune_jobs": 10,
+        "queue_backlog_peak": 0,
+        "test_type": "api_health_load",
+        "note": "API load test only - real jobs require auth"
+      },
+      "run_ids": [],
+      "rep_paths": []
+    },
+    "L3": {
+      "test_id": "L3-7d88723b",
+      "test_name": "L3: Storage Stress Load Test",
+      "start_time": "2026-01-11T02:47:23.259312+00:00",
+      "end_time": "2026-01-11T02:47:25.681763+00:00",
+      "duration_ms": 2422.451,
+      "status": "PASS",
+      "success_count": 20,
+      "fail_count": 0,
+      "error_codes": [],
+      "p50_ms": 2257.715101004578,
+      "p95_ms": 2419.0667560324073,
+      "details": {
+        "streaming_sessions": 10,
+        "export_jobs": 10,
+        "bucket_failures": 0,
+        "test_type": "storage_connectivity_load",
+        "note": "Storage connectivity test only - real streams require auth"
+      },
+      "run_ids": [],
+      "rep_paths": []
+    }
+  },
+  "chaos_tests": {
+    "C1": {
+      "test_id": "C1-459c9a76",
+      "test_name": "C1: Worker Restart Mid-Run",
+      "start_time": "2026-01-11T02:47:25.685247+00:00",
+      "end_time": "2026-01-11T02:49:26.132568+00:00",
+      "duration_ms": 120447.321,
+      "status": "FAIL",
+      "success_count": 0,
+      "fail_count": 1,
+      "error_codes": [],
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "details": {
+        "service_restarted": false,
+        "restart_method": "chaos_endpoint_timeout",
+        "before_boot_id": "b125b3bc-d3b7-4f46-986a-4371c847dcab",
+        "after_boot_id": null,
+        "boot_id_changed": false,
+        "time_to_restart_seconds": null,
+        "skip_reason": "Chaos endpoint issue: chaos_endpoint_timeout"
+      },
+      "run_ids": [],
+      "rep_paths": []
+    },
+    "C2": {
+      "test_id": "C2-3ac5e013",
+      "test_name": "C2: API Restart Mid-Stream",
+      "start_time": "2026-01-11T02:49:26.132669+00:00",
+      "end_time": "2026-01-11T02:49:27.647181+00:00",
+      "duration_ms": 1514.5120000000002,
+      "status": "SKIP",
+      "success_count": 5,
+      "fail_count": 0,
+      "error_codes": [],
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "details": {
+        "streams_opened": 5,
+        "streams_reconnected": 5,
+        "streams_failed_gracefully": 0,
+        "run_status_correct": true,
+        "rep_intact": true,
+        "service_restarted": true,
+        "restart_method": "simulated",
+        "deployment_id": null,
+        "skip_reason": "No Railway deployment permissions - restart was SIMULATED, not real"
+      },
+      "run_ids": [],
+      "rep_paths": []
+    },
+    "C3": {
+      "test_id": "C3-4d89a88b",
+      "test_name": "C3: Transient DB Failure Simulation",
+      "start_time": "2026-01-11T02:49:27.647283+00:00",
+      "end_time": "2026-01-11T02:49:36.955374+00:00",
+      "duration_ms": 9308.090999999999,
+      "status": "SKIP",
+      "success_count": 30,
+      "fail_count": 0,
+      "error_codes": [],
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "details": {
+        "db_failure_simulated": true,
+        "runs_failed_cleanly": 0,
+        "runs_recovered": 30,
+        "data_corruption": false,
+        "stuck_runs": 0,
+        "restart_method": "simulated",
+        "deployment_id": null,
+        "skip_reason": "No Railway deployment permissions - DB restart was SIMULATED, not real"
+      },
+      "run_ids": [],
+      "rep_paths": []
+    }
+  },
+  "llm_canary": {
+    "test_id": "LLM-CANARY-535004b6",
+    "timestamp": "2026-01-11T02:47:14.747318+00:00",
+    "duration_ms": 824.9499999999999,
+    "status": "success",
+    "llm_call": {
+      "openrouter_request_id": "gen-1768099635-1D9Rwp6Mqe72dlTE5fAr",
+      "model_requested": "openai/gpt-4o-mini",
+      "model_used": "openai/gpt-4o-mini",
+      "input_tokens": 14,
+      "output_tokens": 3,
+      "total_tokens": 17,
+      "cost_usd": 3.9e-06,
+      "response_time_ms": 589.68,
+      "response_content": "CANARY_OK",
+      "canary_verified": true
+    },
+    "evidence": {
+      "api_endpoint": "https://openrouter.ai/api/v1/chat/completions",
+      "http_status": 200,
+      "response_id_header": "not_present"
+    },
+    "llm_ledger_entry": {
+      "timestamp": "2026-01-11T02:47:15.042664+00:00",
+      "test_id": "llm-canary-fe3aa797",
+      "request_id": "gen-1768099635-1D9Rwp6Mqe72dlTE5fAr",
+      "model": "openai/gpt-4o-mini",
+      "input_tokens": 14,
+      "output_tokens": 3,
+      "total_tokens": 17,
+      "cost_usd": 3.9e-06,
+      "response_time_ms": 589.6757654845715,
+      "status": "success",
+      "content_preview": "CANARY_OK"
+    }
+  },
+  "all_run_ids": [
+    "d9e338f2-21ce-4344-94ef-08a40b9a19c1"
+  ],
+  "all_rep_paths": [],
+  "rep_integrity_results": [
+    {
+      "run_id": "d9e338f2-21ce-4344-94ef-08a40b9a19c1",
+      "rep_path": null,
+      "is_valid": false,
+      "errors": [
+        "Simulation timed out: Test run completed with status: timeout"
+      ],
+      "method": "ops_test_timeout"
+    }
+  ],
+  "overall_status": "PARTIAL",
+  "rep_corruption_count": 0,
+  "stuck_runs_count": 0,
+  "graph_integrity_errors": 0,
+  "bucket_isolation_verified": true,
+  "llm_ledger_entries": 1,
+  "errors": [
+    "2 chaos tests SKIPPED (no deployment permissions)",
+    "C1 not PASS: status=FAIL",
+    "No valid REPs: found 0"
+  ]
+}
