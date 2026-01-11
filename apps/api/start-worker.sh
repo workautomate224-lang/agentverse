@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+# Force rebuild: 20260111_154200 - ensure runs queue is consumed
 
 echo "=== AgentVerse Celery Worker Startup ==="
 echo "Environment: ${ENVIRONMENT:-development}"
