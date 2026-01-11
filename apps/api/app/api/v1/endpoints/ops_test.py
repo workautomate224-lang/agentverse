@@ -367,24 +367,30 @@ async def get_run_status(
     except ValueError:
         return {"status": "invalid_uuid", "run_id": run_id}
 
-    result = await db.execute(
-        text("SELECT id, status, error, config, timing, outputs FROM runs WHERE id = :id::uuid"),
-        {"id": str(run_uuid)}
-    )
-    row = result.fetchone()
+    try:
+        result = await db.execute(
+            text("SELECT id, status, worker_id, label FROM runs WHERE id = :id::uuid"),
+            {"id": str(run_uuid)}
+        )
+        row = result.fetchone()
 
-    if not row:
-        return {"status": "not_found", "run_id": run_id}
+        if not row:
+            return {"status": "not_found", "run_id": run_id}
 
-    return {
-        "run_id": str(row[0]),
-        "status": row[1],
-        "error": row[2],
-        "config": row[3],
-        "timing": row[4],
-        "outputs": row[5],
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
+        return {
+            "run_id": str(row[0]),
+            "status": row[1],
+            "worker_id": row[2],
+            "label": row[3],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "run_id": run_id,
+            "message": str(e),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
 
 
 @router.get("/config-check")
