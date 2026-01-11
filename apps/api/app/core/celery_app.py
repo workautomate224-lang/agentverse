@@ -99,25 +99,26 @@ celery_app.conf.update(
 )
 
 # Task routing
+# NOTE: Temporarily routing ALL tasks to 'default' queue until worker queue fix is deployed
 celery_app.conf.task_routes = {
-    # Run execution tasks go to dedicated queue
+    # Run execution tasks - using default queue (worker consumes this)
     "app.tasks.run_executor.*": {
-        "queue": "runs",
-        "routing_key": "runs",
+        "queue": "default",
+        "routing_key": "default",
     },
-    # Maintenance tasks
+    # Maintenance tasks - using default queue
     "app.tasks.maintenance.*": {
-        "queue": "maintenance",
-        "routing_key": "maintenance",
+        "queue": "default",
+        "routing_key": "default",
     },
-    # Chaos tasks (Step 3.2) - route to maintenance queue
+    # Chaos tasks (Step 3.2) - using default queue
     "app.tasks.chaos_tasks.*": {
-        "queue": "maintenance",
-        "routing_key": "maintenance",
+        "queue": "default",
+        "routing_key": "default",
     },
     "chaos.*": {
-        "queue": "maintenance",
-        "routing_key": "maintenance",
+        "queue": "default",
+        "routing_key": "default",
     },
     # Legacy world simulation (to be deprecated)
     "app.tasks.world_simulation.*": {
