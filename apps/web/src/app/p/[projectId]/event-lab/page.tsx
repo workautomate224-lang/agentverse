@@ -296,19 +296,71 @@ export default function EventLabPage() {
     );
   }, [prompt, projectId, generateScenarios, saveRecentPrompt, saveCompilation]);
 
+  // Save draft branch to local storage when no universe map exists
+  const saveDraftBranch = useCallback((scenario: AskCandidateScenario) => {
+    const draftKey = `${STORAGE_KEY_PREFIX}drafts_${projectId}`;
+    const draft = {
+      draft_id: `draft-${Date.now()}`,
+      label: scenario.label,
+      description: scenario.description,
+      intervention_type: 'nl_query',
+      nl_query: currentCompilation?.original_prompt,
+      scenario_patch: {
+        environment_overrides: scenario.variable_deltas || {},
+      },
+      created_at: new Date().toISOString(),
+    };
+
+    try {
+      const existing = localStorage.getItem(draftKey);
+      const drafts = existing ? JSON.parse(existing) : [];
+      drafts.push(draft);
+      localStorage.setItem(draftKey, JSON.stringify(drafts));
+      return draft;
+    } catch {
+      return null;
+    }
+  }, [projectId, currentCompilation]);
+
   // Handle add as branch
   const handleAddAsBranch = useCallback(async (scenario: AskCandidateScenario) => {
     setCreatingScenarioId(scenario.scenario_id);
 
-    // Debug toast to confirm button fires
+    // Check if we have a valid parent node (root_node_id from universe map)
+    const parentNodeId = universeState?.root_node_id;
+
+    // If no universe map exists yet, save as draft
+    if (!parentNodeId) {
+      toast({
+        title: 'Saving as draft...',
+        description: 'No universe map exists yet. Branch will be saved locally.',
+      });
+
+      const draft = saveDraftBranch(scenario);
+      setCreatingScenarioId(null);
+
+      if (draft) {
+        toast({
+          title: 'Draft saved!',
+          description: `"${scenario.label}" saved. Run a simulation first to create the universe map, then your drafts can be committed.`,
+        });
+        // Navigate to universe map to show the user they need to run a simulation first
+        router.push(`/p/${projectId}/universe-map?showDrafts=true`);
+      } else {
+        toast({
+          title: 'Failed to save draft',
+          description: 'Could not save to local storage',
+          variant: 'destructive',
+        });
+      }
+      return;
+    }
+
+    // We have a valid parent node, proceed with API call
     toast({
       title: 'Creating branch...',
       description: `Adding "${scenario.label}" as a new branch`,
     });
-
-    // Determine parent node: use root_node_id if available, otherwise 'baseline'
-    // The backend should handle 'baseline' as a special case for new projects
-    const parentNodeId = universeState?.root_node_id || 'baseline';
 
     forkNode.mutate(
       {
@@ -343,7 +395,7 @@ export default function EventLabPage() {
         },
       }
     );
-  }, [universeState, forkNode, currentCompilation, projectId, router]);
+  }, [universeState, forkNode, currentCompilation, projectId, router, saveDraftBranch]);
 
   // Clear recent prompts
   const handleClearHistory = useCallback(() => {
