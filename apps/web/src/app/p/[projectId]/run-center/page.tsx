@@ -1,24 +1,53 @@
 'use client';
 
 /**
- * Run Center Page (Placeholder)
+ * Run Center Page
  * Configure and execute simulation runs
  */
 
+import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
   Play,
   ArrowLeft,
+  ArrowRight,
   Terminal,
   Clock,
   Settings,
   History,
   Gauge,
   Zap,
+  X,
+  Loader2,
+  CheckCircle,
+  AlertCircle,
+  ExternalLink,
+  Users,
+  FileText,
+  RefreshCw,
+  StopCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import {
+  useRuns,
+  useCreateRun,
+  useStartRun,
+  useCancelRun,
+  useRunProgress,
+  useTargetPersonas,
+  usePersonaTemplates,
+} from '@/hooks/useApi';
+import type { RunSummary, SubmitRunInput } from '@/lib/api';
 
 // Run configuration options
 const runOptions = [
@@ -28,6 +57,11 @@ const runOptions = [
     description: 'Standard simulation with default parameters',
     icon: Play,
     color: 'green',
+    config: {
+      run_mode: 'baseline',
+      max_ticks: 100,
+      agent_batch_size: 10,
+    },
   },
   {
     id: 'quick',
@@ -35,6 +69,11 @@ const runOptions = [
     description: 'Faster run with reduced agent count',
     icon: Zap,
     color: 'yellow',
+    config: {
+      run_mode: 'quick_test',
+      max_ticks: 25,
+      agent_batch_size: 5,
+    },
   },
   {
     id: 'custom',
@@ -42,26 +81,381 @@ const runOptions = [
     description: 'Configure all parameters manually',
     icon: Settings,
     color: 'purple',
+    config: {},
   },
 ];
+
+// Format date for display
+function formatDate(dateString: string): string {
+  const date = new Date(dateString);
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+// Format duration
+function formatDuration(startedAt?: string, endedAt?: string): string {
+  if (!startedAt) return '--';
+  const start = new Date(startedAt);
+  const end = endedAt ? new Date(endedAt) : new Date();
+  const diffMs = end.getTime() - start.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return `${diffSec}s`;
+  const diffMin = Math.floor(diffSec / 60);
+  return `${diffMin}m ${diffSec % 60}s`;
+}
+
+// Status badge component
+function StatusBadge({ status }: { status: string }) {
+  const statusConfig: Record<string, { color: string; icon: React.ReactNode }> = {
+    queued: { color: 'text-blue-400 bg-blue-400/10', icon: <Clock className="w-3 h-3" /> },
+    starting: { color: 'text-yellow-400 bg-yellow-400/10', icon: <Loader2 className="w-3 h-3 animate-spin" /> },
+    running: { color: 'text-cyan-400 bg-cyan-400/10', icon: <Loader2 className="w-3 h-3 animate-spin" /> },
+    succeeded: { color: 'text-green-400 bg-green-400/10', icon: <CheckCircle className="w-3 h-3" /> },
+    failed: { color: 'text-red-400 bg-red-400/10', icon: <AlertCircle className="w-3 h-3" /> },
+    cancelled: { color: 'text-white/40 bg-white/10', icon: <StopCircle className="w-3 h-3" /> },
+  };
+
+  const config = statusConfig[status] || statusConfig.queued;
+
+  return (
+    <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono uppercase', config.color)}>
+      {config.icon}
+      {status}
+    </span>
+  );
+}
+
+// Custom Run Modal
+function CustomRunModal({
+  open,
+  onClose,
+  onSubmit,
+  isSubmitting,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSubmit: (config: SubmitRunInput['config']) => void;
+  isSubmitting: boolean;
+}) {
+  const [maxTicks, setMaxTicks] = useState(100);
+  const [agentBatchSize, setAgentBatchSize] = useState(10);
+  const [label, setLabel] = useState('');
+
+  const handleSubmit = () => {
+    onSubmit({
+      run_mode: 'custom',
+      max_ticks: maxTicks,
+      agent_batch_size: agentBatchSize,
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <DialogContent className="bg-black border border-white/10 max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-white font-mono flex items-center gap-2">
+            <Settings className="w-5 h-5 text-purple-400" />
+            Custom Run Configuration
+          </DialogTitle>
+          <DialogDescription className="text-white/50 font-mono text-xs">
+            Configure simulation parameters for your custom run
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-4">
+          <div>
+            <label className="block text-xs font-mono text-white/60 mb-2">Label (optional)</label>
+            <input
+              type="text"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="e.g., Market Analysis v2"
+              className="w-full px-3 py-2 bg-white/5 border border-white/10 text-sm font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-cyan-500/50"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-mono text-white/60 mb-2">
+              Simulation Horizon (max ticks)
+            </label>
+            <input
+              type="number"
+              min={10}
+              max={1000}
+              value={maxTicks}
+              onChange={(e) => setMaxTicks(Number(e.target.value))}
+              className="w-full px-3 py-2 bg-white/5 border border-white/10 text-sm font-mono text-white focus:outline-none focus:border-cyan-500/50"
+            />
+            <p className="text-[10px] font-mono text-white/40 mt-1">
+              Number of simulation ticks to run (10-1000)
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-mono text-white/60 mb-2">Agent Batch Size</label>
+            <input
+              type="number"
+              min={1}
+              max={50}
+              value={agentBatchSize}
+              onChange={(e) => setAgentBatchSize(Number(e.target.value))}
+              className="w-full px-3 py-2 bg-white/5 border border-white/10 text-sm font-mono text-white focus:outline-none focus:border-cyan-500/50"
+            />
+            <p className="text-[10px] font-mono text-white/40 mt-1">
+              Number of agents to process per batch (1-50)
+            </p>
+          </div>
+        </div>
+
+        <DialogFooter className="flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={isSubmitting}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleSubmit}
+            disabled={isSubmitting}
+            className="bg-purple-500 hover:bg-purple-600"
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="w-3 h-3 mr-2 animate-spin" />
+                Starting...
+              </>
+            ) : (
+              <>
+                <Play className="w-3 h-3 mr-2" />
+                Start Custom Run
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Run Details Modal
+function RunDetailsModal({
+  run,
+  open,
+  onClose,
+  projectId,
+}: {
+  run: RunSummary | null;
+  open: boolean;
+  onClose: () => void;
+  projectId: string;
+}) {
+  const { data: progress } = useRunProgress(
+    run && ['running', 'starting', 'queued'].includes(run.status) ? run.run_id : undefined
+  );
+  const cancelRun = useCancelRun();
+
+  if (!run) return null;
+
+  const isRunning = ['running', 'starting', 'queued'].includes(run.status);
+  const isCompleted = run.status === 'succeeded';
+
+  return (
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <DialogContent className="bg-black border border-white/10 max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="text-white font-mono flex items-center gap-2">
+            <History className="w-5 h-5 text-cyan-400" />
+            Run Details
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 py-4">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-mono text-white/60">Status</span>
+            <StatusBadge status={progress?.status || run.status} />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-mono text-white/60">Run ID</span>
+            <span className="text-xs font-mono text-white/80">{run.run_id.slice(0, 12)}...</span>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-mono text-white/60">Created</span>
+            <span className="text-xs font-mono text-white/80">{formatDate(run.created_at)}</span>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-mono text-white/60">Duration</span>
+            <span className="text-xs font-mono text-white/80">
+              {formatDuration(run.timing?.started_at, run.timing?.ended_at)}
+            </span>
+          </div>
+
+          {(progress || run.timing) && (
+            <div className="bg-white/5 border border-white/10 p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-mono text-white/60">Progress</span>
+                <span className="text-xs font-mono text-white/80">
+                  Tick {progress?.current_tick || run.timing?.current_tick || 0} /{' '}
+                  {run.timing?.total_ticks || '?'}
+                </span>
+              </div>
+              <div className="h-1 bg-white/10 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-cyan-500 transition-all"
+                  style={{
+                    width: `${
+                      run.timing?.total_ticks
+                        ? ((progress?.current_tick || run.timing?.current_tick || 0) /
+                            run.timing.total_ticks) *
+                          100
+                        : 0
+                    }%`,
+                  }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="flex justify-end gap-2">
+          {isRunning && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => cancelRun.mutate(run.run_id)}
+              disabled={cancelRun.isPending}
+              className="border-red-500/30 text-red-400 hover:bg-red-500/10"
+            >
+              {cancelRun.isPending ? (
+                <Loader2 className="w-3 h-3 mr-2 animate-spin" />
+              ) : (
+                <StopCircle className="w-3 h-3 mr-2" />
+              )}
+              Cancel Run
+            </Button>
+          )}
+
+          {isCompleted && run.has_results && (
+            <Link href={`/p/${projectId}/results?run=${run.run_id}`}>
+              <Button size="sm" className="bg-cyan-500 hover:bg-cyan-600">
+                <ExternalLink className="w-3 h-3 mr-2" />
+                View Results
+              </Button>
+            </Link>
+          )}
+
+          {isCompleted && (
+            <Link href={`/p/${projectId}/replay?run=${run.run_id}`}>
+              <Button size="sm" variant="outline">
+                <Play className="w-3 h-3 mr-2" />
+                Open Replay
+              </Button>
+            </Link>
+          )}
+
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 export default function RunCenterPage() {
   const params = useParams();
   const projectId = params.projectId as string;
 
+  // Modal states
+  const [customRunModalOpen, setCustomRunModalOpen] = useState(false);
+  const [selectedRun, setSelectedRun] = useState<RunSummary | null>(null);
+  const [runDetailsModalOpen, setRunDetailsModalOpen] = useState(false);
+
+  // Track active run for progress polling
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+
+  // API hooks
+  const { data: runs, isLoading: runsLoading, refetch: refetchRuns } = useRuns({ project_id: projectId, limit: 20 });
+  const { data: personas } = useTargetPersonas({ project_id: projectId });
+  const { data: personaTemplates } = usePersonaTemplates();
+  const createRun = useCreateRun();
+  const startRun = useStartRun();
+  const { data: activeRunProgress } = useRunProgress(activeRunId || undefined);
+
+  // Count personas (from either target personas or templates)
+  const personaCount = (personas?.length || 0) + (personaTemplates?.length || 0);
+
+  // Count completed runs
+  const completedRuns = runs?.filter((r) => r.status === 'succeeded').length || 0;
+
+  // Find any running runs and track them
+  useEffect(() => {
+    const runningRun = runs?.find((r) => ['running', 'starting', 'queued'].includes(r.status));
+    if (runningRun) {
+      setActiveRunId(runningRun.run_id);
+    } else {
+      setActiveRunId(null);
+    }
+  }, [runs]);
+
+  // Refetch runs when active run completes
+  useEffect(() => {
+    if (activeRunProgress && ['succeeded', 'failed', 'cancelled'].includes(activeRunProgress.status)) {
+      refetchRuns();
+      setActiveRunId(null);
+    }
+  }, [activeRunProgress, refetchRuns]);
+
+  // Handle starting a run
+  const handleStartRun = async (runType: string, config?: SubmitRunInput['config']) => {
+    const runConfig = runOptions.find((o) => o.id === runType)?.config || config || {};
+
+    const runInput: SubmitRunInput = {
+      project_id: projectId,
+      label: `${runType.charAt(0).toUpperCase() + runType.slice(1)} Run`,
+      config: runConfig,
+      auto_start: true,
+    };
+
+    try {
+      const newRun = await createRun.mutateAsync(runInput);
+      setActiveRunId(newRun.run_id);
+      refetchRuns();
+
+      // If not auto-started, start it manually
+      if (newRun.status === 'queued') {
+        await startRun.mutateAsync(newRun.run_id);
+      }
+    } catch {
+      // Error handled by mutation
+    }
+  };
+
+  // Check if run endpoints are available
+  const isRunEndpointAvailable =
+    !createRun.error || (createRun.error as Error)?.message !== 'Network Error';
+
   return (
     <div className="min-h-screen bg-black p-4 md:p-6">
       {/* Header */}
       <div className="mb-6 md:mb-8">
-        <Link href={`/p/${projectId}/overview`}>
-          <Button variant="ghost" size="sm" className="mb-3 text-[10px] md:text-xs">
-            <ArrowLeft className="w-3 h-3 mr-1 md:mr-2" />
-            BACK TO OVERVIEW
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2 mb-3">
+          <Link href={`/p/${projectId}/rules`}>
+            <Button variant="ghost" size="sm" className="text-[10px] md:text-xs">
+              <ArrowLeft className="w-3 h-3 mr-1 md:mr-2" />
+              BACK TO RULES
+            </Button>
+          </Link>
+        </div>
         <div className="flex items-center gap-2 mb-1">
           <Play className="w-3.5 h-3.5 md:w-4 md:h-4 text-green-400" />
-          <span className="text-[10px] md:text-xs font-mono text-white/40 uppercase tracking-wider">Run Center</span>
+          <span className="text-[10px] md:text-xs font-mono text-white/40 uppercase tracking-wider">
+            Run Center
+          </span>
         </div>
         <h1 className="text-lg md:text-xl font-mono font-bold text-white">Simulation Runs</h1>
         <p className="text-xs md:text-sm font-mono text-white/50 mt-1">
@@ -87,16 +481,30 @@ export default function RunCenterPage() {
               purple: 'text-purple-400',
             }[option.color];
 
+            const isDisabled = createRun.isPending || startRun.isPending || !!activeRunId;
+
             return (
               <button
                 key={option.id}
+                onClick={() => {
+                  if (option.id === 'custom') {
+                    setCustomRunModalOpen(true);
+                  } else {
+                    handleStartRun(option.id);
+                  }
+                }}
+                disabled={isDisabled}
                 className={cn(
                   'flex flex-col items-center gap-3 p-4 bg-white/5 border border-white/10 transition-all text-center',
-                  colorClasses
+                  isDisabled ? 'opacity-50 cursor-not-allowed' : colorClasses
                 )}
               >
                 <div className="w-12 h-12 bg-white/5 flex items-center justify-center">
-                  <Icon className={cn('w-6 h-6', iconColor)} />
+                  {(createRun.isPending || startRun.isPending) && option.id !== 'custom' ? (
+                    <Loader2 className={cn('w-6 h-6 animate-spin', iconColor)} />
+                  ) : (
+                    <Icon className={cn('w-6 h-6', iconColor)} />
+                  )}
                 </div>
                 <div>
                   <h3 className="text-sm font-mono font-bold text-white">{option.name}</h3>
@@ -106,11 +514,44 @@ export default function RunCenterPage() {
             );
           })}
         </div>
+
+        {activeRunId && (
+          <div className="mt-4 p-3 bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
+              <span className="text-xs font-mono text-cyan-400">
+                Run in progress - Tick {activeRunProgress?.current_tick || 0}
+              </span>
+            </div>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                const run = runs?.find((r) => r.run_id === activeRunId);
+                if (run) {
+                  setSelectedRun(run);
+                  setRunDetailsModalOpen(true);
+                }
+              }}
+            >
+              View Details
+            </Button>
+          </div>
+        )}
+
+        {!isRunEndpointAvailable && (
+          <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-xs font-mono">
+            <AlertCircle className="w-4 h-4 inline mr-2" />
+            Run endpoints not available. Backend integration coming soon.
+          </div>
+        )}
       </div>
 
       {/* Quick Stats */}
       <div className="max-w-3xl mb-8">
-        <h2 className="text-xs font-mono text-white/40 uppercase tracking-wider mb-4">Configuration Summary</h2>
+        <h2 className="text-xs font-mono text-white/40 uppercase tracking-wider mb-4">
+          Configuration Summary
+        </h2>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="bg-white/5 border border-white/10 p-4">
             <div className="flex items-center gap-2 text-white/40 mb-2">
@@ -122,18 +563,18 @@ export default function RunCenterPage() {
           </div>
           <div className="bg-white/5 border border-white/10 p-4">
             <div className="flex items-center gap-2 text-white/40 mb-2">
-              <Gauge className="w-3.5 h-3.5" />
-              <span className="text-[10px] font-mono uppercase">Agents</span>
+              <Users className="w-3.5 h-3.5" />
+              <span className="text-[10px] font-mono uppercase">Personas</span>
             </div>
-            <p className="text-lg font-mono font-bold text-white">0</p>
+            <p className="text-lg font-mono font-bold text-white">{personaCount}</p>
             <p className="text-[10px] font-mono text-white/40">configured</p>
           </div>
           <div className="bg-white/5 border border-white/10 p-4">
             <div className="flex items-center gap-2 text-white/40 mb-2">
-              <Settings className="w-3.5 h-3.5" />
+              <FileText className="w-3.5 h-3.5" />
               <span className="text-[10px] font-mono uppercase">Rules</span>
             </div>
-            <p className="text-lg font-mono font-bold text-white">0</p>
+            <p className="text-lg font-mono font-bold text-white">--</p>
             <p className="text-[10px] font-mono text-white/40">defined</p>
           </div>
           <div className="bg-white/5 border border-white/10 p-4">
@@ -141,27 +582,102 @@ export default function RunCenterPage() {
               <History className="w-3.5 h-3.5" />
               <span className="text-[10px] font-mono uppercase">Runs</span>
             </div>
-            <p className="text-lg font-mono font-bold text-white">0</p>
+            <p className="text-lg font-mono font-bold text-white">{completedRuns}</p>
             <p className="text-[10px] font-mono text-white/40">completed</p>
           </div>
         </div>
       </div>
 
       {/* Run History */}
-      <div className="max-w-3xl">
-        <h2 className="text-xs font-mono text-white/40 uppercase tracking-wider mb-4">Run History</h2>
-        <div className="bg-white/5 border border-white/10 p-8 text-center">
-          <div className="w-16 h-16 bg-white/5 flex items-center justify-center mx-auto mb-4">
-            <History className="w-8 h-8 text-white/20" />
-          </div>
-          <h3 className="text-sm font-mono text-white/60 mb-2">No runs yet</h3>
-          <p className="text-xs font-mono text-white/40 mb-4">
-            Configure your project and start your first simulation run
-          </p>
-          <Button size="sm" className="text-xs font-mono bg-green-500 hover:bg-green-600">
-            <Play className="w-3 h-3 mr-2" />
-            START BASELINE RUN
+      <div className="max-w-3xl mb-8">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xs font-mono text-white/40 uppercase tracking-wider">Run History</h2>
+          <Button variant="ghost" size="sm" onClick={() => refetchRuns()} disabled={runsLoading}>
+            <RefreshCw className={cn('w-3 h-3 mr-1', runsLoading && 'animate-spin')} />
+            Refresh
           </Button>
+        </div>
+
+        {runsLoading ? (
+          <div className="bg-white/5 border border-white/10 p-8 text-center">
+            <Loader2 className="w-8 h-8 text-white/40 animate-spin mx-auto mb-4" />
+            <p className="text-xs font-mono text-white/40">Loading run history...</p>
+          </div>
+        ) : runs && runs.length > 0 ? (
+          <div className="bg-white/5 border border-white/10 divide-y divide-white/5">
+            {runs.map((run) => (
+              <button
+                key={run.run_id}
+                onClick={() => {
+                  setSelectedRun(run);
+                  setRunDetailsModalOpen(true);
+                }}
+                className="w-full p-4 flex items-center justify-between hover:bg-white/5 transition-colors text-left"
+              >
+                <div className="flex items-center gap-4">
+                  <StatusBadge status={run.status} />
+                  <div>
+                    <p className="text-sm font-mono text-white">
+                      {run.run_id.slice(0, 8)}...
+                    </p>
+                    <p className="text-[10px] font-mono text-white/40">{formatDate(run.created_at)}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="text-right">
+                    <p className="text-xs font-mono text-white/60">
+                      Tick {run.timing?.current_tick || 0} / {run.timing?.total_ticks || '?'}
+                    </p>
+                    <p className="text-[10px] font-mono text-white/40">
+                      {formatDuration(run.timing?.started_at, run.timing?.ended_at)}
+                    </p>
+                  </div>
+                  <ExternalLink className="w-4 h-4 text-white/40" />
+                </div>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="bg-white/5 border border-white/10 p-8 text-center">
+            <div className="w-16 h-16 bg-white/5 flex items-center justify-center mx-auto mb-4">
+              <History className="w-8 h-8 text-white/20" />
+            </div>
+            <h3 className="text-sm font-mono text-white/60 mb-2">No runs yet</h3>
+            <p className="text-xs font-mono text-white/40 mb-4">
+              Configure your project and start your first simulation run
+            </p>
+            <Button
+              size="sm"
+              className="text-xs font-mono bg-green-500 hover:bg-green-600"
+              onClick={() => handleStartRun('baseline')}
+              disabled={createRun.isPending || startRun.isPending}
+            >
+              {createRun.isPending || startRun.isPending ? (
+                <Loader2 className="w-3 h-3 mr-2 animate-spin" />
+              ) : (
+                <Play className="w-3 h-3 mr-2" />
+              )}
+              START BASELINE RUN
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* Navigation */}
+      <div className="max-w-3xl mb-8">
+        <div className="flex items-center justify-between gap-4">
+          <Link href={`/p/${projectId}/rules`}>
+            <Button variant="outline" size="sm" className="text-xs font-mono">
+              <ArrowLeft className="w-3 h-3 mr-2" />
+              Back to Rules
+            </Button>
+          </Link>
+          <Link href={`/p/${projectId}/universe-map`}>
+            <Button size="sm" className="text-xs font-mono bg-cyan-500 hover:bg-cyan-600">
+              Next: Universe Map
+              <ArrowRight className="w-3 h-3 ml-2" />
+            </Button>
+          </Link>
         </div>
       </div>
 
@@ -175,6 +691,27 @@ export default function RunCenterPage() {
           <span>AGENTVERSE v1.0</span>
         </div>
       </div>
+
+      {/* Modals */}
+      <CustomRunModal
+        open={customRunModalOpen}
+        onClose={() => setCustomRunModalOpen(false)}
+        onSubmit={(config) => {
+          handleStartRun('custom', config);
+          setCustomRunModalOpen(false);
+        }}
+        isSubmitting={createRun.isPending || startRun.isPending}
+      />
+
+      <RunDetailsModal
+        run={selectedRun}
+        open={runDetailsModalOpen}
+        onClose={() => {
+          setRunDetailsModalOpen(false);
+          setSelectedRun(null);
+        }}
+        projectId={projectId}
+      />
     </div>
   );
 }
