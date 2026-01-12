@@ -1,12 +1,12 @@
 #!/bin/bash
 set -e
-# Force rebuild: 20260111_160000 - add visible queue echo for debugging
+# Force rebuild: 20260112_063900 - redeploy after chaos test shutdown
 
 echo "=== AgentVerse Celery Worker Startup ==="
 echo "Environment: ${ENVIRONMENT:-development}"
 echo "Boot ID will be registered on worker_ready signal"
 echo "QUEUES: celery,default,runs,maintenance,legacy"
-echo "BUILD_TIMESTAMP: 20260111_160000"
+echo "BUILD_TIMESTAMP: 20260112_063900"
 
 # Start the Celery worker with embedded Beat scheduler
 # -B enables beat for periodic tasks (heartbeat, cleanup, etc.)
