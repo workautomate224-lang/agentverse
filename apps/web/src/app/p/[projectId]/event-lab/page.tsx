@@ -26,8 +26,9 @@ import {
   Trash2,
   RotateCcw,
 } from 'lucide-react';
-import { useCompileAskPrompt, useForkNode, useUniverseMap } from '@/hooks/useApi';
+import { useForkNode, useUniverseMap } from '@/hooks/useApi';
 import type { AskCandidateScenario, AskCompilationResult } from '@/lib/api';
+import { useMutation } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 
 // Local storage keys
@@ -205,9 +206,26 @@ export default function EventLabPage() {
   const [creatingScenarioId, setCreatingScenarioId] = useState<string | null>(null);
 
   // API hooks
-  const compilePrompt = useCompileAskPrompt();
   const forkNode = useForkNode();
   const { data: universeState } = useUniverseMap(projectId);
+
+  // Direct API call to our fast generation endpoint
+  const generateScenarios = useMutation({
+    mutationFn: async (data: { project_id: string; prompt: string; max_scenarios?: number }) => {
+      const response = await fetch('/api/ask/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Request failed' }));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
+      }
+
+      return response.json() as Promise<AskCompilationResult>;
+    },
+  });
 
   // Load recent prompts and compilations from localStorage
   useEffect(() => {
@@ -262,12 +280,11 @@ export default function EventLabPage() {
 
     saveRecentPrompt(prompt.trim());
 
-    compilePrompt.mutate(
+    generateScenarios.mutate(
       {
         project_id: projectId,
         prompt: prompt.trim(),
         max_scenarios: 5,
-        clustering_enabled: false,
       },
       {
         onSuccess: (result) => {
@@ -276,7 +293,7 @@ export default function EventLabPage() {
         },
       }
     );
-  }, [prompt, projectId, compilePrompt, saveRecentPrompt, saveCompilation]);
+  }, [prompt, projectId, generateScenarios, saveRecentPrompt, saveCompilation]);
 
   // Handle add as branch
   const handleAddAsBranch = useCallback(async (scenario: AskCandidateScenario) => {
@@ -332,8 +349,8 @@ export default function EventLabPage() {
   }, []);
 
   const scenarios = currentCompilation?.candidate_scenarios || [];
-  const isGenerating = compilePrompt.isPending;
-  const generateError = compilePrompt.error;
+  const isGenerating = generateScenarios.isPending;
+  const generateError = generateScenarios.error;
 
   return (
     <div className="min-h-screen bg-black p-4 md:p-6">
