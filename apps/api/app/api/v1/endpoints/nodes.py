@@ -429,8 +429,8 @@ async def fork_node(
     )
 
     try:
-        # Fork the node - returns (Node, Edge) tuple
-        node, edge = await orchestrator.fork_node(
+        # Fork the node - returns (Node, Edge, NodePatch) tuple
+        node, edge, node_patch = await orchestrator.fork_node(
             parent_node_id=request.parent_node_id,
             tenant_id=tenant_ctx.tenant_id,
             scenario_patch=intervention if intervention else None,

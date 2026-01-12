@@ -29,7 +29,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.node import Node, Edge, Run, RunStatus, NodeCluster, TriggeredBy, InterventionType
+from app.models.node import Node, Edge, Run, RunStatus, NodeCluster, TriggeredBy, InterventionType, NodePatch
 from app.services.node_service import (
     NodeService,
     get_node_service,
@@ -476,7 +476,7 @@ class SimulationOrchestrator:
         scenario_patch: Optional[Dict[str, Any]] = None,
         intervention: Optional[Dict[str, Any]] = None,
         explanation: Optional[str] = None,
-    ) -> Tuple[Node, Edge]:
+    ) -> Tuple[Node, Edge, NodePatch]:
         """
         Fork a node to create a new branch.
 
