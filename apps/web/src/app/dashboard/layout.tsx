@@ -2,7 +2,7 @@
 
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Sidebar } from '@/components/dashboard/sidebar';
 import { SkipLink } from '@/components/ui/skip-link';
 import { SKIP_LINK_TARGETS } from '@/lib/accessibility';
@@ -51,6 +51,12 @@ export default function DashboardLayout({
   const { status } = useSession();
   const router = useRouter();
   const { isCollapsed, isMobileOpen, setMobileOpen } = useSidebarStore();
+  const [mounted, setMounted] = useState(false);
+
+  // Handle hydration - ensure component is mounted before rendering mobile UI
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     // If unauthenticated and not loading, redirect to login
@@ -93,17 +99,21 @@ export default function DashboardLayout({
             <span className="text-sm font-mono font-bold tracking-tight text-white">AGENTVERSE</span>
           </div>
           <button
-            onClick={() => setMobileOpen(true)}
-            className="p-2 text-white/60 hover:text-white hover:bg-white/5 transition-colors"
+            type="button"
+            onClick={() => {
+              setMobileOpen(true);
+            }}
+            className="p-2 text-white/60 hover:text-white hover:bg-white/5 transition-colors active:bg-white/10"
             aria-label="Open navigation menu"
+            aria-expanded={isMobileOpen}
           >
             <Menu className="w-5 h-5" />
           </button>
         </div>
       </div>
 
-      {/* Mobile Sidebar Overlay */}
-      {isMobileOpen && (
+      {/* Mobile Sidebar Overlay - Only render after mount to prevent hydration issues */}
+      {mounted && isMobileOpen && (
         <div
           className="fixed inset-0 z-50 md:hidden"
           aria-hidden="true"
