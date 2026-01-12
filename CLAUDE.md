@@ -88,3 +88,27 @@ These constraints are non-negotiable:
 | LLM gateway | `apps/api/app/services/llm_router.py` |
 | Simulation engine | `apps/api/app/engine/` |
 | DB migrations | `apps/api/alembic/versions/` |
+
+## OpenRouter API Configuration (CRITICAL - DO NOT FORGET!)
+
+**OpenRouter API Key** is required for ALL AI-powered features.
+
+### Key Locations
+| Environment | Location | Status |
+|-------------|----------|--------|
+| Local Dev | `apps/web/.env.local` → `OPENROUTER_API_KEY` | ✅ Configured |
+| Railway Staging | Environment variable `OPENROUTER_API_KEY` | ✅ Configured |
+| Production | Vercel/Railway env vars | Must be set |
+
+### Features Using OpenRouter
+- Event Lab scenario generation (`/p/:id/event-lab`)
+- Future AI-powered analysis features
+
+### API Details
+- Provider: OpenRouter (https://openrouter.ai)
+- Default Model: `openai/gpt-4o-mini` (fast, cheap)
+- Endpoint: `https://openrouter.ai/api/v1/chat/completions`
+
+### Implementation
+All OpenRouter calls go through Next.js API routes (e.g., `/api/ask/generate`).
+See `apps/web/CLAUDE.md` for detailed usage patterns.

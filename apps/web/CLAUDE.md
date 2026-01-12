@@ -99,6 +99,7 @@ NEXT_PUBLIC_API_URL=http://localhost:8000  # FastAPI backend URL (empty for prod
 NEXTAUTH_URL=http://localhost:3002         # NextAuth URL
 NEXTAUTH_SECRET=your-dev-secret            # Development secret
 BACKEND_API_URL=http://localhost:8000      # Backend URL for server-side calls
+OPENROUTER_API_KEY=sk-or-v1-xxx            # OpenRouter API key for AI features
 ```
 
 ### Production (Vercel Dashboard)
@@ -107,6 +108,45 @@ Configure these in Vercel project settings (NOT in vercel.json):
 - `NEXT_PUBLIC_WS_URL` - WebSocket URL for real-time updates
 - `NEXTAUTH_SECRET` - Strong production secret (use `openssl rand -base64 32`)
 - `NEXTAUTH_URL` - Production URL (e.g., https://your-domain.vercel.app)
+- `OPENROUTER_API_KEY` - OpenRouter API key for AI features
+
+## OpenRouter API Configuration (IMPORTANT - DO NOT FORGET!)
+
+**OpenRouter API** is used for ALL AI-powered features in the application. This is critical infrastructure.
+
+### API Key Location
+The OpenRouter API key is stored in:
+1. **Local Development**: `apps/web/.env.local` → `OPENROUTER_API_KEY`
+2. **Railway Staging**: Environment variable `OPENROUTER_API_KEY` (already configured)
+3. **Production**: Must be set in Vercel/Railway environment variables
+
+### Features Using OpenRouter
+- **Event Lab** (`/p/:id/event-lab`): Scenario generation from what-if questions
+- **Future features**: Any AI-powered analysis, generation, or compilation
+
+### API Details
+- **Provider**: OpenRouter (https://openrouter.ai)
+- **Default Model**: `openai/gpt-4o-mini` (fast, cheap for testing)
+- **Production Model**: Can upgrade to `openai/gpt-4o` or `anthropic/claude-3-opus`
+- **Endpoint**: `https://openrouter.ai/api/v1/chat/completions`
+
+### Usage Pattern
+```typescript
+// All OpenRouter calls should go through Next.js API routes
+// Example: /api/ask/generate/route.ts
+const response = await fetch(OPENROUTER_URL, {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+    'HTTP-Referer': process.env.NEXTAUTH_URL,
+    'X-Title': 'AgentVerse',
+  },
+  body: JSON.stringify({ model: 'openai/gpt-4o-mini', messages: [...] }),
+});
+```
+
+### Fallback Behavior
+If `OPENROUTER_API_KEY` is not set, AI features will use intelligent mock generation as fallback.
 
 ## Development Commands
 
