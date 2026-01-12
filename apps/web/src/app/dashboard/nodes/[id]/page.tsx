@@ -120,7 +120,29 @@ export default function NodeDetailPage() {
   }
 
   const isRoot = !node.parent_node_id;
-  const confidence = confidenceColors[node.confidence?.confidence_level] || confidenceColors.low;
+  const confidence = confidenceColors[node.confidence?.confidence_level || node.confidence?.level || 'low'] || confidenceColors.low;
+
+  // Helper to safely get run_ref artifact_id (handles both string[] and object[] formats)
+  const getRunRefId = (runRef: unknown): string | null => {
+    if (typeof runRef === 'string') return runRef;
+    if (runRef && typeof runRef === 'object' && 'artifact_id' in runRef) {
+      return (runRef as { artifact_id: string }).artifact_id;
+    }
+    return null;
+  };
+
+  // Helper to convert confidence factors from object to array format
+  const getConfidenceFactors = (): { factor_name: string; score: number; weight: number }[] => {
+    const factors = node.confidence?.factors;
+    if (!factors) return [];
+    if (Array.isArray(factors)) return factors;
+    // Convert object format {run_count: 1, sample_size: 10} to array format
+    return Object.entries(factors).map(([key, value]) => ({
+      factor_name: key.replace(/_/g, ' '),
+      score: typeof value === 'number' ? value / 100 : 0.5,
+      weight: 1
+    }));
+  };
 
   return (
     <div className="min-h-screen bg-black p-6">
@@ -155,7 +177,7 @@ export default function NodeDetailPage() {
                     Baseline
                   </span>
                 )}
-                {node.is_pinned && (
+                {(node.is_pinned ?? false) && (
                   <Pin className="w-4 h-4 text-yellow-400" />
                 )}
               </div>
@@ -229,7 +251,7 @@ export default function NodeDetailPage() {
             <span className="text-xs font-mono text-white/40">Forks</span>
           </div>
           <span className="text-2xl font-mono font-bold text-white">
-            {node.child_count}
+            {node.child_count ?? children.length}
           </span>
         </div>
       </div>
@@ -244,30 +266,33 @@ export default function NodeDetailPage() {
             </span>
           </div>
           <span className={cn('text-2xl font-mono font-bold', confidence.text)}>
-            {((node.confidence?.confidence_score || 0) * 100).toFixed(0)}%
+            {((node.confidence?.confidence_score ?? node.confidence?.score ?? 0) * 100).toFixed(0)}%
           </span>
         </div>
 
-        {node.confidence?.factors && node.confidence.factors.length > 0 && (
-          <div className="space-y-2">
-            <span className="text-xs font-mono text-white/40 uppercase">Confidence Factors</span>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {node.confidence.factors.map((factor, index) => (
-                <div key={index} className="flex items-center justify-between px-3 py-2 bg-black/30">
-                  <span className="text-xs font-mono text-white/60">{factor.factor_name}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-mono text-white">
-                      {(factor.score * 100).toFixed(0)}%
-                    </span>
-                    <span className="text-[10px] font-mono text-white/30">
-                      w:{factor.weight}
-                    </span>
+        {(() => {
+          const factors = getConfidenceFactors();
+          return factors.length > 0 && (
+            <div className="space-y-2">
+              <span className="text-xs font-mono text-white/40 uppercase">Confidence Factors</span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {factors.map((factor, index) => (
+                  <div key={index} className="flex items-center justify-between px-3 py-2 bg-black/30">
+                    <span className="text-xs font-mono text-white/60">{factor.factor_name}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono text-white">
+                        {(factor.score * 100).toFixed(0)}%
+                      </span>
+                      <span className="text-[10px] font-mono text-white/30">
+                        w:{factor.weight}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
 
       {/* Aggregated Outcome Section */}
@@ -417,16 +442,19 @@ export default function NodeDetailPage() {
             <Play className="w-4 h-4 text-white/40" />
             <span className="text-xs font-mono text-white/40">Run</span>
           </div>
-          {node.run_refs && node.run_refs.length > 0 ? (
-            <Link
-              href={`/dashboard/runs/${node.run_refs[0].artifact_id}`}
-              className="text-sm font-mono text-cyan-400 hover:text-cyan-300 hover:underline"
-            >
-              {node.run_refs[0].artifact_id.slice(0, 16)}...
-            </Link>
-          ) : (
-            <span className="text-sm font-mono text-white/30">No runs</span>
-          )}
+          {(() => {
+            const runId = node.run_refs && node.run_refs.length > 0 ? getRunRefId(node.run_refs[0]) : null;
+            return runId ? (
+              <Link
+                href={`/dashboard/runs/${runId}`}
+                className="text-sm font-mono text-cyan-400 hover:text-cyan-300 hover:underline"
+              >
+                {runId.slice(0, 16)}...
+              </Link>
+            ) : (
+              <span className="text-sm font-mono text-white/30">No runs</span>
+            );
+          })()}
         </div>
 
         {/* Telemetry */}
@@ -435,16 +463,19 @@ export default function NodeDetailPage() {
             <BarChart3 className="w-4 h-4 text-white/40" />
             <span className="text-xs font-mono text-white/40">Telemetry</span>
           </div>
-          {node.telemetry_ref ? (
-            <Link
-              href={`/dashboard/runs/${node.run_refs?.[0]?.artifact_id}/telemetry`}
-              className="text-sm font-mono text-cyan-400 hover:text-cyan-300 hover:underline"
-            >
-              View Telemetry
-            </Link>
-          ) : (
-            <span className="text-sm font-mono text-white/30">No telemetry</span>
-          )}
+          {(() => {
+            const runId = node.run_refs && node.run_refs.length > 0 ? getRunRefId(node.run_refs[0]) : null;
+            return (node.telemetry_ref || runId) ? (
+              <Link
+                href={`/dashboard/runs/${runId}/telemetry`}
+                className="text-sm font-mono text-cyan-400 hover:text-cyan-300 hover:underline"
+              >
+                View Telemetry
+              </Link>
+            ) : (
+              <span className="text-sm font-mono text-white/30">No telemetry</span>
+            );
+          })()}
         </div>
       </div>
 

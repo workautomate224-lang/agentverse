@@ -29,6 +29,11 @@ function isSpecNode(node: SpecNode | NodeSummary): node is SpecNode {
   return 'run_refs' in node && Array.isArray((node as SpecNode).run_refs);
 }
 
+// Helper to get run ID from run_refs (handles both string and object formats)
+function getRunId(runRef: string | { artifact_id: string }): string {
+  return typeof runRef === 'string' ? runRef : runRef.artifact_id;
+}
+
 interface NodeCardProps {
   node: SpecNode | NodeSummary;
   isSelected?: boolean;
@@ -80,8 +85,8 @@ export const NodeCard = memo(function NodeCard({
   // Check if node is root (no parent)
   const isRoot = !node.parent_node_id;
 
-  // Get child count
-  const childCount = 'child_count' in node ? node.child_count : 0;
+  // Get child count (safely handle undefined)
+  const childCount = 'child_count' in node ? (node.child_count ?? 0) : 0;
 
   // Compact version (for tree display)
   if (compact) {
@@ -201,13 +206,13 @@ export const NodeCard = memo(function NodeCard({
       {/* Meta Info */}
       <div className="px-4 py-3 grid grid-cols-2 gap-3">
         {/* Run Reference */}
-        {isSpecNode(node) && node.run_refs.length > 0 && (
+        {isSpecNode(node) && node.run_refs && node.run_refs.length > 0 && (
           <div className="flex items-center gap-2">
             <Play className="w-3 h-3 text-white/40" />
             <div>
               <p className="text-[10px] font-mono text-white/40">Run</p>
               <p className="text-xs font-mono text-white truncate">
-                {node.run_refs[0].artifact_id.slice(0, 8)}
+                {getRunId(node.run_refs[0]).slice(0, 8)}
               </p>
             </div>
           </div>
@@ -248,13 +253,13 @@ export const NodeCard = memo(function NodeCard({
                 <GitBranch className="w-3 h-3" />
               </Button>
             )}
-            {isSpecNode(node) && node.run_refs.length > 0 && onViewRun && (
+            {isSpecNode(node) && node.run_refs && node.run_refs.length > 0 && onViewRun && (
               <Button
                 variant="ghost"
                 size="icon-sm"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onViewRun(node.run_refs[0].artifact_id);
+                  onViewRun(getRunId(node.run_refs![0]));
                 }}
                 title="View Run"
               >

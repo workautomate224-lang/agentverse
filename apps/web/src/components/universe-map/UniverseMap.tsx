@@ -41,6 +41,11 @@ import {
 } from '@/hooks/useApi';
 import type { SpecNode, SpecEdge, PathAnalysis, NodeCluster } from '@/lib/api';
 
+// Helper to get run ID from run_refs (handles both string and object formats)
+function getRunId(runRef: string | { artifact_id: string }): string {
+  return typeof runRef === 'string' ? runRef : runRef.artifact_id;
+}
+
 interface UniverseMapProps {
   projectId: string;
   initialSelectedNodeId?: string;
@@ -494,7 +499,7 @@ export const UniverseMap = memo(function UniverseMap({
                       variant="secondary"
                       size="sm"
                       className="w-full"
-                      onClick={() => handleViewRun(fullSelectedNode.run_refs[0].artifact_id)}
+                      onClick={() => handleViewRun(getRunId(fullSelectedNode.run_refs![0]))}
                     >
                       <Play className="w-3 h-3 mr-1" />
                       View Run Details

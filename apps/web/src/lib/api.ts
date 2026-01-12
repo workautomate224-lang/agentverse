@@ -424,10 +424,19 @@ export interface AggregatedOutcome {
 
 // Node Confidence
 export interface NodeConfidence {
-  confidence_level: ConfidenceLevel;
-  confidence_score: number;
-  factors: { factor_name: string; score: number; weight: number; notes?: string }[];
+  confidence_level?: ConfidenceLevel;
+  confidence_score?: number | null;
+  // API may return alternate field names
+  level?: ConfidenceLevel;
+  score?: number | null;
+  // Factors can be array format or object format from different API versions
+  factors?: { factor_name: string; score: number; weight: number; notes?: string }[] | Record<string, number>;
   reliability_ref?: { artifact_type: string; artifact_id: string; storage_path: string; storage_backend: string };
+  // Additional optional fields from API
+  mean?: number | null;
+  std?: number | null;
+  sample_count?: number | null;
+  calibration?: unknown;
 }
 
 // Node (§6.7)
@@ -437,23 +446,27 @@ export interface SpecNode {
   parent_node_id?: string;
   depth: number;
   scenario_patch_ref?: { artifact_type: string; artifact_id: string; storage_path: string; storage_backend: string };
-  run_refs: { artifact_type: string; artifact_id: string; storage_path: string; storage_backend: string }[];
+  // run_refs can be array of strings (run IDs) or array of artifact refs depending on API version
+  run_refs?: (string | { artifact_type: string; artifact_id: string; storage_path: string; storage_backend: string })[];
   aggregated_outcome?: AggregatedOutcome;
   probability: number;
   cumulative_probability: number;
-  confidence: NodeConfidence;
+  confidence?: NodeConfidence;
   telemetry_ref?: { artifact_type: string; artifact_id: string; storage_path: string; storage_backend: string };
   cluster_id?: string;
-  is_cluster_representative: boolean;
+  is_cluster_representative?: boolean;
+  is_cluster_rep?: boolean; // Alternate field name from API
   ui_position?: { x: number; y: number };
-  is_collapsed: boolean;
-  is_pinned: boolean;
+  is_collapsed?: boolean;
+  is_pinned?: boolean;
+  is_pruned?: boolean;
   label?: string;
   description?: string;
   tags?: string[];
-  is_baseline: boolean;
-  is_explored: boolean;
-  child_count: number;
+  is_baseline?: boolean;
+  is_explored?: boolean;
+  explored_at?: string;
+  child_count?: number;
   created_at: string;
   updated_at: string;
 }
