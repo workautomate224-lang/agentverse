@@ -37,6 +37,69 @@ const nextConfig = {
       fallback: [],
     };
   },
+  async redirects() {
+    return [
+      // Projects redirects
+      {
+        source: '/dashboard/projects',
+        destination: '/projects',
+        permanent: true,
+      },
+      {
+        source: '/dashboard/projects/new',
+        destination: '/projects/new',
+        permanent: true,
+      },
+      // Library redirects
+      {
+        source: '/dashboard/library',
+        destination: '/library',
+        permanent: true,
+      },
+      {
+        source: '/dashboard/library/personas',
+        destination: '/library/personas',
+        permanent: true,
+      },
+      {
+        source: '/dashboard/library/templates',
+        destination: '/library/templates',
+        permanent: true,
+      },
+      {
+        source: '/dashboard/library/rulesets',
+        destination: '/library/rulesets',
+        permanent: true,
+      },
+      {
+        source: '/dashboard/library/evidence',
+        destination: '/library/evidence',
+        permanent: true,
+      },
+      // Runs & Jobs redirects
+      {
+        source: '/dashboard/runs',
+        destination: '/runs-jobs',
+        permanent: true,
+      },
+      {
+        source: '/dashboard/runs/:id',
+        destination: '/runs-jobs/:id',
+        permanent: true,
+      },
+      {
+        source: '/dashboard/runs/:id/telemetry',
+        destination: '/runs-jobs/:id/telemetry',
+        permanent: true,
+      },
+      // Calibration redirect
+      {
+        source: '/dashboard/calibration',
+        destination: '/calibration',
+        permanent: true,
+      },
+    ];
+  },
 };
 
 module.exports = nextConfig;

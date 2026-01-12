@@ -40,23 +40,23 @@ interface NavItem {
   children?: NavItem[];
 }
 
-// Primary navigation
+// Primary navigation - using new top-level routes
 const navigation: NavItem[] = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Projects', href: '/dashboard/projects', icon: FolderKanban },
+  { name: 'Projects', href: '/projects', icon: FolderKanban },
   {
     name: 'Library',
-    href: '/dashboard/library',
+    href: '/library',
     icon: Library,
     children: [
-      { name: 'Personas Library', href: '/dashboard/library/personas', icon: Users },
-      { name: 'Templates', href: '/dashboard/library/templates', icon: LayoutTemplate },
-      { name: 'Rulesets', href: '/dashboard/library/rulesets', icon: ScrollText },
-      { name: 'Evidence Source', href: '/dashboard/library/evidence', icon: FileSearch },
+      { name: 'Personas Library', href: '/library/personas', icon: Users },
+      { name: 'Templates', href: '/library/templates', icon: LayoutTemplate },
+      { name: 'Rulesets', href: '/library/rulesets', icon: ScrollText },
+      { name: 'Evidence Source', href: '/library/evidence', icon: FileSearch },
     ],
   },
-  { name: 'Calibration Lab', href: '/dashboard/calibration', icon: FlaskConical },
-  { name: 'Runs & Jobs', href: '/dashboard/runs', icon: ListTodo },
+  { name: 'Calibration Lab', href: '/calibration', icon: FlaskConical },
+  { name: 'Runs & Jobs', href: '/runs-jobs', icon: ListTodo },
   { name: 'Admin', href: '/dashboard/admin', icon: ShieldCheck, roleRequired: 'admin' },
 ];
 

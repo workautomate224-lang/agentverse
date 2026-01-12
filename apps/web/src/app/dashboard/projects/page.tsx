@@ -21,66 +21,64 @@ import {
   Users,
   Target,
   Layers,
+  Loader2,
+  AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-// Mock data for projects
-const mockProjects = [
-  {
-    id: 'proj_001',
-    name: 'GE2026 Malaysia Election Analysis',
-    coreType: 'collective' as const,
-    status: 'active' as const,
-    lastUpdated: '2026-01-10T14:30:00Z',
-    lastRunStatus: 'success' as const,
-    reliability: 87,
-    tags: ['politics', 'malaysia'],
-  },
-  {
-    id: 'proj_002',
-    name: 'Nike Campaign Backlash Risk',
-    coreType: 'target' as const,
-    status: 'active' as const,
-    lastUpdated: '2026-01-08T09:15:00Z',
-    lastRunStatus: 'failed' as const,
-    reliability: 62,
-    tags: ['marketing', 'brand'],
-  },
-  {
-    id: 'proj_003',
-    name: 'Inflation Policy Impact Study',
-    coreType: 'hybrid' as const,
-    status: 'active' as const,
-    lastUpdated: '2026-01-05T16:45:00Z',
-    lastRunStatus: null,
-    reliability: null,
-    tags: ['economics', 'policy'],
-  },
-  {
-    id: 'proj_004',
-    name: 'Q4 Product Launch Sentiment',
-    coreType: 'collective' as const,
-    status: 'archived' as const,
-    lastUpdated: '2025-12-20T11:00:00Z',
-    lastRunStatus: 'success' as const,
-    reliability: 91,
-    tags: ['product'],
-  },
-];
+import {
+  useProjectSpecs,
+  useUpdateProjectSpec,
+  useDuplicateProjectSpec,
+  useDeleteProjectSpec,
+} from '@/hooks/useApi';
+import type { ProjectSpec } from '@/lib/api';
 
 type CoreType = 'collective' | 'target' | 'hybrid';
 type ProjectStatus = 'active' | 'archived';
-type RunStatus = 'success' | 'failed' | null;
+type RunStatus = 'success' | 'failed' | 'running' | null;
 
-interface Project {
+// Extended project type that combines API data with UI needs
+interface ProjectView {
   id: string;
   name: string;
+  description?: string;
+  domain: string;
   coreType: CoreType;
   status: ProjectStatus;
   lastUpdated: string;
   lastRunStatus: RunStatus;
-  reliability: number | null;
+  nodeCount: number;
+  runCount: number;
   tags: string[];
+}
+
+// Map domain to core type (best guess based on domain name)
+function deriveCoreType(domain: string): CoreType {
+  const d = domain.toLowerCase();
+  if (d.includes('target') || d.includes('planner') || d.includes('individual')) {
+    return 'target';
+  }
+  if (d.includes('hybrid') || d.includes('combined') || d.includes('mixed')) {
+    return 'hybrid';
+  }
+  return 'collective'; // default
+}
+
+// Transform API ProjectSpec to UI ProjectView
+function transformProjectSpec(spec: ProjectSpec): ProjectView {
+  return {
+    id: spec.id,
+    name: spec.name,
+    description: spec.description,
+    domain: spec.domain,
+    coreType: deriveCoreType(spec.domain),
+    status: 'active', // API doesn't have status yet, default to active
+    lastUpdated: spec.updated_at,
+    lastRunStatus: spec.run_count > 0 ? 'success' : null, // Simplified - real impl would check actual run status
+    nodeCount: spec.node_count,
+    runCount: spec.run_count,
+    tags: spec.domain ? [spec.domain] : [],
+  };
 }
 
 const coreTypeConfig: Record<CoreType, { label: string; icon: React.ElementType; color: string }> = {
@@ -92,6 +90,7 @@ const coreTypeConfig: Record<CoreType, { label: string; icon: React.ElementType;
 const runStatusConfig: Record<string, { label: string; icon: React.ElementType; color: string }> = {
   success: { label: 'Success', icon: CheckCircle, color: 'text-green-400' },
   failed: { label: 'Failed', icon: XCircle, color: 'text-red-400' },
+  running: { label: 'Running', icon: Loader2, color: 'text-cyan-400' },
   none: { label: 'None', icon: Clock, color: 'text-white/30' },
 };
 
@@ -99,14 +98,26 @@ export default function ProjectsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | ''>('');
   const [coreFilter, setCoreFilter] = useState<CoreType | ''>('');
-  const [projects, setProjects] = useState<Project[]>(mockProjects);
+
+  // Use real API data
+  const { data: projectSpecs, isLoading, error, refetch } = useProjectSpecs({
+    search: searchQuery || undefined,
+  });
+
+  // Mutations
+  const updateProject = useUpdateProjectSpec();
+  const duplicateProject = useDuplicateProjectSpec();
+  const deleteProject = useDeleteProjectSpec();
 
   // Modal states
-  const [renameModal, setRenameModal] = useState<{ open: boolean; project: Project | null }>({ open: false, project: null });
-  const [duplicateModal, setDuplicateModal] = useState<{ open: boolean; project: Project | null }>({ open: false, project: null });
-  const [archiveModal, setArchiveModal] = useState<{ open: boolean; project: Project | null }>({ open: false, project: null });
-  const [deleteModal, setDeleteModal] = useState<{ open: boolean; project: Project | null }>({ open: false, project: null });
+  const [renameModal, setRenameModal] = useState<{ open: boolean; project: ProjectView | null }>({ open: false, project: null });
+  const [duplicateModal, setDuplicateModal] = useState<{ open: boolean; project: ProjectView | null }>({ open: false, project: null });
+  const [archiveModal, setArchiveModal] = useState<{ open: boolean; project: ProjectView | null }>({ open: false, project: null });
+  const [deleteModal, setDeleteModal] = useState<{ open: boolean; project: ProjectView | null }>({ open: false, project: null });
   const [newName, setNewName] = useState('');
+
+  // Transform API data to UI format
+  const projects: ProjectView[] = (projectSpecs || []).map(transformProjectSpec);
 
   // Filter projects
   const filteredProjects = projects.filter(project => {
@@ -118,49 +129,80 @@ export default function ProjectsPage() {
     return matchesSearch && matchesStatus && matchesCore;
   });
 
-  // Action handlers
-  const handleRename = () => {
+  // Action handlers - use real API mutations
+  const handleRename = async () => {
     if (renameModal.project && newName.trim()) {
-      setProjects(prev => prev.map(p =>
-        p.id === renameModal.project!.id ? { ...p, name: newName.trim() } : p
-      ));
-      setRenameModal({ open: false, project: null });
-      setNewName('');
+      try {
+        await updateProject.mutateAsync({
+          projectId: renameModal.project.id,
+          data: { name: newName.trim() }
+        });
+        setRenameModal({ open: false, project: null });
+        setNewName('');
+      } catch {
+        // Error handled by React Query
+      }
     }
   };
 
-  const handleDuplicate = () => {
+  const handleDuplicate = async () => {
     if (duplicateModal.project) {
-      const newProject: Project = {
-        ...duplicateModal.project,
-        id: `proj_${Date.now()}`,
-        name: `${duplicateModal.project.name} (Copy)`,
-        lastUpdated: new Date().toISOString(),
-        lastRunStatus: null,
-        reliability: null,
-      };
-      setProjects(prev => [newProject, ...prev]);
-      setDuplicateModal({ open: false, project: null });
+      try {
+        await duplicateProject.mutateAsync({
+          projectId: duplicateModal.project.id,
+          newName: `${duplicateModal.project.name} (Copy)`
+        });
+        setDuplicateModal({ open: false, project: null });
+      } catch {
+        // Error handled by React Query
+      }
     }
   };
 
   const handleArchive = () => {
+    // Archive functionality not yet in API - show coming soon
     if (archiveModal.project) {
-      setProjects(prev => prev.map(p =>
-        p.id === archiveModal.project!.id
-          ? { ...p, status: p.status === 'active' ? 'archived' : 'active' }
-          : p
-      ));
       setArchiveModal({ open: false, project: null });
     }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (deleteModal.project) {
-      setProjects(prev => prev.filter(p => p.id !== deleteModal.project!.id));
-      setDeleteModal({ open: false, project: null });
+      try {
+        await deleteProject.mutateAsync(deleteModal.project.id);
+        setDeleteModal({ open: false, project: null });
+      } catch {
+        // Error handled by React Query
+      }
     }
   };
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-black p-4 md:p-6 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 text-cyan-400 animate-spin mx-auto mb-4" />
+          <p className="text-sm font-mono text-white/60">Loading projects...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="min-h-screen bg-black p-4 md:p-6 flex items-center justify-center">
+        <div className="text-center max-w-md">
+          <AlertTriangle className="w-8 h-8 text-red-400 mx-auto mb-4" />
+          <p className="text-sm font-mono text-white/60 mb-4">Failed to load projects</p>
+          <Button size="sm" onClick={() => refetch()}>
+            Try Again
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-black p-4 md:p-6">
@@ -172,7 +214,7 @@ export default function ProjectsPage() {
             Manage your prediction projects
           </p>
         </div>
-        <Link href="/dashboard/projects/new">
+        <Link href="/projects/new">
           <Button size="sm" className="w-full sm:w-auto">
             <Plus className="w-3.5 h-3.5 mr-2" />
             New Project
@@ -223,8 +265,8 @@ export default function ProjectsPage() {
             <span className="text-[10px] font-mono text-white/40 uppercase tracking-wider">Project</span>
             <span className="text-[10px] font-mono text-white/40 uppercase tracking-wider">Core</span>
             <span className="text-[10px] font-mono text-white/40 uppercase tracking-wider">Last Updated</span>
-            <span className="text-[10px] font-mono text-white/40 uppercase tracking-wider">Last Run</span>
-            <span className="text-[10px] font-mono text-white/40 uppercase tracking-wider">Reliability</span>
+            <span className="text-[10px] font-mono text-white/40 uppercase tracking-wider">Runs</span>
+            <span className="text-[10px] font-mono text-white/40 uppercase tracking-wider">Nodes</span>
             <span className="text-[10px] font-mono text-white/40 uppercase tracking-wider text-right">Actions</span>
           </div>
 
@@ -276,7 +318,8 @@ export default function ProjectsPage() {
               <Button variant="outline" size="sm" onClick={() => { setRenameModal({ open: false, project: null }); setNewName(''); }}>
                 Cancel
               </Button>
-              <Button size="sm" onClick={handleRename} disabled={!newName.trim()}>
+              <Button size="sm" onClick={handleRename} disabled={!newName.trim() || updateProject.isPending}>
+                {updateProject.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
                 Save
               </Button>
             </div>
@@ -301,7 +344,8 @@ export default function ProjectsPage() {
               <Button variant="outline" size="sm" onClick={() => setDuplicateModal({ open: false, project: null })}>
                 Cancel
               </Button>
-              <Button size="sm" onClick={handleDuplicate}>
+              <Button size="sm" onClick={handleDuplicate} disabled={duplicateProject.isPending}>
+                {duplicateProject.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
                 Duplicate
               </Button>
             </div>
@@ -322,12 +366,12 @@ export default function ProjectsPage() {
                 : <>Restore <span className="text-white">&quot;{archiveModal.project.name}&quot;</span> to active projects?</>
               }
             </p>
+            <p className="text-xs font-mono text-yellow-400/60">
+              Archive functionality coming soon.
+            </p>
             <div className="flex gap-2 justify-end">
               <Button variant="outline" size="sm" onClick={() => setArchiveModal({ open: false, project: null })}>
-                Cancel
-              </Button>
-              <Button size="sm" onClick={handleArchive}>
-                {archiveModal.project.status === 'active' ? 'Archive' : 'Restore'}
+                Close
               </Button>
             </div>
           </div>
@@ -352,7 +396,8 @@ export default function ProjectsPage() {
               <Button variant="outline" size="sm" onClick={() => setDeleteModal({ open: false, project: null })}>
                 Cancel
               </Button>
-              <Button size="sm" variant="destructive" onClick={handleDelete}>
+              <Button size="sm" variant="destructive" onClick={handleDelete} disabled={deleteProject.isPending}>
+                {deleteProject.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
                 Delete Project
               </Button>
             </div>
@@ -370,7 +415,7 @@ function ProjectRow({
   onArchive,
   onDelete
 }: {
-  project: Project;
+  project: ProjectView;
   onRename: () => void;
   onDuplicate: () => void;
   onArchive: () => void;
@@ -409,11 +454,13 @@ function ProjectRow({
           {new Date(project.lastUpdated).toLocaleDateString()}
         </div>
         <div className="flex items-center gap-1">
-          <StatusIcon className={cn('w-3 h-3', runStatus.color)} />
-          <span className={cn('text-xs font-mono', runStatus.color)}>{runStatus.label}</span>
+          <span className="text-xs font-mono text-white">{project.runCount}</span>
+          {project.runCount > 0 && (
+            <StatusIcon className={cn('w-3 h-3', runStatus.color)} />
+          )}
         </div>
         <div className="text-xs font-mono text-white">
-          {project.reliability !== null ? `${project.reliability}%` : '—'}
+          {project.nodeCount}
         </div>
         <div className="flex items-center justify-end gap-2">
           <Link href={`/p/${project.id}/overview`}>
@@ -483,15 +530,12 @@ function ProjectRow({
             <p className="text-white/50">{new Date(project.lastUpdated).toLocaleDateString()}</p>
           </div>
           <div>
-            <span className="text-white/30">Last Run</span>
-            <div className="flex items-center gap-1">
-              <StatusIcon className={cn('w-2.5 h-2.5', runStatus.color)} />
-              <span className={runStatus.color}>{runStatus.label}</span>
-            </div>
+            <span className="text-white/30">Runs</span>
+            <p className="text-white">{project.runCount}</p>
           </div>
           <div>
-            <span className="text-white/30">Reliability</span>
-            <p className="text-white">{project.reliability !== null ? `${project.reliability}%` : '—'}</p>
+            <span className="text-white/30">Nodes</span>
+            <p className="text-white">{project.nodeCount}</p>
           </div>
         </div>
         <Link href={`/p/${project.id}/overview`}>
@@ -513,7 +557,7 @@ function ActionMenu({
   onArchive,
   onDelete
 }: {
-  project: Project;
+  project: ProjectView;
   onClose: () => void;
   onRename: () => void;
   onDuplicate: () => void;
@@ -576,7 +620,7 @@ function EmptyState({ hasProjects }: { hasProjects: boolean }) {
             <p className="text-xs font-mono text-white/30 mb-4">
               Create your first project to start making predictions
             </p>
-            <Link href="/dashboard/projects/new">
+            <Link href="/projects/new">
               <Button size="sm">
                 <Plus className="w-3.5 h-3.5 mr-2" />
                 Create your first project

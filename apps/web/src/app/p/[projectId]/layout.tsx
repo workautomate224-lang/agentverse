@@ -22,10 +22,16 @@ import {
   Play,
   Globe,
   Settings,
-  ChevronDown,
   Target,
   Layers,
   FolderKanban,
+  Sparkles,
+  Network,
+  Crosshair,
+  ShieldCheck,
+  Activity,
+  Map,
+  FileBarChart,
 } from 'lucide-react';
 
 // Mock project data - in real app this would come from API
@@ -35,13 +41,24 @@ const getMockProject = (projectId: string) => ({
   coreType: 'collective' as const,
 });
 
-// Project navigation items
+// Project navigation items - full 12-item navigation
 const projectNavItems = [
   { name: 'Overview', href: 'overview', icon: LayoutDashboard },
   { name: 'Data & Personas', href: 'data-personas', icon: Users },
-  { name: 'Rules & Logic', href: 'rules', icon: ScrollText },
+  { name: 'Rules & Assumptions', href: 'rules', icon: ScrollText },
   { name: 'Run Center', href: 'run-center', icon: Play },
   { name: 'Universe Map', href: 'universe-map', icon: Globe },
+  { name: 'Event Lab', href: 'event-lab', icon: Sparkles },
+  { name: 'Society Simulation', href: 'society', icon: Network },
+  { name: 'Target Planner', href: 'target', icon: Crosshair },
+  { name: 'Reliability', href: 'reliability', icon: ShieldCheck },
+  { name: 'Telemetry & Replay', href: 'replay', icon: Activity },
+  { name: '2D World Viewer', href: 'world', icon: Map },
+  { name: 'Reports', href: 'reports', icon: FileBarChart },
+];
+
+// Secondary navigation
+const secondaryNavItems = [
   { name: 'Settings', href: 'settings', icon: Settings },
 ];
 
@@ -117,7 +134,7 @@ function ProjectSidebar({
       <div className="px-3 py-4 border-b border-white/10">
         <div className="flex items-center justify-between mb-3">
           <Link
-            href="/dashboard/projects"
+            href="/projects"
             className="flex items-center gap-1.5 text-[10px] font-mono text-white/40 hover:text-white transition-colors"
             onClick={handleLinkClick}
           >
@@ -156,7 +173,7 @@ function ProjectSidebar({
       <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
         <div className="px-2 py-1.5">
           <span className="text-[10px] font-mono text-white/30 uppercase tracking-wider">
-            Project
+            Workspace
           </span>
         </div>
         {projectNavItems.map((item) => {
@@ -182,6 +199,38 @@ function ProjectSidebar({
             </Link>
           );
         })}
+
+        {/* Settings Section */}
+        <div className="pt-4">
+          <div className="px-2 py-1.5">
+            <span className="text-[10px] font-mono text-white/30 uppercase tracking-wider">
+              Config
+            </span>
+          </div>
+          {secondaryNavItems.map((item) => {
+            const fullHref = `/p/${projectId}/${item.href}`;
+            const isActive = pathname === fullHref || pathname.startsWith(fullHref + '/');
+            const Icon = item.icon;
+
+            return (
+              <Link
+                key={item.name}
+                href={fullHref}
+                onClick={handleLinkClick}
+                className={cn(
+                  'flex items-center gap-2 px-2 py-1.5 text-xs font-mono transition-all duration-150',
+                  isActive
+                    ? 'bg-white text-black'
+                    : 'text-white/60 hover:text-white hover:bg-white/5'
+                )}
+              >
+                <Icon className="w-3.5 h-3.5 flex-shrink-0" />
+                <span>{item.name}</span>
+                {isActive && <span className="ml-auto text-[10px]">_</span>}
+              </Link>
+            );
+          })}
+        </div>
       </nav>
 
       {/* Quick Actions */}
