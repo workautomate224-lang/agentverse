@@ -266,6 +266,34 @@ The application runs in Docker with the following configuration:
 - Deleted 7 page files, 6 component files
 - Removed ~200 lines of API methods and types
 
+## Auto-Deploy Workflow (REQUIRED)
+
+**IMPORTANT: After EVERY code change, you MUST:**
+
+1. **Commit and push to GitHub:**
+```bash
+cd /Users/mac/Desktop/simulation/agentverse
+git add -A
+git commit -m "Description of changes
+
+Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
+git push origin main
+```
+
+2. **Deploy to Railway staging:**
+```bash
+# Use Railway MCP tools:
+# - workspacePath: /Users/mac/Desktop/simulation/agentverse/apps/web
+# - service: agentverse-web-staging
+```
+
+3. **Staging URL for testing:**
+- https://agentverse-web-staging-production.up.railway.app
+
+**This ensures the user can immediately test changes on the staging site.**
+
+---
+
 ## QA Testing Protocol
 
 **Test Account Credentials** (use for every QA session):
@@ -274,13 +302,11 @@ The application runs in Docker with the following configuration:
 - See `.test-credentials.json` for full config
 
 **Testing Workflow**:
-1. Always test on localhost:3002 FIRST
-2. Fix all issues locally before any deployment
-3. Test ALL dashboard pages, buttons, features
-4. Check browser console for errors
-5. Verify database connectivity
-6. Deploy to Vercel only after local tests pass
-7. Final production test after deployment
+1. Make code changes
+2. Commit and push to GitHub (REQUIRED)
+3. Deploy to Railway staging (REQUIRED)
+4. User tests on https://agentverse-web-staging-production.up.railway.app
+5. Fix any issues and repeat
 
 **Dashboard Pages to Test**:
 - /dashboard (main overview)
