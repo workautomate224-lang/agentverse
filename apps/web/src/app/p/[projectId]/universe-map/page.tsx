@@ -69,6 +69,9 @@ import {
   TrendingUp,
   BarChart3,
   X,
+  Trash2,
+  Sparkles,
+  Zap,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -120,7 +123,8 @@ interface SciFiNodeData {
   forkType: 'ai' | 'manual' | 'baseline';
   childCount: number;
   onFork: () => void;
-  onInspect: () => void;
+  onAiFork: () => void;
+  onDelete: () => void;
   selected?: boolean;
 }
 
@@ -254,17 +258,29 @@ function SciFiNode({ data, selected }: { data: SciFiNodeData; selected?: boolean
           <button
             onClick={(e) => { e.stopPropagation(); data.onFork(); }}
             className="px-2 py-1 bg-purple-500/80 hover:bg-purple-500 text-white text-[10px] font-mono flex items-center gap-1 transition-colors"
+            title="Create manual fork"
           >
             <GitFork className="w-3 h-3" />
             FORK
           </button>
           <button
-            onClick={(e) => { e.stopPropagation(); data.onInspect(); }}
-            className="px-2 py-1 bg-white/10 hover:bg-white/20 text-white/80 text-[10px] font-mono flex items-center gap-1 transition-colors"
+            onClick={(e) => { e.stopPropagation(); data.onAiFork(); }}
+            className="px-2 py-1 bg-emerald-500/80 hover:bg-emerald-500 text-white text-[10px] font-mono flex items-center gap-1 transition-colors"
+            title="Generate AI forks"
           >
-            <Eye className="w-3 h-3" />
-            INSPECT
+            <Sparkles className="w-3 h-3" />
+            AI
           </button>
+          {/* Delete button - only for non-baseline nodes */}
+          {!data.isBaseline && (
+            <button
+              onClick={(e) => { e.stopPropagation(); data.onDelete(); }}
+              className="px-2 py-1 bg-red-500/60 hover:bg-red-500 text-white text-[10px] font-mono flex items-center gap-1 transition-colors"
+              title="Delete this fork"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -578,6 +594,16 @@ function UniverseMapCanvas() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
 
+  // Delete confirmation state
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deletingNode, setDeletingNode] = useState<UniverseNode | null>(null);
+
+  // AI Fork modal state
+  const [aiForkModalOpen, setAiForkModalOpen] = useState(false);
+  const [aiForkingNode, setAiForkingNode] = useState<UniverseNode | null>(null);
+  const [aiForkCount, setAiForkCount] = useState(3);
+  const [aiForkGenerating, setAiForkGenerating] = useState(false);
+
   // API hooks
   const { data: mapData, isLoading: mapLoading, error: mapError, refetch: refetchMap } = useUniverseMapFull(projectId);
   const { data: nodesList, isLoading: nodesLoading, refetch: refetchNodes } = useNodes({ project_id: projectId, limit: 100 });
@@ -792,9 +818,13 @@ function UniverseMapCanvas() {
             setForkingNode(node);
             setForkModalOpen(true);
           },
-          onInspect: () => {
-            setSelectedNodeId(nodeId);
-            setInspectorOpen(true);
+          onAiFork: () => {
+            setAiForkingNode(node);
+            setAiForkModalOpen(true);
+          },
+          onDelete: () => {
+            setDeletingNode(node);
+            setDeleteModalOpen(true);
           },
         },
       });
@@ -893,9 +923,13 @@ function UniverseMapCanvas() {
           setForkingNode(newNode);
           setForkModalOpen(true);
         },
-        onInspect: () => {
-          setSelectedNodeId(newId);
-          setInspectorOpen(true);
+        onAiFork: () => {
+          setAiForkingNode(newNode);
+          setAiForkModalOpen(true);
+        },
+        onDelete: () => {
+          setDeletingNode(newNode);
+          setDeleteModalOpen(true);
         },
       },
     };
@@ -961,6 +995,156 @@ function UniverseMapCanvas() {
     URL.revokeObjectURL(url);
     setExportModalOpen(false);
   }, [universeNodes, projectId]);
+
+  // Handle node double-click to open inspector
+  const handleNodeDoubleClick = useCallback((_event: React.MouseEvent, node: Node) => {
+    setSelectedNodeId(node.id);
+    setInspectorOpen(true);
+  }, []);
+
+  // Handle delete confirmation
+  const handleDeleteConfirm = useCallback(() => {
+    if (!deletingNode || deletingNode.isBaseline) return;
+
+    // Remove the node and its children recursively
+    const nodeIdsToRemove = new Set<string>();
+    const collectChildIds = (nodeId: string) => {
+      nodeIdsToRemove.add(nodeId);
+      // Find children of this node
+      edges.forEach((edge) => {
+        if (edge.source === nodeId) {
+          collectChildIds(edge.target);
+        }
+      });
+    };
+    collectChildIds(deletingNode.id);
+
+    // Remove nodes
+    setNodes((nds) => nds.filter((n) => !nodeIdsToRemove.has(n.id)));
+
+    // Remove edges connected to deleted nodes
+    setEdges((eds) => eds.filter((e) => !nodeIdsToRemove.has(e.source) && !nodeIdsToRemove.has(e.target)));
+
+    // Remove from universeNodes
+    setUniverseNodes((prev) => {
+      const newMap = new Map(prev);
+      nodeIdsToRemove.forEach((id) => newMap.delete(id));
+      return newMap;
+    });
+
+    // Remove saved positions
+    const positions = loadPositions();
+    nodeIdsToRemove.forEach((id) => delete positions[id]);
+    savePositions(positions);
+
+    setDeleteModalOpen(false);
+    setDeletingNode(null);
+  }, [deletingNode, edges, setNodes, setEdges, loadPositions, savePositions]);
+
+  // Handle AI Fork generation
+  const handleAiForkGenerate = useCallback(() => {
+    if (!aiForkingNode) return;
+
+    setAiForkGenerating(true);
+
+    // Get parent's depth
+    const parentFlowNode = nodes.find((n) => n.id === aiForkingNode.id);
+    const parentData = parentFlowNode?.data as SciFiNodeData | undefined;
+    const parentDepth = parentData?.depth ?? 0;
+
+    // Simulate AI-generated scenarios (in real implementation, this would call the backend AI)
+    const aiScenarios = [
+      { name: 'Optimistic Scenario', probability: 0.65 },
+      { name: 'Conservative Scenario', probability: 0.45 },
+      { name: 'Alternative Path', probability: 0.55 },
+      { name: 'High Growth Variant', probability: 0.70 },
+      { name: 'Risk-Adjusted Outcome', probability: 0.40 },
+    ].slice(0, aiForkCount);
+
+    const existingChildCount = edges.filter((e) => e.source === aiForkingNode.id).length;
+    const newNodes: Node[] = [];
+    const newEdges: Edge[] = [];
+    const newUniverseNodeEntries: Array<[string, UniverseNode]> = [];
+    const newPositions: Record<string, { x: number; y: number }> = {};
+
+    aiScenarios.forEach((scenario, index) => {
+      const newId = `ai-fork-${Date.now()}-${index}`;
+      const totalIndex = existingChildCount + index;
+      const xOffset = (totalIndex - Math.floor((existingChildCount + aiScenarios.length) / 2)) * 280;
+
+      const newNode: UniverseNode = {
+        id: newId,
+        label: scenario.name,
+        probability: scenario.probability,
+        confidence: scenario.probability >= 0.6 ? 'high' : scenario.probability >= 0.4 ? 'medium' : 'low',
+        status: 'draft',
+        isBaseline: false,
+        runCount: 0,
+        parentId: aiForkingNode.id,
+        createdAt: new Date().toISOString(),
+        depth: parentDepth + 1,
+        forkType: 'ai',
+        childCount: 0,
+      };
+
+      const position = {
+        x: (parentFlowNode?.position.x || 400) + xOffset,
+        y: (parentFlowNode?.position.y || 50) + 200,
+      };
+
+      newNodes.push({
+        id: newId,
+        type: 'sciFiNode',
+        position,
+        data: {
+          ...newNode,
+          onFork: () => {
+            setForkingNode(newNode);
+            setForkModalOpen(true);
+          },
+          onAiFork: () => {
+            setAiForkingNode(newNode);
+            setAiForkModalOpen(true);
+          },
+          onDelete: () => {
+            setDeletingNode(newNode);
+            setDeleteModalOpen(true);
+          },
+        },
+      });
+
+      newEdges.push({
+        id: `${aiForkingNode.id}-${newId}`,
+        source: aiForkingNode.id,
+        target: newId,
+        type: 'smoothstep',
+        animated: false,
+        style: { stroke: '#10b981', strokeWidth: 2 }, // Green for AI forks
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#10b981' },
+      });
+
+      newUniverseNodeEntries.push([newId, newNode]);
+      newPositions[newId] = position;
+    });
+
+    // Add all new nodes and edges
+    setNodes((nds) => [...nds, ...newNodes]);
+    setEdges((eds) => [...eds, ...newEdges]);
+    setUniverseNodes((prev) => {
+      const newMap = new Map(prev);
+      newUniverseNodeEntries.forEach(([id, node]) => newMap.set(id, node));
+      return newMap;
+    });
+
+    // Save positions
+    const positions = loadPositions();
+    Object.assign(positions, newPositions);
+    savePositions(positions);
+
+    setAiForkGenerating(false);
+    setAiForkModalOpen(false);
+    setAiForkingNode(null);
+  }, [aiForkingNode, aiForkCount, nodes, edges, setNodes, setEdges, loadPositions, savePositions]);
 
   const selectedNode = selectedNodeId ? universeNodes.get(selectedNodeId) : null;
 
@@ -1034,6 +1218,7 @@ function UniverseMapCanvas() {
           edges={edges}
           onNodesChange={handleNodesChange}
           onEdgesChange={onEdgesChange}
+          onNodeDoubleClick={handleNodeDoubleClick}
           nodeTypes={nodeTypes}
           fitView
           fitViewOptions={{ padding: 0.3 }}
@@ -1195,6 +1380,138 @@ function UniverseMapCanvas() {
               CSV
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Modal */}
+      <Dialog open={deleteModalOpen} onOpenChange={(open) => { setDeleteModalOpen(open); if (!open) setDeletingNode(null); }}>
+        <DialogContent className="bg-black border border-red-500/30 max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-white font-mono flex items-center gap-2">
+              <Trash2 className="w-5 h-5 text-red-400" />
+              Delete Fork
+            </DialogTitle>
+            <DialogDescription className="text-white/50 font-mono text-xs">
+              Are you sure you want to delete this fork?
+            </DialogDescription>
+          </DialogHeader>
+          {deletingNode && (
+            <div className="py-4 space-y-3">
+              <div className="p-3 bg-red-500/5 border border-red-500/20">
+                <div className="text-sm font-mono text-white font-medium">{deletingNode.label}</div>
+                <div className="text-xs font-mono text-white/40 mt-1">
+                  {deletingNode.forkType === 'ai' ? 'AI-generated fork' : 'Manual fork'}
+                </div>
+              </div>
+              <div className="text-xs font-mono text-red-400/80">
+                <AlertCircle className="w-3 h-3 inline mr-1" />
+                This will also delete all child forks. This action cannot be undone.
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => { setDeleteModalOpen(false); setDeletingNode(null); }}
+              className="border-white/20 text-white/60"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleDeleteConfirm}
+              className="bg-red-500/80 hover:bg-red-500 text-white"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* AI Fork Modal */}
+      <Dialog open={aiForkModalOpen} onOpenChange={(open) => { setAiForkModalOpen(open); if (!open) setAiForkingNode(null); }}>
+        <DialogContent className="bg-black border border-emerald-500/30 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white font-mono flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-emerald-400" />
+              Generate AI Forks
+            </DialogTitle>
+            <DialogDescription className="text-white/50 font-mono text-xs">
+              Let AI generate alternative scenario branches
+            </DialogDescription>
+          </DialogHeader>
+          {aiForkingNode && (
+            <div className="py-4 space-y-4">
+              <div className="p-3 bg-emerald-500/5 border border-emerald-500/20">
+                <div className="text-[10px] font-mono text-white/40 uppercase mb-1">Parent Node</div>
+                <div className="text-sm font-mono text-white font-medium">{aiForkingNode.label}</div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-mono text-white/60">Number of scenarios to generate</label>
+                <div className="flex items-center gap-3">
+                  {[2, 3, 4, 5].map((num) => (
+                    <button
+                      key={num}
+                      onClick={() => setAiForkCount(num)}
+                      className={cn(
+                        'w-10 h-10 border font-mono text-sm transition-colors',
+                        aiForkCount === num
+                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
+                          : 'bg-white/5 border-white/20 text-white/60 hover:border-white/40'
+                      )}
+                    >
+                      {num}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="p-3 bg-white/5 border border-white/10 space-y-1.5">
+                <div className="text-[10px] font-mono text-white/40 uppercase">AI will generate</div>
+                <ul className="text-xs font-mono text-white/60 space-y-1">
+                  <li className="flex items-center gap-2">
+                    <Zap className="w-3 h-3 text-emerald-400" />
+                    Alternative outcome scenarios
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Zap className="w-3 h-3 text-emerald-400" />
+                    Probability estimates
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Zap className="w-3 h-3 text-emerald-400" />
+                    Confidence levels
+                  </li>
+                </ul>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => { setAiForkModalOpen(false); setAiForkingNode(null); }}
+              className="border-white/20 text-white/60"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAiForkGenerate}
+              disabled={aiForkGenerating}
+              className="bg-emerald-500/80 hover:bg-emerald-500 text-white"
+            >
+              {aiForkGenerating ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Generate {aiForkCount} Forks
+                </>
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
