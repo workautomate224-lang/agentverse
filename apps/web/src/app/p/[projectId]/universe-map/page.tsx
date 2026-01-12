@@ -75,7 +75,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
-  useUniverseMapFull,
+  useUniverseMap,
   useNodes,
   useRuns,
   useCreateRun,
@@ -608,8 +608,8 @@ function UniverseMapCanvas() {
   const [aiForkCount, setAiForkCount] = useState(3);
   const [aiForkGenerating, setAiForkGenerating] = useState(false);
 
-  // API hooks
-  const { data: mapData, isLoading: mapLoading, error: mapError, refetch: refetchMap } = useUniverseMapFull(projectId);
+  // API hooks - using useUniverseMap (not useUniverseMapFull which calls a non-existent endpoint)
+  const { data: mapData, isLoading: mapLoading, error: mapError, refetch: refetchMap } = useUniverseMap(projectId);
   const { data: nodesList, isLoading: nodesLoading, refetch: refetchNodes } = useNodes({ project_id: projectId, limit: 100 });
   const { data: runs, refetch: refetchRuns } = useRuns({ project_id: projectId });
 
@@ -651,7 +651,8 @@ function UniverseMapCanvas() {
 
     // === PHASE 1: Build node tree structure ===
     const baselineId = 'baseline-root';
-    const apiNodes = mapData?.nodes || nodesList || [];
+    // Use nodesList from useNodes hook (mapData only contains state/ids, not actual node data)
+    const apiNodes = nodesList || [];
 
     // Track parent-child relationships for layout
     const childrenMap = new Map<string, string[]>(); // parentId -> [childIds]
@@ -688,15 +689,15 @@ function UniverseMapCanvas() {
 
     // Process API nodes - determine which are baseline updates vs forks
     apiNodes.forEach((apiNode, index) => {
-      const isBaselineNode = ('depth' in apiNode && (apiNode as SpecNode).depth === 0) ||
-                            ('is_baseline' in apiNode && (apiNode as NodeSummary).is_baseline);
+      const isBaselineNode = ('depth' in apiNode && (apiNode as unknown as SpecNode).depth === 0) ||
+                            ('is_baseline' in apiNode && (apiNode as unknown as NodeSummary).is_baseline);
 
       if (isBaselineNode) {
         // Update baseline with API data
         const existing = newUniverseNodes.get(baselineId)!;
         existing.probability = apiNode.probability;
-        if ('confidence' in apiNode && (apiNode as SpecNode).confidence) {
-          existing.confidence = ((apiNode as SpecNode).confidence?.level as 'high' | 'medium' | 'low') || 'medium';
+        if ('confidence' in apiNode && (apiNode as unknown as SpecNode).confidence) {
+          existing.confidence = ((apiNode as unknown as SpecNode).confidence?.level as 'high' | 'medium' | 'low') || 'medium';
         }
         if ('confidence_level' in apiNode) {
           existing.confidence = ((apiNode as NodeSummary).confidence_level as 'high' | 'medium' | 'low') || 'medium';
@@ -710,8 +711,8 @@ function UniverseMapCanvas() {
       // It's a fork node - determine fork type based on label/description patterns
       const nodeId = apiNode.node_id;
       const nodeLabel = apiNode.label || '';
-      const nodeDesc = ('description' in apiNode ? (apiNode as SpecNode).description : '') || '';
-      const apiDepth = ('depth' in apiNode ? (apiNode as SpecNode).depth : 1) || 1;
+      const nodeDesc = ('description' in apiNode ? (apiNode as unknown as SpecNode).description : '') || '';
+      const apiDepth = ('depth' in apiNode ? (apiNode as unknown as SpecNode).depth : 1) || 1;
 
       // AI forks typically have generated labels like "Scenario: X wins" or outcomes
       const isAIFork = nodeLabel.includes('Scenario') ||
@@ -734,14 +735,14 @@ function UniverseMapCanvas() {
         id: nodeId,
         label: apiNode.label || `Fork ${index + 1}`,
         probability: apiNode.probability,
-        confidence: ('confidence_level' in apiNode ? (apiNode as NodeSummary).confidence_level :
-                    'confidence' in apiNode ? (apiNode as SpecNode).confidence?.level : 'medium') as 'high' | 'medium' | 'low',
-        status: ('has_outcome' in apiNode && (apiNode as NodeSummary).has_outcome) ? 'completed' : 'draft',
+        confidence: ('confidence_level' in apiNode ? (apiNode as unknown as NodeSummary).confidence_level :
+                    'confidence' in apiNode ? (apiNode as unknown as SpecNode).confidence?.level : 'medium') as 'high' | 'medium' | 'low',
+        status: ('has_outcome' in apiNode && (apiNode as unknown as NodeSummary).has_outcome) ? 'completed' : 'draft',
         isBaseline: false,
         runCount: 1,
         parentId,
         createdAt: ('created_at' in apiNode ? (apiNode as NodeSummary).created_at : new Date().toISOString()),
-        outcome: ('aggregated_outcome' in apiNode ? (apiNode as SpecNode).aggregated_outcome?.primary_outcome : undefined),
+        outcome: ('aggregated_outcome' in apiNode ? (apiNode as unknown as SpecNode).aggregated_outcome?.primary_outcome : undefined),
         depth: apiDepth,
         forkType: isAIFork ? 'ai' : 'manual',
         childCount: 0,
