@@ -1,53 +1,52 @@
 'use client';
 
 /**
- * Create Project Wizard
- * Multi-step wizard for creating ProjectSpec
- * Reference: Interaction_design.md §5.3, project.md §6.1
+ * Create Project Wizard - 3-Step Flow
+ * Step 1: Goal (textarea + example chips)
+ * Step 2: Pick a Core (Collective/Target/Hybrid)
+ * Step 3: Project Setup (name, tags, visibility)
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import {
   ArrowLeft,
   ArrowRight,
-  Loader2,
   FolderKanban,
   Target,
   Users,
-  TrendingUp,
-  Zap,
-  Upload,
-  FileText,
-  Search,
+  Layers,
   Check,
-  AlertTriangle,
-  BarChart3,
-  Activity,
-  Shield,
   Terminal,
   ChevronRight,
   Lightbulb,
-  Database,
-  Layers,
-  PieChart,
+  Tag,
+  Eye,
+  EyeOff,
+  X,
+  Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useCreateProjectSpec } from '@/hooks/useApi';
-import { toast } from '@/hooks/use-toast';
 
-// Wizard step definitions
+// Wizard step definitions - simplified to 3 steps
 const STEPS = [
   { id: 'goal', label: 'Goal', number: 1 },
-  { id: 'core', label: 'Core', number: 2 },
-  { id: 'data', label: 'Data', number: 3 },
-  { id: 'outputs', label: 'Outputs', number: 4 },
-  { id: 'review', label: 'Review', number: 5 },
+  { id: 'core', label: 'Pick Core', number: 2 },
+  { id: 'setup', label: 'Setup', number: 3 },
 ] as const;
 
 type StepId = typeof STEPS[number]['id'];
+
+// Example goal chips for quick fill
+const EXAMPLE_GOALS = [
+  'GE2026 Malaysia election outcome',
+  'Ad campaign backlash risk assessment',
+  'Policy change impact on inflation sentiment',
+  'New product launch reception prediction',
+  'Brand perception shift after PR crisis',
+];
 
 // Prediction Core options
 const PREDICTION_CORES = [
@@ -58,177 +57,98 @@ const PREDICTION_CORES = [
     description: 'Model how opinions, behaviors, and trends emerge and spread through populations. Best for market trends, social movements, public opinion.',
     icon: Users,
     color: 'cyan',
-    recommended: ['social', 'market', 'political', 'trends'],
   },
   {
-    id: 'targeted',
+    id: 'target',
     name: 'Targeted Decision',
-    subtitle: 'Target Mode',
+    subtitle: 'Planner Mode',
     description: 'Simulate individual decision-making processes for specific personas. Best for consumer choice, voting behavior, product adoption.',
     icon: Target,
     color: 'purple',
-    recommended: ['consumer', 'voting', 'adoption', 'choice'],
   },
   {
     id: 'hybrid',
     name: 'Hybrid Strategic',
-    subtitle: 'Hybrid Mode',
+    subtitle: 'Combined Mode',
     description: 'Combine collective dynamics with targeted decision modeling. Best for complex scenarios involving both social influence and individual choice.',
-    icon: Zap,
-    color: 'yellow',
-    recommended: ['complex', 'strategic', 'combined'],
+    icon: Layers,
+    color: 'amber',
   },
 ] as const;
 
-// Domain hints - aligned with backend schema (marketing, political, finance, custom)
-const DOMAIN_HINTS = [
-  { id: 'marketing', label: 'Market Research', backendValue: 'marketing' },
-  { id: 'political', label: 'Political Analysis', backendValue: 'political' },
-  { id: 'finance', label: 'Financial Decisions', backendValue: 'finance' },
-  { id: 'consumer', label: 'Consumer Behavior', backendValue: 'marketing' },
-  { id: 'social', label: 'Social Trends', backendValue: 'custom' },
-  { id: 'health', label: 'Health & Wellness', backendValue: 'custom' },
-  { id: 'technology', label: 'Technology Adoption', backendValue: 'custom' },
-  { id: 'custom', label: 'Custom Domain', backendValue: 'custom' },
-];
-
-// Map frontend domain to backend-compatible value
-const getDomainBackendValue = (domain: string): string => {
-  const hint = DOMAIN_HINTS.find(d => d.id === domain);
-  return hint?.backendValue || 'custom';
-};
-
-// Persona source options
-const PERSONA_SOURCES = [
-  {
-    id: 'template',
-    name: 'Use Templates',
-    description: 'Start with pre-built persona templates from the marketplace',
-    icon: FileText,
-    estimatedCount: '100-500',
-    uncertainty: 'low',
-  },
-  {
-    id: 'upload',
-    name: 'Upload Data',
-    description: 'Upload your own demographic or survey data',
-    icon: Upload,
-    estimatedCount: 'Varies',
-    uncertainty: 'medium',
-  },
-  {
-    id: 'generate',
-    name: 'AI Generation',
-    description: 'Generate synthetic personas based on your goal',
-    icon: Zap,
-    estimatedCount: '50-200',
-    uncertainty: 'medium',
-  },
-  {
-    id: 'search',
-    name: 'Deep Search',
-    description: 'Advanced persona discovery (can be enabled later)',
-    icon: Search,
-    estimatedCount: '200-1000',
-    uncertainty: 'high',
-    advanced: true,
-  },
-];
-
-// Output metrics options
-const OUTPUT_METRICS = [
-  {
-    id: 'outcome_distribution',
-    name: 'Outcome Probability Distribution',
-    description: 'Probability distribution across possible outcomes',
-    icon: PieChart,
-    default: true,
-  },
-  {
-    id: 'trend_over_time',
-    name: 'Trend Over Time',
-    description: 'How outcomes evolve across simulation ticks',
-    icon: TrendingUp,
-    default: true,
-  },
-  {
-    id: 'key_drivers',
-    name: 'Key Drivers Analysis',
-    description: 'Factors most influencing the predicted outcomes',
-    icon: Activity,
-    default: false,
-  },
-  {
-    id: 'reliability_report',
-    name: 'Reliability Report',
-    description: 'Confidence scores, calibration, and uncertainty metrics',
-    icon: Shield,
-    default: true,
-    required: true,
-  },
-];
+type CoreType = 'collective' | 'target' | 'hybrid';
 
 // Form data interface
 interface WizardFormData {
-  // Step 1: Goal
   goal: string;
-  domain: string;
-  isSensitive: boolean;
-  // Step 2: Core
-  predictionCore: 'collective' | 'targeted' | 'hybrid';
-  // Step 3: Data
-  personaSource: 'template' | 'upload' | 'generate' | 'search';
-  // Step 4: Outputs
-  outputMetrics: string[];
-  // Derived
+  coreType: CoreType;
   name: string;
+  tags: string[];
+  isPublic: boolean;
+}
+
+// Generate a project name from the goal
+function generateProjectName(goal: string): string {
+  if (!goal.trim()) return '';
+  // Take first 40 chars, capitalize first letter
+  const name = goal.slice(0, 40).trim();
+  return name.charAt(0).toUpperCase() + name.slice(1) + (goal.length > 40 ? '...' : '');
+}
+
+// Recommend a core type based on goal keywords
+function getRecommendedCore(goal: string): CoreType {
+  const lowerGoal = goal.toLowerCase();
+
+  // Keywords suggesting collective dynamics
+  const collectiveKeywords = ['election', 'trend', 'movement', 'social', 'public', 'opinion', 'sentiment', 'market'];
+  // Keywords suggesting targeted decision
+  const targetKeywords = ['consumer', 'product', 'launch', 'adoption', 'choice', 'decision', 'brand', 'campaign'];
+
+  const collectiveScore = collectiveKeywords.filter(k => lowerGoal.includes(k)).length;
+  const targetScore = targetKeywords.filter(k => lowerGoal.includes(k)).length;
+
+  if (collectiveScore > targetScore) return 'collective';
+  if (targetScore > collectiveScore) return 'target';
+  if (collectiveScore > 0 && targetScore > 0) return 'hybrid';
+
+  return 'collective'; // Default
 }
 
 export default function CreateProjectWizardPage() {
   const router = useRouter();
-  const createProjectSpec = useCreateProjectSpec();
 
   const [currentStep, setCurrentStep] = useState<StepId>('goal');
   const [formData, setFormData] = useState<WizardFormData>({
     goal: '',
-    domain: '',
-    isSensitive: false,
-    predictionCore: 'collective',
-    personaSource: 'template',
-    outputMetrics: ['outcome_distribution', 'trend_over_time', 'reliability_report'],
+    coreType: 'collective',
     name: '',
+    tags: [],
+    isPublic: true,
   });
-  const [error, setError] = useState('');
+  const [tagInput, setTagInput] = useState('');
 
   // Get current step index
   const currentStepIndex = STEPS.findIndex(s => s.id === currentStep);
 
-  // Recommend core based on domain and goal keywords
-  const recommendedCore = useMemo(() => {
-    const goalLower = formData.goal.toLowerCase();
-    const domainLower = formData.domain.toLowerCase();
-
-    for (const core of PREDICTION_CORES) {
-      if (core.recommended.some(keyword =>
-        goalLower.includes(keyword) || domainLower.includes(keyword)
-      )) {
-        return core.id;
-      }
-    }
-    return 'collective'; // Default
-  }, [formData.goal, formData.domain]);
+  // Get recommended core based on goal
+  const recommendedCore = getRecommendedCore(formData.goal);
 
   // Navigation handlers
   const goToStep = (stepId: StepId) => {
     setCurrentStep(stepId);
-    setError('');
   };
 
   const goNext = () => {
     const nextIndex = currentStepIndex + 1;
     if (nextIndex < STEPS.length) {
+      // Auto-generate name when moving to setup step
+      if (STEPS[nextIndex].id === 'setup' && !formData.name) {
+        setFormData(prev => ({
+          ...prev,
+          name: generateProjectName(prev.goal),
+        }));
+      }
       setCurrentStep(STEPS[nextIndex].id);
-      setError('');
     }
   };
 
@@ -236,7 +156,6 @@ export default function CreateProjectWizardPage() {
     const prevIndex = currentStepIndex - 1;
     if (prevIndex >= 0) {
       setCurrentStep(STEPS[prevIndex].id);
-      setError('');
     }
   };
 
@@ -246,68 +165,49 @@ export default function CreateProjectWizardPage() {
       case 'goal':
         return formData.goal.trim().length >= 10;
       case 'core':
-        return !!formData.predictionCore;
-      case 'data':
-        return !!formData.personaSource;
-      case 'outputs':
-        return formData.outputMetrics.length > 0;
-      case 'review':
-        return true;
+        return !!formData.coreType;
+      case 'setup':
+        return formData.name.trim().length >= 3;
       default:
         return false;
     }
   };
 
-  // Handle form submission
-  const handleSubmit = async () => {
-    setError('');
+  // Handle example chip click
+  const handleExampleClick = (example: string) => {
+    setFormData(prev => ({ ...prev, goal: example }));
+  };
 
-    // Generate name from goal if not set
-    const projectName = formData.name ||
-      formData.goal.slice(0, 50).trim() + (formData.goal.length > 50 ? '...' : '');
+  // Handle tag input
+  const handleAddTag = useCallback(() => {
+    const tag = tagInput.trim().toLowerCase();
+    if (tag && !formData.tags.includes(tag) && formData.tags.length < 5) {
+      setFormData(prev => ({ ...prev, tags: [...prev.tags, tag] }));
+      setTagInput('');
+    }
+  }, [tagInput, formData.tags]);
 
-    try {
-      const project = await createProjectSpec.mutateAsync({
-        name: projectName,
-        description: formData.goal,
-        domain: getDomainBackendValue(formData.domain),
-        settings: {
-          default_horizon: 100,
-          default_tick_rate: 1,
-          default_agent_count: formData.personaSource === 'search' ? 500 : 100,
-          allow_public_templates: !formData.isSensitive,
-        },
-      });
+  const handleRemoveTag = (tagToRemove: string) => {
+    setFormData(prev => ({
+      ...prev,
+      tags: prev.tags.filter(t => t !== tagToRemove),
+    }));
+  };
 
-      toast({
-        title: 'Project Created',
-        description: 'Your project has been created. Run a baseline simulation to get started.',
-        variant: 'success',
-      });
-
-      router.push(`/dashboard/projects/${project.id}`);
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : 'An error occurred';
-      setError(errorMessage);
-      toast({
-        title: 'Error',
-        description: 'Failed to create project. Please try again.',
-        variant: 'destructive',
-      });
+  const handleTagKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAddTag();
     }
   };
 
-  // Toggle output metric
-  const toggleMetric = (metricId: string) => {
-    const metric = OUTPUT_METRICS.find(m => m.id === metricId);
-    if (metric?.required) return; // Can't toggle required metrics
+  // Handle form submission - creates project and navigates to workspace
+  const handleCreate = () => {
+    // Generate a mock project ID (in real app this would come from backend)
+    const mockProjectId = `proj_${Date.now().toString(36)}`;
 
-    setFormData(prev => ({
-      ...prev,
-      outputMetrics: prev.outputMetrics.includes(metricId)
-        ? prev.outputMetrics.filter(id => id !== metricId)
-        : [...prev.outputMetrics, metricId],
-    }));
+    // Navigate to the project workspace
+    router.push(`/p/${mockProjectId}/overview`);
   };
 
   return (
@@ -324,26 +224,26 @@ export default function CreateProjectWizardPage() {
           <FolderKanban className="w-3.5 h-3.5 md:w-4 md:h-4 text-cyan-400" />
           <span className="text-[10px] md:text-xs font-mono text-white/40 uppercase tracking-wider">Create Project</span>
         </div>
-        <h1 className="text-lg md:text-xl font-mono font-bold text-white">Project Wizard</h1>
+        <h1 className="text-lg md:text-xl font-mono font-bold text-white">New Project</h1>
         <p className="text-xs md:text-sm font-mono text-white/50 mt-1">
-          Define your prediction goal and configure your simulation
+          Define your prediction goal and set up your project
         </p>
       </div>
 
       {/* Step Indicator */}
-      <div className="flex items-center gap-0.5 md:gap-1 mb-6 md:mb-8 max-w-3xl overflow-x-auto">
+      <div className="flex items-center gap-1 md:gap-2 mb-6 md:mb-8 max-w-2xl">
         {STEPS.map((step, index) => {
           const isActive = step.id === currentStep;
           const isCompleted = index < currentStepIndex;
           const isClickable = index <= currentStepIndex || (index === currentStepIndex + 1 && isStepValid(currentStep));
 
           return (
-            <div key={step.id} className="flex items-center flex-1 min-w-0">
+            <div key={step.id} className="flex items-center flex-1">
               <button
                 onClick={() => isClickable && goToStep(step.id)}
                 disabled={!isClickable}
                 className={cn(
-                  'flex items-center gap-1 md:gap-2 px-2 md:px-3 py-1.5 md:py-2 border transition-all flex-1',
+                  'flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 md:py-2.5 border transition-all flex-1',
                   isActive
                     ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-400'
                     : isCompleted
@@ -353,136 +253,109 @@ export default function CreateProjectWizardPage() {
                 )}
               >
                 <span className={cn(
-                  'w-4 h-4 md:w-5 md:h-5 flex items-center justify-center text-[9px] md:text-[10px] font-mono font-bold flex-shrink-0',
+                  'w-5 h-5 md:w-6 md:h-6 flex items-center justify-center text-[10px] md:text-xs font-mono font-bold flex-shrink-0',
                   isCompleted ? 'bg-green-500 text-black' : isActive ? 'bg-cyan-500 text-black' : 'bg-white/10'
                 )}>
-                  {isCompleted ? <Check className="w-2.5 h-2.5 md:w-3 md:h-3" /> : step.number}
+                  {isCompleted ? <Check className="w-3 h-3" /> : step.number}
                 </span>
-                <span className="text-[10px] md:text-xs font-mono hidden sm:block truncate">{step.label}</span>
+                <span className="text-xs md:text-sm font-mono hidden sm:block">{step.label}</span>
               </button>
               {index < STEPS.length - 1 && (
-                <ChevronRight className="w-3 h-3 md:w-4 md:h-4 text-white/20 mx-0.5 md:mx-1 flex-shrink-0" />
+                <ChevronRight className="w-4 h-4 text-white/20 mx-1 md:mx-2 flex-shrink-0" />
               )}
             </div>
           );
         })}
       </div>
 
-      {/* Error Display */}
-      {error && (
-        <div className="max-w-3xl mb-4 md:mb-6 bg-red-500/10 border border-red-500/30 p-3 md:p-4">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-3.5 h-3.5 md:w-4 md:h-4 text-red-400 flex-shrink-0" />
-            <p className="text-xs md:text-sm font-mono text-red-400">{error}</p>
-          </div>
-        </div>
-      )}
-
       {/* Step Content */}
-      <div className="max-w-3xl">
+      <div className="max-w-2xl">
         {/* Step 1: Goal */}
         {currentStep === 'goal' && (
           <div className="bg-white/5 border border-white/10 p-4 md:p-6">
             <div className="flex items-center gap-2 mb-4 md:mb-6">
               <Lightbulb className="w-4 h-4 md:w-5 md:h-5 text-cyan-400" />
-              <h2 className="text-base md:text-lg font-mono font-bold text-white">Define Your Prediction Goal</h2>
+              <h2 className="text-base md:text-lg font-mono font-bold text-white">What do you want to predict?</h2>
             </div>
 
             <div className="space-y-4 md:space-y-6">
-              {/* Goal Input */}
+              {/* Goal Textarea */}
               <div>
-                <label className="block text-[10px] md:text-xs font-mono text-white/60 uppercase mb-2">
-                  What do you want to predict? <span className="text-red-400">*</span>
-                </label>
                 <textarea
                   value={formData.goal}
                   onChange={(e) => setFormData({ ...formData, goal: e.target.value })}
-                  placeholder="e.g., How will consumer sentiment shift towards electric vehicles in urban markets over the next 6 months?"
-                  rows={4}
-                  className="w-full px-3 md:px-4 py-2 md:py-3 bg-black border border-white/10 text-xs md:text-sm font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-cyan-500/50"
+                  placeholder="Describe your prediction goal in detail..."
+                  rows={5}
+                  className="w-full px-3 md:px-4 py-2 md:py-3 bg-black border border-white/10 text-sm md:text-base font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-cyan-500/50 resize-none"
                 />
-                <p className="text-[9px] md:text-[10px] font-mono text-white/30 mt-2">
-                  Be specific about what you want to predict, the population, and the timeframe.
-                </p>
-              </div>
-
-              {/* Domain Hints */}
-              <div>
-                <label className="block text-[10px] md:text-xs font-mono text-white/60 uppercase mb-2">
-                  Domain Hint (optional)
-                </label>
-                <div className="flex flex-wrap gap-1.5 md:gap-2">
-                  {DOMAIN_HINTS.map((domain) => (
-                    <button
-                      key={domain.id}
-                      type="button"
-                      onClick={() => setFormData({ ...formData, domain: domain.id })}
-                      className={cn(
-                        'px-2 md:px-3 py-1 md:py-1.5 text-[10px] md:text-xs font-mono border transition-all',
-                        formData.domain === domain.id
-                          ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-400'
-                          : 'bg-white/5 border-white/10 text-white/60 hover:border-white/20'
-                      )}
-                    >
-                      {domain.label}
-                    </button>
-                  ))}
+                <div className="flex justify-between mt-2">
+                  <p className="text-[10px] md:text-xs font-mono text-white/30">
+                    Minimum 10 characters
+                  </p>
+                  <p className={cn(
+                    'text-[10px] md:text-xs font-mono',
+                    formData.goal.length >= 10 ? 'text-green-400' : 'text-white/30'
+                  )}>
+                    {formData.goal.length} characters
+                  </p>
                 </div>
               </div>
 
-              {/* Sensitive Domain */}
-              <div className="p-3 md:p-4 bg-yellow-500/5 border border-yellow-500/20">
-                <label className="flex items-start gap-2 md:gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={formData.isSensitive}
-                    onChange={(e) => setFormData({ ...formData, isSensitive: e.target.checked })}
-                    className="mt-0.5 md:mt-1 w-3.5 h-3.5 md:w-4 md:h-4 bg-white/5 border border-white/20"
-                  />
-                  <div>
-                    <span className="text-[10px] md:text-xs font-mono text-yellow-400 font-bold block">
-                      Sensitive Domain
-                    </span>
-                    <span className="text-[9px] md:text-[10px] font-mono text-white/50">
-                      Enable additional privacy controls and policy checks for sensitive topics
-                      (health, politics, finance, etc.)
-                    </span>
-                  </div>
+              {/* Example Chips */}
+              <div>
+                <label className="block text-[10px] md:text-xs font-mono text-white/40 uppercase mb-2 md:mb-3">
+                  <Sparkles className="w-3 h-3 inline mr-1" />
+                  Quick Examples (click to use)
                 </label>
+                <div className="flex flex-wrap gap-2">
+                  {EXAMPLE_GOALS.map((example) => (
+                    <button
+                      key={example}
+                      type="button"
+                      onClick={() => handleExampleClick(example)}
+                      className={cn(
+                        'px-2.5 md:px-3 py-1.5 text-[10px] md:text-xs font-mono border transition-all',
+                        formData.goal === example
+                          ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-400'
+                          : 'bg-white/5 border-white/10 text-white/60 hover:border-white/30 hover:text-white'
+                      )}
+                    >
+                      {example}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* Step 2: Core Recommendation */}
+        {/* Step 2: Pick a Core */}
         {currentStep === 'core' && (
           <div className="bg-white/5 border border-white/10 p-4 md:p-6">
             <div className="flex items-center gap-2 mb-2">
               <Layers className="w-4 h-4 md:w-5 md:h-5 text-purple-400" />
-              <h2 className="text-sm md:text-lg font-mono font-bold text-white">Select Prediction Core</h2>
+              <h2 className="text-base md:text-lg font-mono font-bold text-white">Pick a Core</h2>
             </div>
             <p className="text-xs md:text-sm font-mono text-white/50 mb-4 md:mb-6">
-              Based on your goal, we recommend <span className="text-cyan-400">{
-                PREDICTION_CORES.find(c => c.id === recommendedCore)?.name
-              }</span>
+              Recommended: <span className="text-cyan-400">{PREDICTION_CORES.find(c => c.id === recommendedCore)?.name}</span>
             </p>
 
-            <div className="space-y-2 md:space-y-3">
+            <div className="space-y-3">
               {PREDICTION_CORES.map((core) => {
-                const isSelected = formData.predictionCore === core.id;
+                const isSelected = formData.coreType === core.id;
                 const isRecommended = core.id === recommendedCore;
                 const Icon = core.icon;
                 const colorClasses = {
-                  cyan: { bg: 'bg-cyan-500/10', border: 'border-cyan-500/50', text: 'text-cyan-400' },
-                  purple: { bg: 'bg-purple-500/10', border: 'border-purple-500/50', text: 'text-purple-400' },
-                  yellow: { bg: 'bg-yellow-500/10', border: 'border-yellow-500/50', text: 'text-yellow-400' },
+                  cyan: { bg: 'bg-cyan-500/10', border: 'border-cyan-500/50', text: 'text-cyan-400', iconBg: 'bg-cyan-500/20' },
+                  purple: { bg: 'bg-purple-500/10', border: 'border-purple-500/50', text: 'text-purple-400', iconBg: 'bg-purple-500/20' },
+                  amber: { bg: 'bg-amber-500/10', border: 'border-amber-500/50', text: 'text-amber-400', iconBg: 'bg-amber-500/20' },
                 }[core.color];
 
                 return (
                   <button
                     key={core.id}
                     type="button"
-                    onClick={() => setFormData({ ...formData, predictionCore: core.id })}
+                    onClick={() => setFormData({ ...formData, coreType: core.id as CoreType })}
                     className={cn(
                       'w-full flex items-start gap-3 md:gap-4 p-3 md:p-4 border transition-all text-left',
                       isSelected
@@ -491,34 +364,34 @@ export default function CreateProjectWizardPage() {
                     )}
                   >
                     <div className={cn(
-                      'w-10 h-10 md:w-12 md:h-12 flex items-center justify-center flex-shrink-0',
-                      isSelected ? colorClasses.bg : 'bg-white/5'
+                      'w-12 h-12 md:w-14 md:h-14 flex items-center justify-center flex-shrink-0',
+                      isSelected ? colorClasses.iconBg : 'bg-white/5'
                     )}>
-                      <Icon className={cn('w-5 h-5 md:w-6 md:h-6', isSelected ? colorClasses.text : 'text-white/40')} />
+                      <Icon className={cn('w-6 h-6 md:w-7 md:h-7', isSelected ? colorClasses.text : 'text-white/40')} />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-1 md:gap-2">
-                        <h3 className={cn('text-xs md:text-sm font-mono font-bold', isSelected ? colorClasses.text : 'text-white')}>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className={cn('text-sm md:text-base font-mono font-bold', isSelected ? colorClasses.text : 'text-white')}>
                           {core.name}
                         </h3>
-                        <span className="text-[9px] md:text-[10px] font-mono text-white/40">
+                        <span className="text-[10px] md:text-xs font-mono text-white/40">
                           ({core.subtitle})
                         </span>
                         {isRecommended && (
-                          <span className="px-1.5 md:px-2 py-0.5 bg-green-500/20 text-green-400 text-[9px] md:text-[10px] font-mono">
+                          <span className="px-2 py-0.5 bg-green-500/20 text-green-400 text-[9px] md:text-[10px] font-mono">
                             RECOMMENDED
                           </span>
                         )}
                       </div>
-                      <p className="text-[10px] md:text-xs font-mono text-white/50 mt-1 line-clamp-2 md:line-clamp-none">
+                      <p className="text-xs md:text-sm font-mono text-white/50 mt-1.5 leading-relaxed">
                         {core.description}
                       </p>
                     </div>
                     <div className={cn(
-                      'w-4 h-4 md:w-5 md:h-5 border flex items-center justify-center flex-shrink-0',
+                      'w-5 h-5 md:w-6 md:h-6 border flex items-center justify-center flex-shrink-0 mt-1',
                       isSelected ? `${colorClasses.border} ${colorClasses.bg}` : 'border-white/20'
                     )}>
-                      {isSelected && <Check className={cn('w-2.5 h-2.5 md:w-3 md:h-3', colorClasses.text)} />}
+                      {isSelected && <Check className={cn('w-3 h-3 md:w-4 md:h-4', colorClasses.text)} />}
                     </div>
                   </button>
                 );
@@ -527,300 +400,189 @@ export default function CreateProjectWizardPage() {
           </div>
         )}
 
-        {/* Step 3: Data & Personas */}
-        {currentStep === 'data' && (
-          <div className="bg-white/5 border border-white/10 p-4 md:p-6">
-            <div className="flex items-center gap-2 mb-2">
-              <Database className="w-4 h-4 md:w-5 md:h-5 text-blue-400" />
-              <h2 className="text-sm md:text-lg font-mono font-bold text-white">Data & Personas Source</h2>
-            </div>
-            <p className="text-xs md:text-sm font-mono text-white/50 mb-4 md:mb-6">
-              Choose how to populate your simulation with personas
-            </p>
-
-            <div className="space-y-2 md:space-y-3">
-              {PERSONA_SOURCES.map((source) => {
-                const isSelected = formData.personaSource === source.id;
-                const Icon = source.icon;
-
-                return (
-                  <button
-                    key={source.id}
-                    type="button"
-                    onClick={() => setFormData({ ...formData, personaSource: source.id as WizardFormData['personaSource'] })}
-                    className={cn(
-                      'w-full flex items-start gap-3 md:gap-4 p-3 md:p-4 border transition-all text-left',
-                      isSelected
-                        ? 'bg-blue-500/10 border-blue-500/50'
-                        : 'bg-black border-white/10 hover:border-white/20',
-                      source.advanced && 'opacity-70'
-                    )}
-                  >
-                    <div className={cn(
-                      'w-8 h-8 md:w-10 md:h-10 flex items-center justify-center flex-shrink-0',
-                      isSelected ? 'bg-blue-500/20' : 'bg-white/5'
-                    )}>
-                      <Icon className={cn('w-4 h-4 md:w-5 md:h-5', isSelected ? 'text-blue-400' : 'text-white/40')} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-1 md:gap-2">
-                        <h3 className={cn('font-mono font-bold text-xs md:text-sm', isSelected ? 'text-blue-400' : 'text-white')}>
-                          {source.name}
-                        </h3>
-                        {source.advanced && (
-                          <span className="px-1.5 md:px-2 py-0.5 bg-white/10 text-white/40 text-[9px] md:text-[10px] font-mono">
-                            ADVANCED
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[10px] md:text-xs font-mono text-white/50 mt-1 line-clamp-2 md:line-clamp-none">
-                        {source.description}
-                      </p>
-                      <div className="flex flex-wrap items-center gap-2 md:gap-4 mt-2">
-                        <span className="text-[9px] md:text-[10px] font-mono text-white/40">
-                          Est. personas: <span className="text-white/60">{source.estimatedCount}</span>
-                        </span>
-                        <span className={cn(
-                          'text-[9px] md:text-[10px] font-mono px-1 md:px-1.5 py-0.5',
-                          source.uncertainty === 'low' ? 'bg-green-500/20 text-green-400' :
-                          source.uncertainty === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
-                          'bg-red-500/20 text-red-400'
-                        )}>
-                          {source.uncertainty.toUpperCase()} UNCERTAINTY
-                        </span>
-                      </div>
-                    </div>
-                    <div className={cn(
-                      'w-4 h-4 md:w-5 md:h-5 border flex items-center justify-center flex-shrink-0',
-                      isSelected ? 'border-blue-500/50 bg-blue-500/20' : 'border-white/20'
-                    )}>
-                      {isSelected && <Check className="w-2.5 h-2.5 md:w-3 md:h-3 text-blue-400" />}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Step 4: Outputs */}
-        {currentStep === 'outputs' && (
-          <div className="bg-white/5 border border-white/10 p-4 md:p-6">
-            <div className="flex items-center gap-2 mb-2">
-              <BarChart3 className="w-4 h-4 md:w-5 md:h-5 text-green-400" />
-              <h2 className="text-sm md:text-lg font-mono font-bold text-white">Output Metrics</h2>
-            </div>
-            <p className="text-xs md:text-sm font-mono text-white/50 mb-4 md:mb-6">
-              Select which metrics to include in your simulation results
-            </p>
-
-            <div className="space-y-2 md:space-y-3">
-              {OUTPUT_METRICS.map((metric) => {
-                const isSelected = formData.outputMetrics.includes(metric.id);
-                const Icon = metric.icon;
-
-                return (
-                  <button
-                    key={metric.id}
-                    type="button"
-                    onClick={() => toggleMetric(metric.id)}
-                    disabled={metric.required}
-                    className={cn(
-                      'w-full flex items-center gap-3 md:gap-4 p-3 md:p-4 border transition-all text-left',
-                      isSelected
-                        ? 'bg-green-500/10 border-green-500/50'
-                        : 'bg-black border-white/10 hover:border-white/20',
-                      metric.required && 'cursor-not-allowed'
-                    )}
-                  >
-                    <div className={cn(
-                      'w-8 h-8 md:w-10 md:h-10 flex items-center justify-center flex-shrink-0',
-                      isSelected ? 'bg-green-500/20' : 'bg-white/5'
-                    )}>
-                      <Icon className={cn('w-4 h-4 md:w-5 md:h-5', isSelected ? 'text-green-400' : 'text-white/40')} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-1 md:gap-2">
-                        <h3 className={cn('font-mono font-bold text-xs md:text-sm', isSelected ? 'text-green-400' : 'text-white')}>
-                          {metric.name}
-                        </h3>
-                        {metric.required && (
-                          <span className="px-1.5 md:px-2 py-0.5 bg-white/10 text-white/40 text-[9px] md:text-[10px] font-mono">
-                            REQUIRED
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[10px] md:text-xs font-mono text-white/50 mt-1 line-clamp-2 md:line-clamp-none">
-                        {metric.description}
-                      </p>
-                    </div>
-                    <div className={cn(
-                      'w-4 h-4 md:w-5 md:h-5 border flex items-center justify-center flex-shrink-0',
-                      isSelected ? 'border-green-500/50 bg-green-500/20' : 'border-white/20'
-                    )}>
-                      {isSelected && <Check className="w-2.5 h-2.5 md:w-3 md:h-3 text-green-400" />}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Step 5: Review & Create */}
-        {currentStep === 'review' && (
-          <div className="space-y-3 md:space-y-4">
+        {/* Step 3: Project Setup */}
+        {currentStep === 'setup' && (
+          <div className="space-y-4">
+            {/* Project Name */}
             <div className="bg-white/5 border border-white/10 p-4 md:p-6">
-              <div className="flex items-center gap-2 mb-4 md:mb-6">
-                <FileText className="w-4 h-4 md:w-5 md:h-5 text-white/60" />
-                <h2 className="text-sm md:text-lg font-mono font-bold text-white">Review Project Configuration</h2>
+              <div className="flex items-center gap-2 mb-4">
+                <FolderKanban className="w-4 h-4 md:w-5 md:h-5 text-white/60" />
+                <h2 className="text-base md:text-lg font-mono font-bold text-white">Project Setup</h2>
               </div>
 
-              {/* Summary */}
-              <div className="space-y-3 md:space-y-4">
-                {/* Goal */}
-                <div className="p-3 md:p-4 bg-black border border-white/10">
-                  <div className="text-[9px] md:text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">Prediction Goal</div>
-                  <p className="text-xs md:text-sm font-mono text-white">{formData.goal}</p>
-                  {formData.domain && (
-                    <span className="inline-block mt-2 px-1.5 md:px-2 py-0.5 bg-white/10 text-[10px] md:text-xs font-mono text-white/60">
-                      {DOMAIN_HINTS.find(d => d.id === formData.domain)?.label}
-                    </span>
+              <div className="space-y-4">
+                {/* Name */}
+                <div>
+                  <label className="block text-[10px] md:text-xs font-mono text-white/60 uppercase mb-2">
+                    Project Name <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    placeholder="Enter project name..."
+                    className="w-full px-3 md:px-4 py-2 md:py-2.5 bg-black border border-white/10 text-sm md:text-base font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-cyan-500/50"
+                  />
+                  <p className="text-[10px] md:text-xs font-mono text-white/30 mt-2">
+                    Auto-generated from your goal. Edit if needed.
+                  </p>
+                </div>
+
+                {/* Tags */}
+                <div>
+                  <label className="block text-[10px] md:text-xs font-mono text-white/60 uppercase mb-2">
+                    <Tag className="w-3 h-3 inline mr-1" />
+                    Tags (optional)
+                  </label>
+                  <div className="flex gap-2 mb-2">
+                    <input
+                      type="text"
+                      value={tagInput}
+                      onChange={(e) => setTagInput(e.target.value)}
+                      onKeyDown={handleTagKeyDown}
+                      placeholder="Add a tag..."
+                      className="flex-1 px-3 py-2 bg-black border border-white/10 text-xs md:text-sm font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-white/30"
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleAddTag}
+                      disabled={!tagInput.trim() || formData.tags.length >= 5}
+                      className="text-xs"
+                    >
+                      Add
+                    </Button>
+                  </div>
+                  {formData.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {formData.tags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="inline-flex items-center gap-1 px-2 py-1 bg-white/10 text-xs font-mono text-white/70"
+                        >
+                          #{tag}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveTag(tag)}
+                            className="text-white/40 hover:text-white"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
                   )}
+                  <p className="text-[10px] font-mono text-white/30 mt-2">
+                    Up to 5 tags. Press Enter to add.
+                  </p>
                 </div>
 
-                {/* Core */}
-                <div className="p-3 md:p-4 bg-black border border-white/10">
-                  <div className="text-[9px] md:text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">Prediction Core</div>
-                  <div className="flex flex-wrap items-center gap-2 md:gap-3">
-                    {(() => {
-                      const core = PREDICTION_CORES.find(c => c.id === formData.predictionCore);
-                      const Icon = core?.icon || Target;
-                      return (
-                        <>
-                          <Icon className="w-4 h-4 md:w-5 md:h-5 text-cyan-400 flex-shrink-0" />
-                          <span className="text-xs md:text-sm font-mono text-white">{core?.name}</span>
-                          <span className="text-[10px] md:text-xs font-mono text-white/40">({core?.subtitle})</span>
-                        </>
-                      );
-                    })()}
+                {/* Visibility */}
+                <div>
+                  <label className="block text-[10px] md:text-xs font-mono text-white/60 uppercase mb-2">
+                    Visibility
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, isPublic: true })}
+                      className={cn(
+                        'flex-1 flex items-center justify-center gap-2 px-3 py-2.5 border transition-all',
+                        formData.isPublic
+                          ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-400'
+                          : 'bg-black border-white/10 text-white/60 hover:border-white/20'
+                      )}
+                    >
+                      <Eye className="w-4 h-4" />
+                      <span className="text-xs font-mono">Public</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, isPublic: false })}
+                      className={cn(
+                        'flex-1 flex items-center justify-center gap-2 px-3 py-2.5 border transition-all',
+                        !formData.isPublic
+                          ? 'bg-purple-500/20 border-purple-500/50 text-purple-400'
+                          : 'bg-black border-white/10 text-white/60 hover:border-white/20'
+                      )}
+                    >
+                      <EyeOff className="w-4 h-4" />
+                      <span className="text-xs font-mono">Private</span>
+                    </button>
                   </div>
-                </div>
-
-                {/* Data Source */}
-                <div className="p-3 md:p-4 bg-black border border-white/10">
-                  <div className="text-[9px] md:text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">Persona Source</div>
-                  <div className="flex flex-wrap items-center gap-2 md:gap-3">
-                    {(() => {
-                      const source = PERSONA_SOURCES.find(s => s.id === formData.personaSource);
-                      const Icon = source?.icon || Users;
-                      return (
-                        <>
-                          <Icon className="w-4 h-4 md:w-5 md:h-5 text-blue-400 flex-shrink-0" />
-                          <span className="text-xs md:text-sm font-mono text-white">{source?.name}</span>
-                          <span className="text-[10px] md:text-xs font-mono text-white/40">
-                            (~{source?.estimatedCount} personas)
-                          </span>
-                        </>
-                      );
-                    })()}
-                  </div>
-                </div>
-
-                {/* Output Metrics */}
-                <div className="p-3 md:p-4 bg-black border border-white/10">
-                  <div className="text-[9px] md:text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">Output Metrics</div>
-                  <div className="flex flex-wrap gap-1.5 md:gap-2">
-                    {formData.outputMetrics.map(metricId => {
-                      const metric = OUTPUT_METRICS.find(m => m.id === metricId);
-                      return (
-                        <span key={metricId} className="px-1.5 md:px-2 py-0.5 md:py-1 bg-green-500/10 border border-green-500/30 text-[10px] md:text-xs font-mono text-green-400">
-                          {metric?.name}
-                        </span>
-                      );
-                    })}
-                  </div>
+                  <p className="text-[10px] font-mono text-white/30 mt-2">
+                    {formData.isPublic
+                      ? 'Project visible to all team members'
+                      : 'Only you can access this project'}
+                  </p>
                 </div>
               </div>
-
-              {/* Sensitive Domain Warning */}
-              {formData.isSensitive && (
-                <div className="mt-3 md:mt-4 p-3 md:p-4 bg-yellow-500/10 border border-yellow-500/30">
-                  <div className="flex items-start gap-2 md:gap-3">
-                    <AlertTriangle className="w-4 h-4 md:w-5 md:h-5 text-yellow-400 flex-shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-[10px] md:text-xs font-mono text-yellow-400 font-bold">Sensitive Domain Enabled</p>
-                      <p className="text-[9px] md:text-[10px] font-mono text-white/50 mt-1">
-                        Additional privacy controls and audit logging will be applied to this project.
-                        Results may be restricted based on your organization&apos;s policies.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
 
-            {/* Project Name (editable) */}
+            {/* Summary */}
             <div className="bg-white/5 border border-white/10 p-4 md:p-6">
-              <div className="text-[9px] md:text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">Project Name</div>
-              <input
-                type="text"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder={formData.goal.slice(0, 50) || 'Auto-generated from goal'}
-                className="w-full px-2.5 md:px-3 py-2 bg-black border border-white/10 text-xs md:text-sm font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-white/20"
-              />
-              <p className="text-[9px] md:text-[10px] font-mono text-white/30 mt-2">
-                Leave blank to auto-generate from your prediction goal
-              </p>
+              <h3 className="text-xs font-mono text-white/40 uppercase mb-3">Summary</h3>
+              <div className="space-y-2 text-sm font-mono">
+                <div className="flex justify-between">
+                  <span className="text-white/50">Goal:</span>
+                  <span className="text-white/80 text-right max-w-[60%] truncate">{formData.goal}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-white/50">Core:</span>
+                  <span className={cn(
+                    'px-2 py-0.5 text-xs',
+                    formData.coreType === 'collective' && 'bg-cyan-500/20 text-cyan-400',
+                    formData.coreType === 'target' && 'bg-purple-500/20 text-purple-400',
+                    formData.coreType === 'hybrid' && 'bg-amber-500/20 text-amber-400'
+                  )}>
+                    {PREDICTION_CORES.find(c => c.id === formData.coreType)?.name}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-white/50">Visibility:</span>
+                  <span className="text-white/80">{formData.isPublic ? 'Public' : 'Private'}</span>
+                </div>
+              </div>
             </div>
           </div>
         )}
 
         {/* Navigation Buttons */}
-        <div className="flex flex-col-reverse sm:flex-row justify-between gap-3 mt-4 md:mt-6">
+        <div className="flex flex-col-reverse sm:flex-row justify-between gap-3 mt-6">
           <div>
             {currentStepIndex > 0 && (
-              <Button variant="secondary" onClick={goBack} size="sm" className="w-full sm:w-auto text-[10px] md:text-xs">
-                <ArrowLeft className="w-3 h-3 mr-1 md:mr-2" />
+              <Button variant="secondary" onClick={goBack} size="sm" className="w-full sm:w-auto text-xs">
+                <ArrowLeft className="w-3 h-3 mr-2" />
                 BACK
               </Button>
             )}
           </div>
           <div className="flex flex-col sm:flex-row gap-2 md:gap-3">
             <Link href="/dashboard/projects" className="w-full sm:w-auto">
-              <Button variant="outline" size="sm" className="w-full text-[10px] md:text-xs">
+              <Button variant="outline" size="sm" className="w-full text-xs">
                 CANCEL
               </Button>
             </Link>
-            {currentStep === 'review' ? (
+            {currentStep === 'setup' ? (
               <Button
-                onClick={handleSubmit}
-                disabled={createProjectSpec.isPending}
+                onClick={handleCreate}
+                disabled={!isStepValid('setup')}
                 size="sm"
-                className="w-full sm:w-auto text-[10px] md:text-xs"
+                className="w-full sm:w-auto text-xs"
               >
-                {createProjectSpec.isPending ? (
-                  <>
-                    <Loader2 className="w-3 h-3 mr-1 md:mr-2 animate-spin" />
-                    CREATING...
-                  </>
-                ) : (
-                  <>
-                    <FolderKanban className="w-3 h-3 mr-1 md:mr-2" />
-                    CREATE PROJECT
-                  </>
-                )}
+                <FolderKanban className="w-3 h-3 mr-2" />
+                CREATE PROJECT
               </Button>
             ) : (
               <Button
                 onClick={goNext}
                 disabled={!isStepValid(currentStep)}
                 size="sm"
-                className="w-full sm:w-auto text-[10px] md:text-xs"
+                className="w-full sm:w-auto text-xs"
               >
                 NEXT
-                <ArrowRight className="w-3 h-3 ml-1 md:ml-2" />
+                <ArrowRight className="w-3 h-3 ml-2" />
               </Button>
             )}
           </div>
@@ -828,13 +590,13 @@ export default function CreateProjectWizardPage() {
       </div>
 
       {/* Footer */}
-      <div className="mt-6 md:mt-8 pt-3 md:pt-4 border-t border-white/5 max-w-3xl">
-        <div className="flex items-center justify-between text-[9px] md:text-[10px] font-mono text-white/30">
+      <div className="mt-8 pt-4 border-t border-white/5 max-w-2xl">
+        <div className="flex items-center justify-between text-[10px] font-mono text-white/30">
           <div className="flex items-center gap-1">
-            <Terminal className="w-2.5 h-2.5 md:w-3 md:h-3" />
-            <span>PROJECT WIZARD</span>
+            <Terminal className="w-3 h-3" />
+            <span>CREATE PROJECT</span>
           </div>
-          <span className="hidden sm:inline">Interaction_design.md §5.3</span>
+          <span>AGENTVERSE v1.0</span>
         </div>
       </div>
     </div>
