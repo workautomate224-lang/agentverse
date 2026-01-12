@@ -102,7 +102,10 @@ export const Sidebar = memo(function Sidebar() {
             return true;
           })
           .map((item) => {
-            const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+            // Dashboard should only be active on exact match (it's the root route)
+            const isActive = item.href === '/dashboard'
+              ? pathname === item.href
+              : pathname === item.href || pathname.startsWith(item.href + '/');
             return (
               <Link
                 key={item.name}
