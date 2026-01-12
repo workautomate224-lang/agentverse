@@ -7,7 +7,8 @@ dockerfilePath = "Dockerfile"
 
 [deploy]
 numReplicas = 1
-healthcheckPath = "/health"
-healthcheckTimeout = 300
+# NOTE: Removed healthcheckPath - the worker service shares this config
+# and Celery workers don't serve HTTP. API health is monitored via
+# Railway's automatic process monitoring and the /health endpoint.
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
