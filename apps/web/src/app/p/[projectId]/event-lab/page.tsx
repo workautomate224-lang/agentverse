@@ -30,6 +30,7 @@ import { useForkNode, useUniverseMap } from '@/hooks/useApi';
 import type { AskCandidateScenario, AskCompilationResult } from '@/lib/api';
 import { useMutation } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
+import { toast } from '@/hooks/use-toast';
 
 // Local storage keys
 const STORAGE_KEY_PREFIX = 'eventlab_';
@@ -299,7 +300,14 @@ export default function EventLabPage() {
   const handleAddAsBranch = useCallback(async (scenario: AskCandidateScenario) => {
     setCreatingScenarioId(scenario.scenario_id);
 
-    // Find the baseline/root node as default parent
+    // Debug toast to confirm button fires
+    toast({
+      title: 'Creating branch...',
+      description: `Adding "${scenario.label}" as a new branch`,
+    });
+
+    // Determine parent node: use root_node_id if available, otherwise 'baseline'
+    // The backend should handle 'baseline' as a special case for new projects
     const parentNodeId = universeState?.root_node_id || 'baseline';
 
     forkNode.mutate(
@@ -315,11 +323,23 @@ export default function EventLabPage() {
       },
       {
         onSuccess: (result) => {
+          // Success toast
+          toast({
+            title: 'Branch created!',
+            description: `Node "${result.node.label || scenario.label}" added to Universe Map`,
+          });
           // Navigate to universe map with the new node selected
           router.push(`/p/${projectId}/universe-map?select=${result.node.node_id}&inspect=true`);
         },
-        onError: () => {
+        onError: (error) => {
           setCreatingScenarioId(null);
+          // Error toast with actual error message
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+          toast({
+            title: 'Failed to create branch',
+            description: errorMessage,
+            variant: 'destructive',
+          });
         },
       }
     );
