@@ -2,13 +2,13 @@
 
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Sidebar } from '@/components/dashboard/sidebar';
 import { SkipLink } from '@/components/ui/skip-link';
 import { SKIP_LINK_TARGETS } from '@/lib/accessibility';
 import { useSidebarStore } from '@/store/sidebar';
 import { cn } from '@/lib/utils';
-import { Terminal, Loader2, Menu } from 'lucide-react';
+import { Terminal, Loader2, Menu, X } from 'lucide-react';
 
 // Loading skeleton for dashboard
 function DashboardSkeleton() {
@@ -51,8 +51,16 @@ export default function DashboardLayout({
   const { status } = useSession();
   const router = useRouter();
   const { isCollapsed } = useSidebarStore();
-  // Use local state for mobile sidebar to avoid Zustand hydration issues
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  // Use local state for mobile sidebar
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+
+  const openMobileSidebar = useCallback(() => {
+    setIsMobileSidebarOpen(true);
+  }, []);
+
+  const closeMobileSidebar = useCallback(() => {
+    setIsMobileSidebarOpen(false);
+  }, []);
 
   useEffect(() => {
     // If unauthenticated and not loading, redirect to login
@@ -96,36 +104,57 @@ export default function DashboardLayout({
           </div>
           <button
             type="button"
-            onClick={() => setMobileMenuOpen(true)}
+            onClick={openMobileSidebar}
             className="p-2 text-white/60 hover:text-white hover:bg-white/5 transition-colors active:bg-white/10"
             aria-label="Open navigation menu"
-            aria-expanded={mobileMenuOpen}
+            aria-expanded={isMobileSidebarOpen}
           >
             <Menu className="w-5 h-5" />
           </button>
         </div>
       </div>
 
-      {/* Mobile Sidebar Overlay */}
-      {mobileMenuOpen && (
+      {/* Mobile Sidebar Overlay - Always render, control visibility with classes */}
+      <div
+        className={cn(
+          'fixed inset-0 z-50 md:hidden transition-opacity duration-200',
+          isMobileSidebarOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        )}
+        aria-hidden={!isMobileSidebarOpen}
+      >
+        {/* Backdrop */}
         <div
-          className="fixed inset-0 z-50 md:hidden"
-          aria-hidden="true"
+          className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+          onClick={closeMobileSidebar}
+        />
+        {/* Mobile Sidebar */}
+        <nav
+          className={cn(
+            'absolute left-0 top-0 bottom-0 w-72 max-w-[85vw] bg-black transition-transform duration-200',
+            isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          )}
+          aria-label="Mobile navigation"
         >
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-            onClick={() => setMobileMenuOpen(false)}
-          />
-          {/* Mobile Sidebar */}
-          <nav
-            className="absolute left-0 top-0 bottom-0 w-72 max-w-[85vw] animate-slide-in-left"
-            aria-label="Mobile navigation"
-          >
-            <Sidebar isMobile onCloseMobile={() => setMobileMenuOpen(false)} />
-          </nav>
-        </div>
-      )}
+          {/* Close button in sidebar header */}
+          <div className="flex items-center justify-between px-3 py-4 border-b border-white/10">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 bg-white flex items-center justify-center">
+                <Terminal className="w-4 h-4 text-black" />
+              </div>
+              <span className="text-sm font-mono font-bold tracking-tight text-white">AGENTVERSE</span>
+            </div>
+            <button
+              type="button"
+              onClick={closeMobileSidebar}
+              className="p-1.5 text-white/40 hover:text-white hover:bg-white/10 transition-colors"
+              aria-label="Close navigation menu"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <Sidebar isMobile onCloseMobile={closeMobileSidebar} />
+        </nav>
+      </div>
 
       {/* Desktop Navigation landmark - Hidden on mobile */}
       <nav
@@ -148,21 +177,6 @@ export default function DashboardLayout({
       >
         {children}
       </main>
-
-      {/* Mobile sidebar animation styles */}
-      <style jsx>{`
-        @keyframes slide-in-left {
-          from {
-            transform: translateX(-100%);
-          }
-          to {
-            transform: translateX(0);
-          }
-        }
-        .animate-slide-in-left {
-          animation: slide-in-left 0.2s ease-out;
-        }
-      `}</style>
     </div>
   );
 }
