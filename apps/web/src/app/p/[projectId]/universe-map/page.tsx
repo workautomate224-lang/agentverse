@@ -2,12 +2,34 @@
 
 /**
  * Universe Map Page
- * Visualize the simulation universe and agent relationships
+ * Infinite canvas with draggable nodes, fork actions, and sci-fi UI
+ * Uses React Flow for professional graph editing experience
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import {
+  ReactFlow,
+  Node,
+  Edge,
+  Background,
+  Controls,
+  MiniMap,
+  useNodesState,
+  useEdgesState,
+  addEdge,
+  Connection,
+  NodeTypes,
+  Panel,
+  useReactFlow,
+  ReactFlowProvider,
+  Handle,
+  Position,
+  MarkerType,
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -17,6 +39,8 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Globe,
   ArrowLeft,
@@ -30,165 +54,312 @@ import {
   RefreshCw,
   Loader2,
   AlertCircle,
-  X,
-  Eye,
-  EyeOff,
-  Users,
   GitBranch,
-  TrendingUp,
-  Clock,
+  GitFork,
+  Play,
+  Pause,
   CheckCircle,
-  Circle,
+  Clock,
+  XCircle,
+  Activity,
+  Layers,
+  Eye,
+  Edit3,
+  Copy,
+  TrendingUp,
+  BarChart3,
+  X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   useUniverseMapFull,
   useNodes,
-  useTargetPersonas,
-  usePersonaTemplates,
+  useRuns,
+  useCreateRun,
+  useStartRun,
 } from '@/hooks/useApi';
-import type { SpecNode, NodeSummary } from '@/lib/api';
+import type { SpecNode, NodeSummary, RunSummary } from '@/lib/api';
 
-// Format probability as percentage
-function formatProbability(prob: number): string {
-  return `${(prob * 100).toFixed(1)}%`;
+// ============ Types ============
+
+interface UniverseNode {
+  id: string;
+  label: string;
+  probability: number;
+  confidence: 'high' | 'medium' | 'low';
+  status: 'draft' | 'queued' | 'running' | 'completed' | 'failed';
+  isBaseline: boolean;
+  runCount: number;
+  parentId: string | null;
+  createdAt: string;
+  outcome?: string;
 }
 
-// Format date for display
-function formatDate(dateString: string): string {
-  const date = new Date(dateString);
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+interface NodePosition {
+  x: number;
+  y: number;
 }
 
-// Confidence badge component
-function ConfidenceBadge({ level }: { level?: string }) {
-  const config: Record<string, { color: string; label: string }> = {
-    high: { color: 'text-green-400 bg-green-400/10', label: 'HIGH' },
-    medium: { color: 'text-yellow-400 bg-yellow-400/10', label: 'MED' },
-    low: { color: 'text-red-400 bg-red-400/10', label: 'LOW' },
+// Storage key for node positions
+const getStorageKey = (projectId: string) => `universe-map-positions-${projectId}`;
+
+// ============ Custom Node Component ============
+
+interface SciFiNodeData {
+  label: string;
+  probability: number;
+  confidence: 'high' | 'medium' | 'low';
+  status: 'draft' | 'queued' | 'running' | 'completed' | 'failed';
+  isBaseline: boolean;
+  runCount: number;
+  outcome?: string;
+  onFork: () => void;
+  onInspect: () => void;
+  selected?: boolean;
+}
+
+function SciFiNode({ data, selected }: { data: SciFiNodeData; selected?: boolean }) {
+  const confidenceColors = {
+    high: { bg: 'bg-green-500/20', border: 'border-green-500/60', text: 'text-green-400' },
+    medium: { bg: 'bg-yellow-500/20', border: 'border-yellow-500/60', text: 'text-yellow-400' },
+    low: { bg: 'bg-red-500/20', border: 'border-red-500/60', text: 'text-red-400' },
   };
 
-  const c = config[level || 'medium'] || config.medium;
+  const statusConfig = {
+    draft: { icon: Edit3, color: 'text-gray-400', label: 'DRAFT' },
+    queued: { icon: Clock, color: 'text-blue-400', label: 'QUEUED' },
+    running: { icon: Activity, color: 'text-cyan-400 animate-pulse', label: 'RUNNING' },
+    completed: { icon: CheckCircle, color: 'text-green-400', label: 'COMPLETED' },
+    failed: { icon: XCircle, color: 'text-red-400', label: 'FAILED' },
+  };
+
+  const conf = confidenceColors[data.confidence];
+  const stat = statusConfig[data.status];
+  const StatusIcon = stat.icon;
 
   return (
-    <span className={cn('inline-flex items-center px-1.5 py-0.5 text-[9px] font-mono uppercase', c.color)}>
-      {c.label}
-    </span>
+    <div
+      className={cn(
+        'relative group transition-all duration-200',
+        selected && 'scale-105'
+      )}
+    >
+      {/* Glow effect for baseline */}
+      {data.isBaseline && (
+        <div className="absolute -inset-2 bg-cyan-500/20 blur-xl rounded-lg opacity-50" />
+      )}
+
+      {/* Main node card */}
+      <div
+        className={cn(
+          'relative w-56 border-2 backdrop-blur-sm transition-all duration-200',
+          data.isBaseline
+            ? 'bg-gradient-to-br from-cyan-950/90 to-blue-950/90 border-cyan-500/70 shadow-cyan-500/20 shadow-lg'
+            : 'bg-gradient-to-br from-purple-950/90 to-violet-950/90 border-purple-500/50 shadow-purple-500/10 shadow-lg',
+          selected && 'ring-2 ring-white/50'
+        )}
+      >
+        {/* Header strip */}
+        <div
+          className={cn(
+            'px-3 py-1.5 flex items-center justify-between border-b',
+            data.isBaseline ? 'bg-cyan-500/10 border-cyan-500/30' : 'bg-purple-500/10 border-purple-500/30'
+          )}
+        >
+          <div className="flex items-center gap-1.5">
+            <GitBranch className={cn('w-3 h-3', data.isBaseline ? 'text-cyan-400' : 'text-purple-400')} />
+            <span className={cn('text-[9px] font-mono uppercase font-semibold', data.isBaseline ? 'text-cyan-400' : 'text-purple-400')}>
+              {data.isBaseline ? 'BASELINE' : 'FORK'}
+            </span>
+          </div>
+          <div className="flex items-center gap-1">
+            <StatusIcon className={cn('w-3 h-3', stat.color)} />
+            <span className={cn('text-[8px] font-mono', stat.color)}>{stat.label}</span>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="p-3 space-y-2.5">
+          {/* Title */}
+          <div className="font-mono text-sm text-white font-medium leading-tight truncate">
+            {data.label}
+          </div>
+
+          {/* Metrics row */}
+          <div className="flex items-center justify-between gap-2">
+            {/* Probability */}
+            <div className="flex-1">
+              <div className="text-[8px] font-mono text-white/40 uppercase mb-0.5">Probability</div>
+              <div className="flex items-center gap-1">
+                <div className="flex-1 h-1.5 bg-white/10 overflow-hidden">
+                  <div
+                    className={cn(
+                      'h-full transition-all',
+                      data.probability >= 0.7 ? 'bg-green-500' :
+                      data.probability >= 0.4 ? 'bg-yellow-500' : 'bg-red-500'
+                    )}
+                    style={{ width: `${data.probability * 100}%` }}
+                  />
+                </div>
+                <span className="text-xs font-mono text-white/80 font-semibold w-12 text-right">
+                  {data.status === 'draft' ? '—' : `${(data.probability * 100).toFixed(1)}%`}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Confidence + Run count */}
+          <div className="flex items-center justify-between">
+            <div className={cn('px-1.5 py-0.5 text-[8px] font-mono uppercase font-semibold', conf.bg, conf.text)}>
+              {data.confidence.toUpperCase()} CONF
+            </div>
+            <div className="flex items-center gap-1 text-[10px] font-mono text-white/50">
+              <Layers className="w-3 h-3" />
+              <span>{data.runCount} runs</span>
+            </div>
+          </div>
+
+          {/* Outcome preview */}
+          {data.outcome && data.status === 'completed' && (
+            <div className="text-[10px] font-mono text-white/50 truncate border-t border-white/10 pt-2 mt-2">
+              {data.outcome}
+            </div>
+          )}
+        </div>
+
+        {/* Hover actions */}
+        <div className={cn(
+          'absolute -bottom-10 left-0 right-0 flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity',
+        )}>
+          <button
+            onClick={(e) => { e.stopPropagation(); data.onFork(); }}
+            className="px-2 py-1 bg-purple-500/80 hover:bg-purple-500 text-white text-[10px] font-mono flex items-center gap-1 transition-colors"
+          >
+            <GitFork className="w-3 h-3" />
+            FORK
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); data.onInspect(); }}
+            className="px-2 py-1 bg-white/10 hover:bg-white/20 text-white/80 text-[10px] font-mono flex items-center gap-1 transition-colors"
+          >
+            <Eye className="w-3 h-3" />
+            INSPECT
+          </button>
+        </div>
+      </div>
+
+      {/* Connection handles */}
+      <Handle
+        type="target"
+        position={Position.Top}
+        className={cn(
+          'w-3 h-3 border-2 !bg-black',
+          data.isBaseline ? '!border-cyan-500' : '!border-purple-500'
+        )}
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className={cn(
+          'w-3 h-3 border-2 !bg-black',
+          data.isBaseline ? '!border-cyan-500' : '!border-purple-500'
+        )}
+      />
+    </div>
   );
 }
 
-// Filter Panel Component
-function FilterPanel({
+const nodeTypes: NodeTypes = {
+  sciFiNode: SciFiNode,
+};
+
+// ============ Fork Modal ============
+
+function ForkModal({
   open,
   onClose,
-  filters,
-  onFiltersChange,
+  parentNode,
+  onFork,
 }: {
   open: boolean;
   onClose: () => void;
-  filters: {
-    showLowConfidence: boolean;
-    probabilityThreshold: number;
-    nodeTypes: string[];
-  };
-  onFiltersChange: (filters: {
-    showLowConfidence: boolean;
-    probabilityThreshold: number;
-    nodeTypes: string[];
-  }) => void;
+  parentNode: UniverseNode | null;
+  onFork: (name: string, description: string, variables: string) => void;
 }) {
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [variables, setVariables] = useState('');
+
+  const handleSubmit = () => {
+    onFork(name || `Fork of ${parentNode?.label || 'Node'}`, description, variables);
+    setName('');
+    setDescription('');
+    setVariables('');
+  };
+
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <DialogContent className="bg-black border border-white/10 max-w-sm">
+      <DialogContent className="bg-black border border-purple-500/30 max-w-md">
         <DialogHeader>
           <DialogTitle className="text-white font-mono flex items-center gap-2">
-            <Filter className="w-5 h-5 text-cyan-400" />
-            Filter Universe Map
+            <GitFork className="w-5 h-5 text-purple-400" />
+            Fork Universe
           </DialogTitle>
           <DialogDescription className="text-white/50 font-mono text-xs">
-            Adjust visibility settings for nodes
+            Create a divergent simulation branch from "{parentNode?.label}"
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
           <div>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={filters.showLowConfidence}
-                onChange={(e) =>
-                  onFiltersChange({ ...filters, showLowConfidence: e.target.checked })
-                }
-                className="w-4 h-4 bg-white/5 border border-white/20 rounded"
-              />
-              <span className="text-xs font-mono text-white/80">Show low confidence nodes</span>
-            </label>
+            <label className="block text-xs font-mono text-white/60 mb-2">Fork Name</label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g., Tariff Increase Scenario"
+              className="font-mono text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-mono text-white/60 mb-2">Description</label>
+            <Textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="What changes in this fork?"
+              className="font-mono text-sm min-h-[80px]"
+            />
           </div>
 
           <div>
             <label className="block text-xs font-mono text-white/60 mb-2">
-              Probability Threshold: {(filters.probabilityThreshold * 100).toFixed(0)}%
+              Variable Overrides <span className="text-white/30">(JSON)</span>
             </label>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={filters.probabilityThreshold * 100}
-              onChange={(e) =>
-                onFiltersChange({ ...filters, probabilityThreshold: Number(e.target.value) / 100 })
-              }
-              className="w-full h-1 bg-white/10 rounded appearance-none cursor-pointer"
+            <Textarea
+              value={variables}
+              onChange={(e) => setVariables(e.target.value)}
+              placeholder='{"tariff_rate": 0.25, "inflation": 0.05}'
+              className="font-mono text-xs min-h-[60px]"
             />
-            <div className="flex justify-between text-[10px] font-mono text-white/40 mt-1">
-              <span>0%</span>
-              <span>100%</span>
-            </div>
           </div>
 
-          <div>
-            <label className="block text-xs font-mono text-white/60 mb-2">Node Types</label>
-            <div className="space-y-2">
-              {['baseline', 'fork', 'cluster'].map((type) => (
-                <label key={type} className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={filters.nodeTypes.includes(type)}
-                    onChange={(e) => {
-                      const newTypes = e.target.checked
-                        ? [...filters.nodeTypes, type]
-                        : filters.nodeTypes.filter((t) => t !== type);
-                      onFiltersChange({ ...filters, nodeTypes: newTypes });
-                    }}
-                    className="w-4 h-4 bg-white/5 border border-white/20 rounded"
-                  />
-                  <span className="text-xs font-mono text-white/80 capitalize">{type}</span>
-                </label>
-              ))}
-            </div>
+          <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-xs font-mono">
+            <AlertCircle className="w-3 h-3 inline mr-1" />
+            Fork API endpoint coming soon. Node will be created as Draft.
           </div>
         </div>
 
         <DialogFooter className="flex justify-end gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() =>
-              onFiltersChange({
-                showLowConfidence: true,
-                probabilityThreshold: 0,
-                nodeTypes: ['baseline', 'fork', 'cluster'],
-              })
-            }
-          >
-            Reset
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Cancel
           </Button>
-          <Button size="sm" onClick={onClose} className="bg-cyan-500 hover:bg-cyan-600">
-            Apply Filters
+          <Button
+            size="sm"
+            onClick={handleSubmit}
+            className="bg-purple-500 hover:bg-purple-600 text-white"
+          >
+            <GitFork className="w-3 h-3 mr-2" />
+            Create Fork
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -196,178 +367,480 @@ function FilterPanel({
   );
 }
 
-// Node Inspector Modal
-function NodeInspectorModal({
+// ============ Inspector Panel ============
+
+function InspectorPanel({
   node,
-  open,
   onClose,
   projectId,
+  onFork,
 }: {
-  node: SpecNode | NodeSummary | null;
-  open: boolean;
+  node: UniverseNode | null;
   onClose: () => void;
   projectId: string;
+  onFork: (node: UniverseNode) => void;
 }) {
   if (!node) return null;
 
-  const isFullNode = 'depth' in node;
+  const statusConfig = {
+    draft: { color: 'text-gray-400 bg-gray-400/10', label: 'Draft' },
+    queued: { color: 'text-blue-400 bg-blue-400/10', label: 'Queued' },
+    running: { color: 'text-cyan-400 bg-cyan-400/10', label: 'Running' },
+    completed: { color: 'text-green-400 bg-green-400/10', label: 'Completed' },
+    failed: { color: 'text-red-400 bg-red-400/10', label: 'Failed' },
+  };
+
+  const stat = statusConfig[node.status];
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <DialogContent className="bg-black border border-white/10 max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="text-white font-mono flex items-center gap-2">
-            <GitBranch className="w-5 h-5 text-cyan-400" />
-            Node Inspector
-          </DialogTitle>
-        </DialogHeader>
+    <div className="absolute right-0 top-0 bottom-0 w-80 bg-black/95 border-l border-white/10 z-50 overflow-y-auto">
+      {/* Header */}
+      <div className="p-4 border-b border-white/10 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <GitBranch className={cn('w-4 h-4', node.isBaseline ? 'text-cyan-400' : 'text-purple-400')} />
+          <span className="font-mono text-sm text-white font-semibold">Node Inspector</span>
+        </div>
+        <button onClick={onClose} className="text-white/40 hover:text-white/80 transition-colors">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
 
-        <div className="space-y-4 py-4">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-mono text-white/60">Node ID</span>
-            <span className="text-xs font-mono text-white/80">{node.node_id.slice(0, 12)}...</span>
-          </div>
-
-          {node.label && (
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-mono text-white/60">Label</span>
-              <span className="text-xs font-mono text-white/80">{node.label}</span>
-            </div>
-          )}
-
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-mono text-white/60">Probability</span>
-            <span className="text-xs font-mono text-white/80">{formatProbability(node.probability)}</span>
-          </div>
-
-          {'confidence_level' in node && (
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-mono text-white/60">Confidence</span>
-              <ConfidenceBadge level={node.confidence_level} />
-            </div>
-          )}
-
-          {isFullNode && (
-            <>
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-mono text-white/60">Depth</span>
-                <span className="text-xs font-mono text-white/80">{(node as SpecNode).depth}</span>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-mono text-white/60">Cumulative Probability</span>
-                <span className="text-xs font-mono text-white/80">
-                  {formatProbability((node as SpecNode).cumulative_probability)}
-                </span>
-              </div>
-
-              {(node as SpecNode).run_refs && (node as SpecNode).run_refs!.length > 0 && (
-                <div>
-                  <span className="text-xs font-mono text-white/60 block mb-2">
-                    Associated Runs ({(node as SpecNode).run_refs!.length})
-                  </span>
-                  <div className="bg-white/5 border border-white/10 p-2 max-h-24 overflow-y-auto">
-                    {(node as SpecNode).run_refs!.map((ref, i) => (
-                      <div key={i} className="text-[10px] font-mono text-white/60">
-                        {typeof ref === 'string' ? ref.slice(0, 16) + '...' : ref.artifact_id.slice(0, 16) + '...'}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {(node as SpecNode).aggregated_outcome && (
-                <div>
-                  <span className="text-xs font-mono text-white/60 block mb-2">Outcome</span>
-                  <div className="bg-white/5 border border-white/10 p-2 text-[10px] font-mono text-white/60">
-                    {(node as SpecNode).aggregated_outcome?.primary_outcome || 'N/A'}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-
-          {'is_baseline' in node && (
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-mono text-white/60">Type</span>
-              <span className={cn(
-                'text-xs font-mono',
-                (node as NodeSummary).is_baseline ? 'text-cyan-400' : 'text-purple-400'
-              )}>
-                {(node as NodeSummary).is_baseline ? 'Baseline' : 'Fork'}
-              </span>
-            </div>
-          )}
-
-          {'child_count' in node && (
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-mono text-white/60">Children</span>
-              <span className="text-xs font-mono text-white/80">{(node as NodeSummary).child_count}</span>
-            </div>
-          )}
-
-          {'created_at' in node && (
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-mono text-white/60">Created</span>
-              <span className="text-xs font-mono text-white/80">{formatDate((node as NodeSummary).created_at)}</span>
-            </div>
-          )}
+      {/* Content */}
+      <div className="p-4 space-y-4">
+        {/* Title */}
+        <div>
+          <div className="text-[10px] font-mono text-white/40 uppercase mb-1">Name</div>
+          <div className="font-mono text-white text-sm">{node.label}</div>
         </div>
 
-        <DialogFooter className="flex justify-end gap-2">
-          {'has_outcome' in node && (node as NodeSummary).has_outcome && (
-            <Link href={`/p/${projectId}/results?node=${node.node_id}`}>
-              <Button size="sm" className="bg-cyan-500 hover:bg-cyan-600">
+        {/* Type */}
+        <div>
+          <div className="text-[10px] font-mono text-white/40 uppercase mb-1">Type</div>
+          <span className={cn(
+            'inline-flex items-center px-2 py-0.5 text-xs font-mono',
+            node.isBaseline ? 'bg-cyan-500/20 text-cyan-400' : 'bg-purple-500/20 text-purple-400'
+          )}>
+            {node.isBaseline ? 'BASELINE ROOT' : 'FORK'}
+          </span>
+        </div>
+
+        {/* Status */}
+        <div>
+          <div className="text-[10px] font-mono text-white/40 uppercase mb-1">Status</div>
+          <span className={cn('inline-flex items-center px-2 py-0.5 text-xs font-mono', stat.color)}>
+            {stat.label}
+          </span>
+        </div>
+
+        {/* Probability */}
+        <div>
+          <div className="text-[10px] font-mono text-white/40 uppercase mb-1">Probability</div>
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-2 bg-white/10">
+              <div
+                className={cn(
+                  'h-full',
+                  node.probability >= 0.7 ? 'bg-green-500' :
+                  node.probability >= 0.4 ? 'bg-yellow-500' : 'bg-red-500'
+                )}
+                style={{ width: `${node.probability * 100}%` }}
+              />
+            </div>
+            <span className="text-sm font-mono text-white font-semibold">
+              {node.status === 'draft' ? 'Pending' : `${(node.probability * 100).toFixed(1)}%`}
+            </span>
+          </div>
+        </div>
+
+        {/* Confidence */}
+        <div>
+          <div className="text-[10px] font-mono text-white/40 uppercase mb-1">Confidence</div>
+          <span className={cn(
+            'inline-flex items-center px-2 py-0.5 text-xs font-mono uppercase',
+            node.confidence === 'high' ? 'bg-green-500/20 text-green-400' :
+            node.confidence === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
+            'bg-red-500/20 text-red-400'
+          )}>
+            {node.confidence}
+          </span>
+        </div>
+
+        {/* Run count */}
+        <div>
+          <div className="text-[10px] font-mono text-white/40 uppercase mb-1">Simulation Runs</div>
+          <div className="font-mono text-white text-sm">{node.runCount}</div>
+        </div>
+
+        {/* Created */}
+        <div>
+          <div className="text-[10px] font-mono text-white/40 uppercase mb-1">Created</div>
+          <div className="font-mono text-white/60 text-xs">
+            {new Date(node.createdAt).toLocaleString()}
+          </div>
+        </div>
+
+        {/* Node ID */}
+        <div>
+          <div className="text-[10px] font-mono text-white/40 uppercase mb-1">Node ID</div>
+          <div className="font-mono text-white/40 text-[10px] break-all">{node.id}</div>
+        </div>
+
+        {/* Outcome */}
+        {node.outcome && (
+          <div>
+            <div className="text-[10px] font-mono text-white/40 uppercase mb-1">Outcome</div>
+            <div className="p-2 bg-white/5 border border-white/10 text-xs font-mono text-white/60">
+              {node.outcome}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="p-4 border-t border-white/10 space-y-2">
+        <Button
+          size="sm"
+          onClick={() => onFork(node)}
+          className="w-full bg-purple-500 hover:bg-purple-600 text-white text-xs font-mono"
+        >
+          <GitFork className="w-3 h-3 mr-2" />
+          Fork This Universe
+        </Button>
+
+        {node.status === 'draft' && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full text-xs font-mono"
+            disabled
+          >
+            <Play className="w-3 h-3 mr-2" />
+            Run Simulation (Coming Soon)
+          </Button>
+        )}
+
+        {node.status === 'completed' && (
+          <>
+            <Link href={`/p/${projectId}/results?node=${node.id}`} className="block">
+              <Button size="sm" variant="outline" className="w-full text-xs font-mono">
                 <TrendingUp className="w-3 h-3 mr-2" />
                 View Results
               </Button>
             </Link>
-          )}
-          <Link href={`/p/${projectId}/replay?node=${node.node_id}`}>
-            <Button size="sm" variant="outline">
-              <Eye className="w-3 h-3 mr-2" />
-              Open in Replay
-            </Button>
-          </Link>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            Close
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+            <Link href={`/p/${projectId}/replay?node=${node.id}`} className="block">
+              <Button size="sm" variant="outline" className="w-full text-xs font-mono">
+                <Eye className="w-3 h-3 mr-2" />
+                Open in Replay
+              </Button>
+            </Link>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
-// Export Modal
-function ExportModal({
-  open,
-  onClose,
-  nodes,
-  projectId,
-}: {
-  open: boolean;
-  onClose: () => void;
-  nodes: (SpecNode | NodeSummary)[];
-  projectId: string;
-}) {
-  const [format, setFormat] = useState<'json' | 'csv'>('json');
+// ============ Main Component ============
 
-  const handleExport = () => {
+function UniverseMapCanvas() {
+  const params = useParams();
+  const projectId = params.projectId as string;
+  const { fitView, zoomIn, zoomOut } = useReactFlow();
+
+  // State
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [universeNodes, setUniverseNodes] = useState<Map<string, UniverseNode>>(new Map());
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [forkModalOpen, setForkModalOpen] = useState(false);
+  const [forkingNode, setForkingNode] = useState<UniverseNode | null>(null);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+
+  // API hooks
+  const { data: mapData, isLoading: mapLoading, error: mapError, refetch: refetchMap } = useUniverseMapFull(projectId);
+  const { data: nodesList, isLoading: nodesLoading, refetch: refetchNodes } = useNodes({ project_id: projectId, limit: 100 });
+  const { data: runs, refetch: refetchRuns } = useRuns({ project_id: projectId });
+
+  const isLoading = mapLoading || nodesLoading;
+
+  // Load saved positions from localStorage
+  const loadPositions = useCallback((): Record<string, NodePosition> => {
+    try {
+      const saved = localStorage.getItem(getStorageKey(projectId));
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  }, [projectId]);
+
+  // Save positions to localStorage
+  const savePositions = useCallback((positions: Record<string, NodePosition>) => {
+    try {
+      localStorage.setItem(getStorageKey(projectId), JSON.stringify(positions));
+    } catch {
+      // Ignore storage errors
+    }
+  }, [projectId]);
+
+  // Build universe nodes from API data
+  const buildUniverseFromData = useCallback(() => {
+    const savedPositions = loadPositions();
+    const newUniverseNodes = new Map<string, UniverseNode>();
+    const flowNodes: Node[] = [];
+    const flowEdges: Edge[] = [];
+
+    // Get all runs - they will be associated with nodes via node_id
+    // We'll use nodesList/mapData to determine baseline vs fork hierarchy
+    const allRuns: RunSummary[] = runs || [];
+
+    // Create one baseline root node (consolidate all runs into summary)
+    const baselineId = 'baseline-root';
+    const calcProgress = (r: RunSummary) => {
+      const current = r.timing?.current_tick || 0;
+      const total = r.timing?.total_ticks || 100;
+      return total > 0 ? (current / total) : 0;
+    };
+    const baselineNode: UniverseNode = {
+      id: baselineId,
+      label: 'Baseline Universe',
+      probability: allRuns.length > 0 ?
+        allRuns.reduce((sum, r) => sum + calcProgress(r), 0) / allRuns.length : 0.5,
+      confidence: allRuns.some(r => r.status === 'succeeded') ? 'high' : 'medium',
+      status: allRuns.some(r => r.status === 'running') ? 'running' :
+              allRuns.some(r => r.status === 'succeeded') ? 'completed' :
+              allRuns.some(r => r.status === 'queued') ? 'queued' :
+              allRuns.length === 0 ? 'draft' : 'completed',
+      isBaseline: true,
+      runCount: allRuns.length,
+      parentId: null,
+      createdAt: allRuns[0]?.created_at || new Date().toISOString(),
+      outcome: allRuns.find(r => r.status === 'succeeded')?.status,
+    };
+    newUniverseNodes.set(baselineId, baselineNode);
+
+    // Position for baseline
+    const baselinePos = savedPositions[baselineId] || { x: 400, y: 50 };
+    flowNodes.push({
+      id: baselineId,
+      type: 'sciFiNode',
+      position: baselinePos,
+      data: {
+        ...baselineNode,
+        onFork: () => {
+          setForkingNode(baselineNode);
+          setForkModalOpen(true);
+        },
+        onInspect: () => {
+          setSelectedNodeId(baselineId);
+          setInspectorOpen(true);
+        },
+      },
+    });
+
+    // Process API nodes if available
+    const apiNodes = mapData?.nodes || nodesList || [];
+    let yOffset = 200;
+
+    apiNodes.forEach((apiNode, index) => {
+      // Skip if it looks like a baseline (depth 0 or is_baseline)
+      const isBaseline = ('depth' in apiNode && (apiNode as SpecNode).depth === 0) ||
+                        ('is_baseline' in apiNode && (apiNode as NodeSummary).is_baseline);
+
+      if (isBaseline) {
+        // Update baseline with API data
+        const existing = newUniverseNodes.get(baselineId)!;
+        existing.probability = apiNode.probability;
+        if ('confidence' in apiNode && (apiNode as SpecNode).confidence) {
+          existing.confidence = ((apiNode as SpecNode).confidence?.level as 'high' | 'medium' | 'low') || 'medium';
+        }
+        if ('confidence_level' in apiNode) {
+          existing.confidence = ((apiNode as NodeSummary).confidence_level as 'high' | 'medium' | 'low') || 'medium';
+        }
+        if (apiNode.label) {
+          existing.label = apiNode.label;
+        }
+        return;
+      }
+
+      // It's a fork node
+      const nodeId = apiNode.node_id;
+      const forkNode: UniverseNode = {
+        id: nodeId,
+        label: apiNode.label || `Fork ${index + 1}`,
+        probability: apiNode.probability,
+        confidence: ('confidence_level' in apiNode ? (apiNode as NodeSummary).confidence_level :
+                    'confidence' in apiNode ? (apiNode as SpecNode).confidence?.level : 'medium') as 'high' | 'medium' | 'low',
+        status: ('has_outcome' in apiNode && (apiNode as NodeSummary).has_outcome) ? 'completed' : 'draft',
+        isBaseline: false,
+        runCount: ('child_count' in apiNode ? (apiNode as NodeSummary).child_count : 0) || 1,
+        parentId: apiNode.parent_node_id || baselineId,
+        createdAt: ('created_at' in apiNode ? (apiNode as NodeSummary).created_at : new Date().toISOString()),
+        outcome: ('aggregated_outcome' in apiNode ? (apiNode as SpecNode).aggregated_outcome?.primary_outcome : undefined),
+      };
+
+      newUniverseNodes.set(nodeId, forkNode);
+
+      // Calculate position
+      const savedPos = savedPositions[nodeId];
+      const xOffset = (index % 3) * 280 + 100;
+      const pos = savedPos || { x: xOffset, y: yOffset };
+      if (!savedPos && index > 0 && index % 3 === 0) {
+        yOffset += 200;
+      }
+
+      flowNodes.push({
+        id: nodeId,
+        type: 'sciFiNode',
+        position: pos,
+        data: {
+          ...forkNode,
+          onFork: () => {
+            setForkingNode(forkNode);
+            setForkModalOpen(true);
+          },
+          onInspect: () => {
+            setSelectedNodeId(nodeId);
+            setInspectorOpen(true);
+          },
+        },
+      });
+
+      // Create edge to parent
+      const parentId = forkNode.parentId || baselineId;
+      flowEdges.push({
+        id: `${parentId}-${nodeId}`,
+        source: parentId,
+        target: nodeId,
+        type: 'smoothstep',
+        animated: forkNode.status === 'running',
+        style: { stroke: forkNode.isBaseline ? '#06b6d4' : '#a855f7', strokeWidth: 2 },
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#a855f7' },
+      });
+    });
+
+    setUniverseNodes(newUniverseNodes);
+    setNodes(flowNodes);
+    setEdges(flowEdges);
+  }, [mapData, nodesList, runs, loadPositions, setNodes, setEdges]);
+
+  // Rebuild nodes when data changes
+  useEffect(() => {
+    if (!isLoading) {
+      buildUniverseFromData();
+    }
+  }, [isLoading, buildUniverseFromData]);
+
+  // Save positions on node drag
+  const handleNodesChange = useCallback((changes: Parameters<typeof onNodesChange>[0]) => {
+    onNodesChange(changes);
+
+    // Save positions after drag
+    const positionChanges = changes.filter(
+      (c) => c.type === 'position' && 'position' in c && c.position
+    );
+    if (positionChanges.length > 0) {
+      const currentPositions = loadPositions();
+      positionChanges.forEach((change) => {
+        if (change.type === 'position' && 'position' in change && change.position) {
+          currentPositions[change.id] = change.position;
+        }
+      });
+      savePositions(currentPositions);
+    }
+  }, [onNodesChange, loadPositions, savePositions]);
+
+  // Handle fork creation
+  const handleFork = useCallback((name: string, description: string, variables: string) => {
+    if (!forkingNode) return;
+
+    // Create new fork node locally (Draft status since API may not be available)
+    const newId = `fork-${Date.now()}`;
+    const newNode: UniverseNode = {
+      id: newId,
+      label: name,
+      probability: 0.5,
+      confidence: 'low',
+      status: 'draft',
+      isBaseline: false,
+      runCount: 0,
+      parentId: forkingNode.id,
+      createdAt: new Date().toISOString(),
+    };
+
+    // Calculate position relative to parent
+    const parentFlowNode = nodes.find((n) => n.id === forkingNode.id);
+    const childCount = edges.filter((e) => e.source === forkingNode.id).length;
+    const xOffset = (childCount % 3 - 1) * 280;
+    const yOffset = 200;
+
+    const newFlowNode: Node = {
+      id: newId,
+      type: 'sciFiNode',
+      position: {
+        x: (parentFlowNode?.position.x || 400) + xOffset,
+        y: (parentFlowNode?.position.y || 50) + yOffset,
+      },
+      data: {
+        ...newNode,
+        onFork: () => {
+          setForkingNode(newNode);
+          setForkModalOpen(true);
+        },
+        onInspect: () => {
+          setSelectedNodeId(newId);
+          setInspectorOpen(true);
+        },
+      },
+    };
+
+    const newEdge: Edge = {
+      id: `${forkingNode.id}-${newId}`,
+      source: forkingNode.id,
+      target: newId,
+      type: 'smoothstep',
+      animated: false,
+      style: { stroke: '#a855f7', strokeWidth: 2 },
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#a855f7' },
+    };
+
+    setNodes((nds) => [...nds, newFlowNode]);
+    setEdges((eds) => [...eds, newEdge]);
+    setUniverseNodes((prev) => new Map(prev).set(newId, newNode));
+
+    // Save new position
+    const positions = loadPositions();
+    positions[newId] = newFlowNode.position;
+    savePositions(positions);
+
+    setForkModalOpen(false);
+    setForkingNode(null);
+  }, [forkingNode, nodes, edges, setNodes, setEdges, loadPositions, savePositions]);
+
+  // Refresh data
+  const handleRefresh = useCallback(() => {
+    refetchMap();
+    refetchNodes();
+    refetchRuns();
+  }, [refetchMap, refetchNodes, refetchRuns]);
+
+  // Export
+  const handleExport = useCallback((format: 'json' | 'csv') => {
+    const data = Array.from(universeNodes.values());
     let content: string;
     let filename: string;
     let mimeType: string;
 
     if (format === 'json') {
-      content = JSON.stringify({ project_id: projectId, nodes, exported_at: new Date().toISOString() }, null, 2);
+      content = JSON.stringify({ project_id: projectId, nodes: data, exported_at: new Date().toISOString() }, null, 2);
       filename = `universe-map-${projectId}-${Date.now()}.json`;
       mimeType = 'application/json';
     } else {
-      const headers = ['node_id', 'label', 'probability', 'parent_node_id'];
-      const rows = nodes.map((n) => [
-        n.node_id,
-        n.label || '',
-        n.probability.toString(),
-        n.parent_node_id || '',
+      const headers = ['id', 'label', 'probability', 'confidence', 'status', 'isBaseline', 'runCount', 'parentId'];
+      const rows = data.map((n) => [
+        n.id, n.label, n.probability.toString(), n.confidence, n.status,
+        n.isBaseline.toString(), n.runCount.toString(), n.parentId || '',
       ]);
       content = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
       filename = `universe-map-${projectId}-${Date.now()}.csv`;
@@ -381,198 +854,49 @@ function ExportModal({
     a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
-    onClose();
-  };
+    setExportModalOpen(false);
+  }, [universeNodes, projectId]);
+
+  const selectedNode = selectedNodeId ? universeNodes.get(selectedNodeId) : null;
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <DialogContent className="bg-black border border-white/10 max-w-sm">
-        <DialogHeader>
-          <DialogTitle className="text-white font-mono flex items-center gap-2">
-            <Download className="w-5 h-5 text-cyan-400" />
-            Export Universe Map
-          </DialogTitle>
-          <DialogDescription className="text-white/50 font-mono text-xs">
-            Export {nodes.length} nodes to file
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4 py-4">
-          <div>
-            <label className="block text-xs font-mono text-white/60 mb-2">Format</label>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setFormat('json')}
-                className={cn(
-                  'flex-1 p-3 border text-xs font-mono transition-colors',
-                  format === 'json'
-                    ? 'bg-cyan-500/10 border-cyan-500/50 text-cyan-400'
-                    : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'
-                )}
-              >
-                JSON
-              </button>
-              <button
-                onClick={() => setFormat('csv')}
-                className={cn(
-                  'flex-1 p-3 border text-xs font-mono transition-colors',
-                  format === 'csv'
-                    ? 'bg-cyan-500/10 border-cyan-500/50 text-cyan-400'
-                    : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'
-                )}
-              >
-                CSV
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <DialogFooter className="flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button size="sm" onClick={handleExport} className="bg-cyan-500 hover:bg-cyan-600">
-            <Download className="w-3 h-3 mr-2" />
-            Export
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-export default function UniverseMapPage() {
-  const params = useParams();
-  const projectId = params.projectId as string;
-
-  // UI state
-  const [zoomLevel, setZoomLevel] = useState(1);
-  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
-  const [exportModalOpen, setExportModalOpen] = useState(false);
-  const [selectedNode, setSelectedNode] = useState<SpecNode | NodeSummary | null>(null);
-  const [nodeInspectorOpen, setNodeInspectorOpen] = useState(false);
-  const [filters, setFilters] = useState({
-    showLowConfidence: true,
-    probabilityThreshold: 0,
-    nodeTypes: ['baseline', 'fork', 'cluster'],
-  });
-
-  // API hooks
-  const { data: universeMapData, isLoading: mapLoading, refetch: refetchMap, error: mapError } = useUniverseMapFull(projectId);
-  const { data: nodesList, isLoading: nodesLoading, refetch: refetchNodes } = useNodes({ project_id: projectId, limit: 100 });
-  const { data: personas } = useTargetPersonas({ project_id: projectId });
-  const { data: personaTemplates } = usePersonaTemplates();
-
-  // Combine data sources - prefer full map data, fall back to node list
-  const nodes = useMemo(() => {
-    if (universeMapData?.nodes && universeMapData.nodes.length > 0) {
-      return universeMapData.nodes;
-    }
-    return nodesList || [];
-  }, [universeMapData, nodesList]);
-
-  // Filter nodes based on settings
-  const filteredNodes = useMemo(() => {
-    return nodes.filter((node) => {
-      if (node.probability < filters.probabilityThreshold) return false;
-      if (!filters.showLowConfidence) {
-        const confidence = 'confidence' in node ? (node as SpecNode).confidence?.level :
-                          'confidence_level' in node ? (node as NodeSummary).confidence_level : 'medium';
-        if (confidence === 'low') return false;
-      }
-      return true;
-    });
-  }, [nodes, filters]);
-
-  // Count personas
-  const personaCount = (personas?.length || 0) + (personaTemplates?.length || 0);
-
-  // Loading state
-  const isLoading = mapLoading || nodesLoading;
-
-  // Check if data is available
-  const hasData = filteredNodes.length > 0;
-
-  // Refresh handler
-  const handleRefresh = () => {
-    refetchMap();
-    refetchNodes();
-  };
-
-  // Zoom handlers
-  const handleZoomIn = () => setZoomLevel((z) => Math.min(z + 0.25, 3));
-  const handleZoomOut = () => setZoomLevel((z) => Math.max(z - 0.25, 0.25));
-  const handleFitView = () => setZoomLevel(1);
-
-  return (
-    <div className="min-h-screen bg-black p-4 md:p-6">
+    <div className="h-screen bg-black flex flex-col">
       {/* Header */}
-      <div className="mb-6 md:mb-8">
-        <div className="flex items-center gap-2 mb-3">
+      <div className="p-4 border-b border-white/10">
+        <div className="flex items-center gap-2 mb-2">
           <Link href={`/p/${projectId}/run-center`}>
-            <Button variant="ghost" size="sm" className="text-[10px] md:text-xs">
-              <ArrowLeft className="w-3 h-3 mr-1 md:mr-2" />
-              BACK TO RUN CENTER
+            <Button variant="ghost" size="sm" className="text-[10px]">
+              <ArrowLeft className="w-3 h-3 mr-1" />
+              RUN CENTER
             </Button>
           </Link>
         </div>
-        <div className="flex items-center gap-2 mb-1">
-          <Globe className="w-3.5 h-3.5 md:w-4 md:h-4 text-blue-400" />
-          <span className="text-[10px] md:text-xs font-mono text-white/40 uppercase tracking-wider">
-            Universe Map
-          </span>
-        </div>
-        <h1 className="text-lg md:text-xl font-mono font-bold text-white">Simulation Universe</h1>
-        <p className="text-xs md:text-sm font-mono text-white/50 mt-1">
-          Visualize your simulation universe, agents, and their relationships
-        </p>
-      </div>
-
-      {/* Toolbar */}
-      <div className="max-w-5xl mb-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-white/5 border border-white/10">
-          <div className="flex items-center gap-2">
-            <Button variant="secondary" size="sm" className="text-xs" onClick={handleZoomIn}>
-              <ZoomIn className="w-3 h-3 mr-1" />
-              ZOOM IN
-            </Button>
-            <Button variant="secondary" size="sm" className="text-xs" onClick={handleZoomOut}>
-              <ZoomOut className="w-3 h-3 mr-1" />
-              ZOOM OUT
-            </Button>
-            <Button variant="secondary" size="sm" className="text-xs" onClick={handleFitView}>
-              <Maximize2 className="w-3 h-3 mr-1" />
-              FIT VIEW
-            </Button>
-            <span className="text-[10px] font-mono text-white/40 ml-2">{(zoomLevel * 100).toFixed(0)}%</span>
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <Globe className="w-4 h-4 text-blue-400" />
+              <span className="text-xs font-mono text-white/40 uppercase">Universe Map</span>
+            </div>
+            <h1 className="text-xl font-mono font-bold text-white">Simulation Universe</h1>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-xs"
-              onClick={() => setFilterPanelOpen(true)}
-            >
-              <Filter className="w-3 h-3 mr-1" />
-              FILTER
+            <Button variant="secondary" size="sm" className="text-xs" onClick={() => zoomIn()}>
+              <ZoomIn className="w-3 h-3 mr-1" />
+              ZOOM
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-xs"
-              onClick={handleRefresh}
-              disabled={isLoading}
-            >
+            <Button variant="secondary" size="sm" className="text-xs" onClick={() => zoomOut()}>
+              <ZoomOut className="w-3 h-3 mr-1" />
+              ZOOM
+            </Button>
+            <Button variant="secondary" size="sm" className="text-xs" onClick={() => fitView({ padding: 0.3 })}>
+              <Maximize2 className="w-3 h-3 mr-1" />
+              FIT
+            </Button>
+            <Button variant="outline" size="sm" className="text-xs" onClick={handleRefresh} disabled={isLoading}>
               <RefreshCw className={cn('w-3 h-3 mr-1', isLoading && 'animate-spin')} />
               REFRESH
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-xs"
-              onClick={() => setExportModalOpen(true)}
-              disabled={!hasData}
-            >
+            <Button variant="outline" size="sm" className="text-xs" onClick={() => setExportModalOpen(true)}>
               <Download className="w-3 h-3 mr-1" />
               EXPORT
             </Button>
@@ -580,217 +904,190 @@ export default function UniverseMapPage() {
         </div>
       </div>
 
-      {/* Map Viewport */}
-      <div className="max-w-5xl">
-        <div
-          className="relative bg-white/5 border border-white/10 aspect-[16/10] min-h-[400px] overflow-hidden"
-          style={{ transform: `scale(${zoomLevel})`, transformOrigin: 'center center' }}
+      {/* Canvas */}
+      <div className="flex-1 relative">
+        {/* Loading overlay */}
+        {isLoading && (
+          <div className="absolute inset-0 bg-black/80 z-50 flex items-center justify-center">
+            <div className="text-center">
+              <Loader2 className="w-8 h-8 text-cyan-400 animate-spin mx-auto mb-2" />
+              <p className="text-sm font-mono text-white/60">Loading universe...</p>
+            </div>
+          </div>
+        )}
+
+        {/* Warning banner if API error */}
+        {mapError && (
+          <div className="absolute top-4 left-4 right-4 z-40 p-3 bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-xs font-mono flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span>Universe Map endpoint unavailable. Showing derived graph from runs.</span>
+          </div>
+        )}
+
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={handleNodesChange}
+          onEdgesChange={onEdgesChange}
+          nodeTypes={nodeTypes}
+          fitView
+          fitViewOptions={{ padding: 0.3 }}
+          minZoom={0.1}
+          maxZoom={2}
+          className="bg-black"
+          defaultEdgeOptions={{
+            type: 'smoothstep',
+            style: { stroke: '#a855f7', strokeWidth: 2 },
+          }}
         >
-          {/* Grid Background */}
-          <div
-            className="absolute inset-0 opacity-20"
-            style={{
-              backgroundImage: `
-                linear-gradient(to right, rgba(255,255,255,0.05) 1px, transparent 1px),
-                linear-gradient(to bottom, rgba(255,255,255,0.05) 1px, transparent 1px)
-              `,
-              backgroundSize: '40px 40px',
+          <Background
+            gap={40}
+            size={1}
+            color="#ffffff10"
+          />
+          <Controls
+            showInteractive={false}
+            className="!bg-black/80 !border-white/20"
+          />
+          <MiniMap
+            nodeColor={(node) => {
+              const data = node.data as Record<string, unknown>;
+              return data?.isBaseline ? '#06b6d4' : '#a855f7';
             }}
+            maskColor="#00000080"
+            className="!bg-black/80 !border-white/20"
           />
 
-          {/* Loading State */}
-          {isLoading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
-              <div className="text-center">
-                <Loader2 className="w-8 h-8 text-cyan-400 animate-spin mx-auto mb-2" />
-                <p className="text-xs font-mono text-white/60">Loading universe map...</p>
-              </div>
-            </div>
-          )}
-
-          {/* Error State */}
-          {mapError && !isLoading && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-center">
-                <AlertCircle className="w-8 h-8 text-yellow-400 mx-auto mb-2" />
-                <p className="text-xs font-mono text-white/60 mb-2">Failed to load universe map</p>
-                <p className="text-[10px] font-mono text-white/40 max-w-xs">
-                  The universe map endpoint may not be available. Showing node list instead.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Empty State */}
-          {!isLoading && !hasData && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-center">
-                <div className="w-20 h-20 bg-white/5 flex items-center justify-center mx-auto mb-4 rounded-full">
-                  <Globe className="w-10 h-10 text-white/20" />
+          {/* Legend panel */}
+          <Panel position="bottom-left" className="m-4">
+            <div className="bg-black/90 border border-white/10 p-3 space-y-2">
+              <div className="text-[10px] font-mono text-white/40 uppercase">Legend</div>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-cyan-500" />
+                  <span className="text-xs font-mono text-white/60">Baseline Root</span>
                 </div>
-                <h3 className="text-sm font-mono text-white/60 mb-2">Universe is empty</h3>
-                <p className="text-xs font-mono text-white/40 mb-4 max-w-xs">
-                  Add personas and run simulations to populate your universe
-                </p>
-                <div className="flex items-center justify-center gap-3">
-                  <Link href={`/p/${projectId}/data-personas`}>
-                    <Button size="sm" variant="secondary" className="text-xs">
-                      ADD PERSONAS
-                    </Button>
-                  </Link>
-                  <Link href={`/p/${projectId}/run-center`}>
-                    <Button size="sm" variant="secondary" className="text-xs">
-                      RUN SIMULATION
-                    </Button>
-                  </Link>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-purple-500" />
+                  <span className="text-xs font-mono text-white/60">Fork</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Activity className="w-3 h-3 text-cyan-400 animate-pulse" />
+                  <span className="text-xs font-mono text-white/60">Running</span>
                 </div>
               </div>
             </div>
-          )}
+          </Panel>
 
-          {/* Node Visualization */}
-          {hasData && !isLoading && (
-            <div className="absolute inset-0 p-8">
-              <div className="relative w-full h-full">
-                {/* Simple grid layout for nodes */}
-                <div className="flex flex-wrap gap-4 justify-center items-start content-start">
-                  {filteredNodes.slice(0, 20).map((node, index) => {
-                    const isBaseline = 'is_baseline' in node ? (node as NodeSummary).is_baseline :
-                                      'depth' in node && (node as SpecNode).depth === 0;
-                    const confidenceLevel = 'confidence_level' in node ? (node as NodeSummary).confidence_level :
-                                           'confidence' in node ? (node as SpecNode).confidence?.level : 'medium';
-
-                    return (
-                      <button
-                        key={node.node_id}
-                        onClick={() => {
-                          setSelectedNode(node);
-                          setNodeInspectorOpen(true);
-                        }}
-                        className={cn(
-                          'relative w-24 h-24 border-2 flex flex-col items-center justify-center p-2 transition-all hover:scale-105',
-                          isBaseline
-                            ? 'bg-cyan-500/10 border-cyan-500/50 hover:border-cyan-400'
-                            : 'bg-purple-500/10 border-purple-500/50 hover:border-purple-400'
-                        )}
-                      >
-                        <div className={cn(
-                          'w-6 h-6 rounded-full mb-1',
-                          isBaseline ? 'bg-cyan-500' : 'bg-purple-500'
-                        )} />
-                        <span className="text-[10px] font-mono text-white/80 truncate w-full text-center">
-                          {node.label || node.node_id.slice(0, 8)}
-                        </span>
-                        <span className="text-[9px] font-mono text-white/50">
-                          {formatProbability(node.probability)}
-                        </span>
-                        <div className="absolute -top-1 -right-1">
-                          <ConfidenceBadge level={confidenceLevel} />
-                        </div>
-                      </button>
-                    );
-                  })}
+          {/* Stats panel */}
+          <Panel position="top-right" className="m-4">
+            <div className="bg-black/90 border border-white/10 p-3">
+              <div className="text-[10px] font-mono text-white/40 uppercase mb-2">Universe Stats</div>
+              <div className="space-y-1 text-xs font-mono text-white/60">
+                <div className="flex justify-between gap-4">
+                  <span>Total Nodes</span>
+                  <span className="text-white">{universeNodes.size}</span>
                 </div>
-
-                {filteredNodes.length > 20 && (
-                  <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2">
-                    <span className="text-xs font-mono text-white/40 bg-black/80 px-3 py-1">
-                      Showing 20 of {filteredNodes.length} nodes
-                    </span>
-                  </div>
-                )}
+                <div className="flex justify-between gap-4">
+                  <span>Forks</span>
+                  <span className="text-white">{Array.from(universeNodes.values()).filter(n => !n.isBaseline).length}</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span>Completed</span>
+                  <span className="text-green-400">
+                    {Array.from(universeNodes.values()).filter(n => n.status === 'completed').length}
+                  </span>
+                </div>
               </div>
             </div>
-          )}
+          </Panel>
+        </ReactFlow>
 
-          {/* Coordinate Display */}
-          <div className="absolute bottom-3 left-3 px-2 py-1 bg-black/80 text-[10px] font-mono text-white/40 z-20">
-            Zoom: {(zoomLevel * 100).toFixed(0)}%
-          </div>
-
-          {/* Agent Count */}
-          <div className="absolute bottom-3 right-3 px-2 py-1 bg-black/80 text-[10px] font-mono text-white/40 z-20">
-            {filteredNodes.length} nodes | {personaCount} personas
-          </div>
-        </div>
+        {/* Inspector Panel */}
+        {inspectorOpen && (
+          <InspectorPanel
+            node={selectedNode || null}
+            onClose={() => {
+              setInspectorOpen(false);
+              setSelectedNodeId(null);
+            }}
+            projectId={projectId}
+            onFork={(node) => {
+              setForkingNode(node);
+              setForkModalOpen(true);
+            }}
+          />
+        )}
       </div>
 
-      {/* Legend */}
-      <div className="max-w-5xl mt-4">
-        <div className="flex flex-wrap items-center gap-4 p-3 bg-white/5 border border-white/10">
-          <span className="text-[10px] font-mono text-white/40 uppercase">Legend:</span>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-cyan-500 rounded-full" />
-            <span className="text-xs font-mono text-white/60">Baseline Nodes</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-purple-500 rounded-full" />
-            <span className="text-xs font-mono text-white/60">Fork Nodes</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <ConfidenceBadge level="high" />
-            <span className="text-xs font-mono text-white/60">High Confidence</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <ConfidenceBadge level="low" />
-            <span className="text-xs font-mono text-white/60">Low Confidence</span>
-          </div>
+      {/* Footer nav */}
+      <div className="p-4 border-t border-white/10 flex items-center justify-between">
+        <Link href={`/p/${projectId}/run-center`}>
+          <Button variant="outline" size="sm" className="text-xs font-mono">
+            <ArrowLeft className="w-3 h-3 mr-2" />
+            Run Center
+          </Button>
+        </Link>
+        <div className="flex items-center gap-1">
+          <Terminal className="w-3 h-3 text-white/30" />
+          <span className="text-[10px] font-mono text-white/30">UNIVERSE MAP v2.0</span>
         </div>
+        <Link href={`/p/${projectId}/replay`}>
+          <Button size="sm" className="text-xs font-mono bg-cyan-500 hover:bg-cyan-600">
+            Replay
+            <ArrowRight className="w-3 h-3 ml-2" />
+          </Button>
+        </Link>
       </div>
 
-      {/* Navigation */}
-      <div className="max-w-5xl mt-6">
-        <div className="flex items-center justify-between gap-4">
-          <Link href={`/p/${projectId}/run-center`}>
-            <Button variant="outline" size="sm" className="text-xs font-mono">
-              <ArrowLeft className="w-3 h-3 mr-2" />
-              Back to Run Center
-            </Button>
-          </Link>
-          <Link href={`/p/${projectId}/replay`}>
-            <Button size="sm" className="text-xs font-mono bg-cyan-500 hover:bg-cyan-600">
-              Next: Replay
-              <ArrowRight className="w-3 h-3 ml-2" />
-            </Button>
-          </Link>
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div className="mt-8 pt-4 border-t border-white/5 max-w-5xl">
-        <div className="flex items-center justify-between text-[10px] font-mono text-white/30">
-          <div className="flex items-center gap-1">
-            <Terminal className="w-3 h-3" />
-            <span>UNIVERSE MAP</span>
-          </div>
-          <span>AGENTVERSE v1.0</span>
-        </div>
-      </div>
-
-      {/* Modals */}
-      <FilterPanel
-        open={filterPanelOpen}
-        onClose={() => setFilterPanelOpen(false)}
-        filters={filters}
-        onFiltersChange={setFilters}
-      />
-
-      <NodeInspectorModal
-        node={selectedNode}
-        open={nodeInspectorOpen}
+      {/* Fork Modal */}
+      <ForkModal
+        open={forkModalOpen}
         onClose={() => {
-          setNodeInspectorOpen(false);
-          setSelectedNode(null);
+          setForkModalOpen(false);
+          setForkingNode(null);
         }}
-        projectId={projectId}
+        parentNode={forkingNode}
+        onFork={handleFork}
       />
 
-      <ExportModal
-        open={exportModalOpen}
-        onClose={() => setExportModalOpen(false)}
-        nodes={filteredNodes}
-        projectId={projectId}
-      />
+      {/* Export Modal */}
+      <Dialog open={exportModalOpen} onOpenChange={setExportModalOpen}>
+        <DialogContent className="bg-black border border-white/10 max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-white font-mono flex items-center gap-2">
+              <Download className="w-5 h-5 text-cyan-400" />
+              Export Universe
+            </DialogTitle>
+            <DialogDescription className="text-white/50 font-mono text-xs">
+              Export {universeNodes.size} nodes
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-2 py-4">
+            <Button
+              onClick={() => handleExport('json')}
+              className="flex-1 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/20"
+            >
+              JSON
+            </Button>
+            <Button
+              onClick={() => handleExport('csv')}
+              className="flex-1 bg-white/5 border border-white/10 text-white/60 hover:bg-white/10"
+            >
+              CSV
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+// Wrap with provider
+export default function UniverseMapPage() {
+  return (
+    <ReactFlowProvider>
+      <UniverseMapCanvas />
+    </ReactFlowProvider>
   );
 }
