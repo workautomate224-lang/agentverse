@@ -6,6 +6,8 @@ import { useEffect } from 'react';
 import { Sidebar } from '@/components/dashboard/sidebar';
 import { SkipLink } from '@/components/ui/skip-link';
 import { SKIP_LINK_TARGETS } from '@/lib/accessibility';
+import { useSidebarStore } from '@/store/sidebar';
+import { cn } from '@/lib/utils';
 import { Terminal, Loader2 } from 'lucide-react';
 
 // Loading skeleton for dashboard
@@ -46,8 +48,9 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const router = useRouter();
+  const { isCollapsed } = useSidebarStore();
 
   useEffect(() => {
     // If unauthenticated and not loading, redirect to login
@@ -84,6 +87,10 @@ export default function DashboardLayout({
       <nav
         id={SKIP_LINK_TARGETS.navigation}
         aria-label="Main navigation"
+        className={cn(
+          'flex-shrink-0 transition-all duration-300',
+          isCollapsed ? 'w-14' : 'w-56'
+        )}
       >
         <Sidebar />
       </nav>
@@ -91,7 +98,7 @@ export default function DashboardLayout({
       {/* Main content landmark */}
       <main
         id={SKIP_LINK_TARGETS.mainContent}
-        className="flex-1 overflow-auto"
+        className="flex-1 overflow-auto transition-all duration-300"
         role="main"
         aria-label="Main content"
       >
