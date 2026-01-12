@@ -214,7 +214,7 @@ export default function ProjectsPage() {
             Manage your prediction projects
           </p>
         </div>
-        <Link href="/projects/new">
+        <Link href="/dashboard/projects/new">
           <Button size="sm" className="w-full sm:w-auto">
             <Plus className="w-3.5 h-3.5 mr-2" />
             New Project
@@ -620,7 +620,7 @@ function EmptyState({ hasProjects }: { hasProjects: boolean }) {
             <p className="text-xs font-mono text-white/30 mb-4">
               Create your first project to start making predictions
             </p>
-            <Link href="/projects/new">
+            <Link href="/dashboard/projects/new">
               <Button size="sm">
                 <Plus className="w-3.5 h-3.5 mr-2" />
                 Create your first project

@@ -134,7 +134,7 @@ function ProjectSidebar({
       <div className="px-3 py-4 border-b border-white/10">
         <div className="flex items-center justify-between mb-3">
           <Link
-            href="/projects"
+            href="/dashboard/projects"
             className="flex items-center gap-1.5 text-[10px] font-mono text-white/40 hover:text-white transition-colors"
             onClick={handleLinkClick}
           >

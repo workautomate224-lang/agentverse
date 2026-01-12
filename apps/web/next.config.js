@@ -39,63 +39,64 @@ const nextConfig = {
   },
   async redirects() {
     return [
+      // Redirect top-level routes TO dashboard routes (to ensure sidebar is always visible)
       // Projects redirects
       {
-        source: '/dashboard/projects',
-        destination: '/projects',
+        source: '/projects',
+        destination: '/dashboard/projects',
         permanent: true,
       },
       {
-        source: '/dashboard/projects/new',
-        destination: '/projects/new',
+        source: '/projects/new',
+        destination: '/dashboard/projects/new',
         permanent: true,
       },
       // Library redirects
       {
-        source: '/dashboard/library',
-        destination: '/library',
+        source: '/library',
+        destination: '/dashboard/library',
         permanent: true,
       },
       {
-        source: '/dashboard/library/personas',
-        destination: '/library/personas',
+        source: '/library/personas',
+        destination: '/dashboard/library/personas',
         permanent: true,
       },
       {
-        source: '/dashboard/library/templates',
-        destination: '/library/templates',
+        source: '/library/templates',
+        destination: '/dashboard/library/templates',
         permanent: true,
       },
       {
-        source: '/dashboard/library/rulesets',
-        destination: '/library/rulesets',
+        source: '/library/rulesets',
+        destination: '/dashboard/library/rulesets',
         permanent: true,
       },
       {
-        source: '/dashboard/library/evidence',
-        destination: '/library/evidence',
+        source: '/library/evidence',
+        destination: '/dashboard/library/evidence',
         permanent: true,
       },
       // Runs & Jobs redirects
       {
-        source: '/dashboard/runs',
-        destination: '/runs-jobs',
+        source: '/runs-jobs',
+        destination: '/dashboard/runs',
         permanent: true,
       },
       {
-        source: '/dashboard/runs/:id',
-        destination: '/runs-jobs/:id',
+        source: '/runs-jobs/:id',
+        destination: '/dashboard/runs/:id',
         permanent: true,
       },
       {
-        source: '/dashboard/runs/:id/telemetry',
-        destination: '/runs-jobs/:id/telemetry',
+        source: '/runs-jobs/:id/telemetry',
+        destination: '/dashboard/runs/:id/telemetry',
         permanent: true,
       },
       // Calibration redirect
       {
-        source: '/dashboard/calibration',
-        destination: '/calibration',
+        source: '/calibration',
+        destination: '/dashboard/calibration',
         permanent: true,
       },
     ];
