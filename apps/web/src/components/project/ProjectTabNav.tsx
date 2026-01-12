@@ -67,7 +67,7 @@ export function ProjectTabNav({ projectId }: ProjectTabNavProps) {
 
   return (
     <div className="border-b border-white/10 bg-black/30">
-      <nav className="-mb-px flex overflow-x-auto scrollbar-hide">
+      <nav className="-mb-px flex overflow-x-auto scrollbar-hide px-2 md:px-0">
         {visibleTabs.map((tab) => {
           const Icon = tab.icon;
           const active = isActive(tab.href);
@@ -77,14 +77,15 @@ export function ProjectTabNav({ projectId }: ProjectTabNavProps) {
               key={tab.name}
               href={tab.href}
               className={cn(
-                'group relative flex items-center gap-2 whitespace-nowrap px-4 py-3 text-sm font-medium transition-colors',
+                'group relative flex items-center gap-1.5 md:gap-2 whitespace-nowrap px-2.5 md:px-4 py-2.5 md:py-3 text-[11px] md:text-sm font-medium transition-colors',
                 active
                   ? 'text-cyan-400 border-b-2 border-cyan-400'
                   : 'text-white/60 hover:text-white/90 border-b-2 border-transparent hover:border-white/20'
               )}
             >
-              <Icon className={cn('h-4 w-4', active ? 'text-cyan-400' : 'text-white/40 group-hover:text-white/60')} />
-              {tab.name}
+              <Icon className={cn('h-3.5 w-3.5 md:h-4 md:w-4', active ? 'text-cyan-400' : 'text-white/40 group-hover:text-white/60')} />
+              <span className="hidden sm:inline">{tab.name}</span>
+              <span className="sm:hidden">{tab.name.split(' ')[0]}</span>
               {active && (
                 <span
                   className="absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r from-cyan-400 to-purple-500"

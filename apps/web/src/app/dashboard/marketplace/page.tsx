@@ -70,61 +70,62 @@ export default function MarketplacePage() {
   };
 
   return (
-    <div className="min-h-screen bg-black p-6">
+    <div className="min-h-screen bg-black p-4 md:p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 md:mb-8">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <Store className="w-4 h-4 text-white/60" />
-            <span className="text-xs font-mono text-white/40 uppercase tracking-wider">
+            <Store className="w-3.5 h-3.5 md:w-4 md:h-4 text-white/60" />
+            <span className="text-[10px] md:text-xs font-mono text-white/40 uppercase tracking-wider">
               Scenario Marketplace
             </span>
           </div>
-          <h1 className="text-xl font-mono font-bold text-white">Templates</h1>
-          <p className="text-sm font-mono text-white/50 mt-1">
+          <h1 className="text-lg md:text-xl font-mono font-bold text-white">Templates</h1>
+          <p className="text-xs md:text-sm font-mono text-white/50 mt-1">
             Browse and use community templates
           </p>
         </div>
         <Link href="/dashboard/marketplace/publish">
-          <Button size="sm">
-            <Plus className="w-3 h-3 mr-2" />
-            PUBLISH
+          <Button size="sm" className="w-full sm:w-auto font-mono text-[10px] md:text-xs">
+            <Plus className="w-3 h-3 mr-1.5 md:mr-2" />
+            <span className="hidden sm:inline">PUBLISH TEMPLATE</span>
+            <span className="sm:hidden">PUBLISH</span>
           </Button>
         </Link>
       </div>
 
       {/* Stats Overview */}
       {stats && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
-          <div className="bg-white/5 border border-white/10 p-4">
-            <p className="text-[10px] font-mono text-white/40 uppercase tracking-wider">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-3 mb-6 md:mb-8">
+          <div className="bg-white/5 border border-white/10 p-3 md:p-4">
+            <p className="text-[9px] md:text-[10px] font-mono text-white/40 uppercase tracking-wider">
               TEMPLATES
             </p>
-            <p className="text-2xl font-mono font-bold text-white mt-1">
+            <p className="text-xl md:text-2xl font-mono font-bold text-white mt-1">
               {stats.total_templates}
             </p>
           </div>
-          <div className="bg-white/5 border border-white/10 p-4">
-            <p className="text-[10px] font-mono text-white/40 uppercase tracking-wider">
+          <div className="bg-white/5 border border-white/10 p-3 md:p-4">
+            <p className="text-[9px] md:text-[10px] font-mono text-white/40 uppercase tracking-wider">
               CATEGORIES
             </p>
-            <p className="text-2xl font-mono font-bold text-white mt-1">
+            <p className="text-xl md:text-2xl font-mono font-bold text-white mt-1">
               {stats.total_categories}
             </p>
           </div>
-          <div className="bg-white/5 border border-white/10 p-4">
-            <p className="text-[10px] font-mono text-white/40 uppercase tracking-wider">USAGE</p>
-            <p className="text-2xl font-mono font-bold text-green-400 mt-1">
+          <div className="bg-white/5 border border-white/10 p-3 md:p-4">
+            <p className="text-[9px] md:text-[10px] font-mono text-white/40 uppercase tracking-wider">USAGE</p>
+            <p className="text-xl md:text-2xl font-mono font-bold text-green-400 mt-1">
               {formatNumber(stats.total_usages)}
             </p>
           </div>
-          <div className="bg-white/5 border border-white/10 p-4">
-            <p className="text-[10px] font-mono text-white/40 uppercase tracking-wider">
+          <div className="bg-white/5 border border-white/10 p-3 md:p-4">
+            <p className="text-[9px] md:text-[10px] font-mono text-white/40 uppercase tracking-wider">
               AVG RATING
             </p>
             <div className="flex items-center gap-1 mt-1">
-              <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-              <p className="text-2xl font-mono font-bold text-white">
+              <Star className="w-3.5 h-3.5 md:w-4 md:h-4 text-yellow-400 fill-yellow-400" />
+              <p className="text-xl md:text-2xl font-mono font-bold text-white">
                 {stats.average_rating?.toFixed(1) || '-'}
               </p>
             </div>
@@ -134,14 +135,14 @@ export default function MarketplacePage() {
 
       {/* Featured Templates */}
       {featured?.featured && featured.featured.length > 0 && !searchQuery && !selectedCategory && (
-        <div className="mb-8">
-          <div className="flex items-center gap-2 mb-3">
+        <div className="mb-6 md:mb-8">
+          <div className="flex items-center gap-2 mb-2 md:mb-3">
             <Sparkles className="w-3 h-3 text-yellow-400" />
-            <h2 className="text-xs font-mono text-white/40 uppercase tracking-wider">
+            <h2 className="text-[10px] md:text-xs font-mono text-white/40 uppercase tracking-wider">
               Featured Templates
             </h2>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 md:gap-3">
             {featured.featured.slice(0, 3).map((template: MarketplaceTemplateListItem) => (
               <FeaturedCard key={template.id} template={template} onLike={handleLike} />
             ))}
@@ -150,86 +151,88 @@ export default function MarketplacePage() {
       )}
 
       {/* Search & Filters */}
-      <div className="mb-6 space-y-4">
-        <div className="flex items-center gap-4">
+      <div className="mb-4 md:mb-6 space-y-3 md:space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 md:gap-4">
           {/* Search */}
           <div className="relative flex-1">
-            <Search className="w-3 h-3 absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+            <Search className="w-3 h-3 absolute left-2.5 md:left-3 top-1/2 -translate-y-1/2 text-white/30" />
             <input
               type="text"
               placeholder="Search templates..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-white/5 border border-white/10 text-sm font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-white/30"
+              className="w-full pl-8 md:pl-9 pr-3 md:pr-4 py-1.5 md:py-2 bg-white/5 border border-white/10 text-[10px] md:text-sm font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-white/30"
             />
           </div>
 
-          {/* Sort */}
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            className="px-3 py-2 bg-white/5 border border-white/10 text-sm font-mono text-white appearance-none focus:outline-none focus:border-white/30"
-          >
-            <option value="popular">Popular</option>
-            <option value="newest">Newest</option>
-            <option value="rating">Top Rated</option>
-            <option value="usage">Most Used</option>
-            <option value="name">Name (A-Z)</option>
-          </select>
+          <div className="flex items-center gap-2">
+            {/* Sort */}
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="flex-1 sm:flex-none px-2 md:px-3 py-1.5 md:py-2 bg-white/5 border border-white/10 text-[10px] md:text-sm font-mono text-white appearance-none focus:outline-none focus:border-white/30"
+            >
+              <option value="popular">Popular</option>
+              <option value="newest">Newest</option>
+              <option value="rating">Top Rated</option>
+              <option value="usage">Most Used</option>
+              <option value="name">Name (A-Z)</option>
+            </select>
 
-          {/* View Toggle */}
-          <div className="flex border border-white/10">
-            <button
-              onClick={() => setViewMode('grid')}
-              className={cn(
-                'p-2 transition-colors',
-                viewMode === 'grid' ? 'bg-white/10' : 'hover:bg-white/5'
-              )}
-            >
-              <Grid3X3 className="w-4 h-4 text-white/60" />
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              className={cn(
-                'p-2 transition-colors',
-                viewMode === 'list' ? 'bg-white/10' : 'hover:bg-white/5'
-              )}
-            >
-              <List className="w-4 h-4 text-white/60" />
-            </button>
+            {/* View Toggle */}
+            <div className="flex border border-white/10">
+              <button
+                onClick={() => setViewMode('grid')}
+                className={cn(
+                  'p-1.5 md:p-2 transition-colors',
+                  viewMode === 'grid' ? 'bg-white/10' : 'hover:bg-white/5'
+                )}
+              >
+                <Grid3X3 className="w-3.5 h-3.5 md:w-4 md:h-4 text-white/60" />
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={cn(
+                  'p-1.5 md:p-2 transition-colors',
+                  viewMode === 'list' ? 'bg-white/10' : 'hover:bg-white/5'
+                )}
+              >
+                <List className="w-3.5 h-3.5 md:w-4 md:h-4 text-white/60" />
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Quick Filters */}
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5 md:gap-2 flex-wrap">
           <button
             onClick={() => handleFilterChange('is_featured', true)}
             className={cn(
-              'text-xs font-mono px-2 py-1 border transition-colors',
+              'text-[10px] md:text-xs font-mono px-1.5 md:px-2 py-1 border transition-colors',
               filters.is_featured
                 ? 'bg-yellow-500/20 border-yellow-500/50 text-yellow-400'
                 : 'border-white/10 text-white/40 hover:bg-white/5'
             )}
           >
-            <Sparkles className="w-3 h-3 inline mr-1" />
+            <Sparkles className="w-2.5 h-2.5 md:w-3 md:h-3 inline mr-0.5 md:mr-1" />
             Featured
           </button>
           <button
             onClick={() => handleFilterChange('is_verified', true)}
             className={cn(
-              'text-xs font-mono px-2 py-1 border transition-colors',
+              'text-[10px] md:text-xs font-mono px-1.5 md:px-2 py-1 border transition-colors',
               filters.is_verified
                 ? 'bg-green-500/20 border-green-500/50 text-green-400'
                 : 'border-white/10 text-white/40 hover:bg-white/5'
             )}
           >
-            <CheckCircle className="w-3 h-3 inline mr-1" />
+            <CheckCircle className="w-2.5 h-2.5 md:w-3 md:h-3 inline mr-0.5 md:mr-1" />
             Verified
           </button>
           <button
             onClick={() => handleFilterChange('is_premium', false)}
             className={cn(
-              'text-xs font-mono px-2 py-1 border transition-colors',
+              'text-[10px] md:text-xs font-mono px-1.5 md:px-2 py-1 border transition-colors',
               filters.is_premium === false
                 ? 'bg-blue-500/20 border-blue-500/50 text-blue-400'
                 : 'border-white/10 text-white/40 hover:bg-white/5'
@@ -241,8 +244,8 @@ export default function MarketplacePage() {
           {/* Categories */}
           {categories && categories.length > 0 && (
             <>
-              <span className="text-white/20">|</span>
-              {categories.slice(0, 5).map((category) => (
+              <span className="text-white/20 hidden sm:inline">|</span>
+              {categories.slice(0, 3).map((category) => (
                 <button
                   key={category.id}
                   onClick={() =>
@@ -251,7 +254,7 @@ export default function MarketplacePage() {
                     )
                   }
                   className={cn(
-                    'text-xs font-mono px-2 py-1 border transition-colors',
+                    'text-[10px] md:text-xs font-mono px-1.5 md:px-2 py-1 border transition-colors',
                     selectedCategory === category.id
                       ? 'bg-white/10 border-white/30 text-white'
                       : 'border-white/10 text-white/40 hover:bg-white/5'
@@ -267,25 +270,25 @@ export default function MarketplacePage() {
 
       {/* Templates Grid/List */}
       <div className="bg-white/5 border border-white/10">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+        <div className="flex items-center justify-between px-3 md:px-4 py-2 md:py-3 border-b border-white/10">
           <div className="flex items-center gap-2">
             <Terminal className="w-3 h-3 text-white/40" />
-            <span className="text-xs font-mono text-white/40 uppercase tracking-wider">
+            <span className="text-[10px] md:text-xs font-mono text-white/40 uppercase tracking-wider">
               Templates
             </span>
           </div>
-          <span className="text-xs font-mono text-white/30">
+          <span className="text-[10px] md:text-xs font-mono text-white/30">
             {totalTemplates} results
           </span>
         </div>
 
         {loadingTemplates ? (
-          <div className="p-12 flex items-center justify-center">
-            <Loader2 className="w-5 h-5 animate-spin text-white/40" />
+          <div className="p-8 md:p-12 flex items-center justify-center">
+            <Loader2 className="w-4 h-4 md:w-5 md:h-5 animate-spin text-white/40" />
           </div>
         ) : templates.length > 0 ? (
           viewMode === 'grid' ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-px bg-white/10">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-white/10">
               {templates.map((template) => (
                 <TemplateCard key={template.id} template={template} onLike={handleLike} />
               ))}
@@ -298,12 +301,12 @@ export default function MarketplacePage() {
             </div>
           )
         ) : (
-          <div className="p-12 text-center">
-            <div className="w-12 h-12 bg-white/5 flex items-center justify-center mx-auto mb-4">
-              <Store className="w-5 h-5 text-white/30" />
+          <div className="p-8 md:p-12 text-center">
+            <div className="w-10 h-10 md:w-12 md:h-12 bg-white/5 flex items-center justify-center mx-auto mb-3 md:mb-4">
+              <Store className="w-4 h-4 md:w-5 md:h-5 text-white/30" />
             </div>
-            <p className="text-sm font-mono text-white/60 mb-1">No templates found</p>
-            <p className="text-xs font-mono text-white/30 mb-4">
+            <p className="text-xs md:text-sm font-mono text-white/60 mb-1">No templates found</p>
+            <p className="text-[10px] md:text-xs font-mono text-white/30 mb-3 md:mb-4">
               Try adjusting your filters
             </p>
             <Button
@@ -314,7 +317,7 @@ export default function MarketplacePage() {
                 setSelectedCategory(null);
                 setFilters({});
               }}
-              className="font-mono text-xs border-white/20 text-white/60 hover:bg-white/5 hover:text-white"
+              className="w-full sm:w-auto font-mono text-[10px] md:text-xs border-white/20 text-white/60 hover:bg-white/5 hover:text-white"
             >
               CLEAR FILTERS
             </Button>
@@ -323,27 +326,27 @@ export default function MarketplacePage() {
       </div>
 
       {/* My Templates Link */}
-      <div className="mt-6 flex justify-center">
+      <div className="mt-4 md:mt-6 flex justify-center">
         <Link href="/dashboard/marketplace/my-templates">
           <Button
             variant="outline"
             size="sm"
-            className="font-mono text-xs border-white/20 text-white/60 hover:bg-white/5 hover:text-white"
+            className="w-full sm:w-auto font-mono text-[10px] md:text-xs border-white/20 text-white/60 hover:bg-white/5 hover:text-white"
           >
-            VIEW MY TEMPLATES
-            <ArrowRight className="w-3 h-3 ml-2" />
+            <span className="hidden sm:inline">VIEW MY TEMPLATES</span>
+            <span className="sm:hidden">MY TEMPLATES</span>
+            <ArrowRight className="w-3 h-3 ml-1.5 md:ml-2" />
           </Button>
         </Link>
       </div>
 
       {/* Footer */}
-      <div className="mt-8 pt-4 border-t border-white/5">
+      <div className="mt-6 md:mt-8 pt-3 md:pt-4 border-t border-white/5">
         <div className="flex items-center justify-between text-[10px] font-mono text-white/30">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-1">
-              <Terminal className="w-3 h-3" />
-              <span>MARKETPLACE MODULE</span>
-            </div>
+          <div className="flex items-center gap-1">
+            <Terminal className="w-3 h-3" />
+            <span className="hidden sm:inline">MARKETPLACE MODULE</span>
+            <span className="sm:hidden">MARKETPLACE</span>
           </div>
           <span>AGENTVERSE v1.0.0</span>
         </div>
@@ -362,32 +365,32 @@ function FeaturedCard({
   return (
     <Link
       href={`/dashboard/marketplace/${template.slug}`}
-      className="group bg-gradient-to-br from-yellow-500/10 to-transparent border border-yellow-500/20 p-4 hover:border-yellow-500/40 transition-all"
+      className="group bg-gradient-to-br from-yellow-500/10 to-transparent border border-yellow-500/20 p-3 md:p-4 hover:border-yellow-500/40 transition-all"
     >
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-yellow-400" />
-          <span className="text-[10px] font-mono text-yellow-400 uppercase">Featured</span>
+      <div className="flex items-start justify-between mb-2 md:mb-3">
+        <div className="flex items-center gap-1.5 md:gap-2">
+          <Sparkles className="w-3.5 h-3.5 md:w-4 md:h-4 text-yellow-400" />
+          <span className="text-[9px] md:text-[10px] font-mono text-yellow-400 uppercase">Featured</span>
         </div>
         <div className="flex items-center gap-1">
-          <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
-          <span className="text-xs font-mono text-white/60">
+          <Star className="w-2.5 h-2.5 md:w-3 md:h-3 text-yellow-400 fill-yellow-400" />
+          <span className="text-[10px] md:text-xs font-mono text-white/60">
             {template.rating_average?.toFixed(1) || '-'}
           </span>
         </div>
       </div>
-      <h3 className="text-sm font-mono font-bold text-white mb-1">{template.name}</h3>
-      <p className="text-xs font-mono text-white/40 mb-3 line-clamp-2">
+      <h3 className="text-xs md:text-sm font-mono font-bold text-white mb-1 truncate">{template.name}</h3>
+      <p className="text-[10px] md:text-xs font-mono text-white/40 mb-2 md:mb-3 line-clamp-2">
         {template.short_description}
       </p>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3 text-[10px] font-mono text-white/30">
+        <div className="flex items-center gap-2 md:gap-3 text-[9px] md:text-[10px] font-mono text-white/30">
           <span className="flex items-center gap-1">
-            <Users className="w-3 h-3" />
+            <Users className="w-2.5 h-2.5 md:w-3 md:h-3" />
             {template.usage_count}
           </span>
           <span className="flex items-center gap-1">
-            <TrendingUp className="w-3 h-3" />
+            <TrendingUp className="w-2.5 h-2.5 md:w-3 md:h-3" />
             {template.like_count}
           </span>
         </div>
@@ -407,40 +410,40 @@ function TemplateCard({
   return (
     <Link
       href={`/dashboard/marketplace/${template.slug}`}
-      className="group bg-black p-4 hover:bg-white/5 transition-colors"
+      className="group bg-black p-3 md:p-4 hover:bg-white/5 transition-colors"
     >
       <div className="flex items-start justify-between mb-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 md:gap-2">
           {template.is_verified && (
-            <CheckCircle className="w-3 h-3 text-green-400" />
+            <CheckCircle className="w-2.5 h-2.5 md:w-3 md:h-3 text-green-400" />
           )}
-          {template.is_featured && <Sparkles className="w-3 h-3 text-yellow-400" />}
+          {template.is_featured && <Sparkles className="w-2.5 h-2.5 md:w-3 md:h-3 text-yellow-400" />}
           {template.is_premium && (
-            <span className="text-[9px] font-mono bg-purple-500/20 text-purple-400 px-1">
+            <span className="text-[8px] md:text-[9px] font-mono bg-purple-500/20 text-purple-400 px-1">
               PRO
             </span>
           )}
         </div>
         <div className="flex items-center gap-1">
-          <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
-          <span className="text-xs font-mono text-white/60">
+          <Star className="w-2.5 h-2.5 md:w-3 md:h-3 text-yellow-400 fill-yellow-400" />
+          <span className="text-[10px] md:text-xs font-mono text-white/60">
             {template.rating_average?.toFixed(1) || '-'}
           </span>
         </div>
       </div>
 
-      <h3 className="text-sm font-mono font-medium text-white mb-1 line-clamp-1">
+      <h3 className="text-xs md:text-sm font-mono font-medium text-white mb-1 line-clamp-1">
         {template.name}
       </h3>
-      <p className="text-xs font-mono text-white/40 mb-3 line-clamp-2">
+      <p className="text-[10px] md:text-xs font-mono text-white/40 mb-2 md:mb-3 line-clamp-2">
         {template.short_description}
       </p>
 
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3 text-[10px] font-mono text-white/30">
-          <span>{template.category_name || 'General'}</span>
+        <div className="flex items-center gap-2 md:gap-3 text-[9px] md:text-[10px] font-mono text-white/30">
+          <span className="truncate max-w-[60px] md:max-w-none">{template.category_name || 'General'}</span>
           <span className="flex items-center gap-1">
-            <Users className="w-3 h-3" />
+            <Users className="w-2.5 h-2.5 md:w-3 md:h-3" />
             {template.usage_count}
           </span>
         </div>
@@ -460,35 +463,35 @@ function TemplateRow({
   return (
     <Link
       href={`/dashboard/marketplace/${template.slug}`}
-      className="flex items-center justify-between p-4 hover:bg-white/5 transition-colors"
+      className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 md:p-4 hover:bg-white/5 transition-colors gap-2 sm:gap-4"
     >
-      <div className="flex items-center gap-4 flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {template.is_verified && <CheckCircle className="w-3 h-3 text-green-400" />}
-          {template.is_featured && <Sparkles className="w-3 h-3 text-yellow-400" />}
+      <div className="flex items-center gap-2 md:gap-4 flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 md:gap-2 flex-shrink-0">
+          {template.is_verified && <CheckCircle className="w-2.5 h-2.5 md:w-3 md:h-3 text-green-400" />}
+          {template.is_featured && <Sparkles className="w-2.5 h-2.5 md:w-3 md:h-3 text-yellow-400" />}
         </div>
         <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-mono font-medium text-white truncate">
+          <h3 className="text-xs md:text-sm font-mono font-medium text-white truncate">
             {template.name}
           </h3>
-          <p className="text-xs font-mono text-white/40 truncate">
+          <p className="text-[10px] md:text-xs font-mono text-white/40 truncate">
             {template.short_description}
           </p>
         </div>
       </div>
 
-      <div className="flex items-center gap-6 flex-shrink-0">
-        <span className="text-xs font-mono text-white/30">
+      <div className="flex items-center gap-3 md:gap-6 flex-shrink-0 pl-6 sm:pl-0">
+        <span className="text-[10px] md:text-xs font-mono text-white/30 hidden sm:inline">
           {template.category_name || 'General'}
         </span>
         <div className="flex items-center gap-1">
-          <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
-          <span className="text-xs font-mono text-white/60">
+          <Star className="w-2.5 h-2.5 md:w-3 md:h-3 text-yellow-400 fill-yellow-400" />
+          <span className="text-[10px] md:text-xs font-mono text-white/60">
             {template.rating_average?.toFixed(1) || '-'}
           </span>
         </div>
-        <span className="text-xs font-mono text-white/30 flex items-center gap-1">
-          <Users className="w-3 h-3" />
+        <span className="text-[10px] md:text-xs font-mono text-white/30 flex items-center gap-1">
+          <Users className="w-2.5 h-2.5 md:w-3 md:h-3" />
           {template.usage_count}
         </span>
         <ArrowRight className="w-3 h-3 text-white/30" />

@@ -136,14 +136,14 @@ const PRIVACY_OPTIONS: {
 function getStatusIcon(status: string) {
   switch (status) {
     case 'completed':
-      return <CheckCircle className="h-4 w-4 text-green-400" />;
+      return <CheckCircle className="h-3.5 w-3.5 md:h-4 md:w-4 text-green-400 flex-shrink-0" />;
     case 'processing':
     case 'pending':
-      return <Loader2 className="h-4 w-4 text-yellow-400 animate-spin" />;
+      return <Loader2 className="h-3.5 w-3.5 md:h-4 md:w-4 text-yellow-400 animate-spin flex-shrink-0" />;
     case 'failed':
-      return <AlertCircle className="h-4 w-4 text-red-400" />;
+      return <AlertCircle className="h-3.5 w-3.5 md:h-4 md:w-4 text-red-400 flex-shrink-0" />;
     default:
-      return <Clock className="h-4 w-4 text-white/40" />;
+      return <Clock className="h-3.5 w-3.5 md:h-4 md:w-4 text-white/40 flex-shrink-0" />;
   }
 }
 
@@ -173,27 +173,28 @@ function ExportJobRow({
   const TypeIcon = typeConfig?.icon ?? FileText;
 
   return (
-    <div className="flex items-center justify-between p-3 border border-white/10 bg-white/5 hover:border-white/20 transition-colors">
-      <div className="flex items-center gap-3">
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between p-2.5 md:p-3 gap-2 sm:gap-3 border border-white/10 bg-white/5 hover:border-white/20 transition-colors">
+      <div className="flex items-start sm:items-center gap-2 md:gap-3 min-w-0">
         {getStatusIcon(item.status)}
-        <TypeIcon className="h-4 w-4 text-white/40" />
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-white/90">{item.label ?? typeConfig?.label}</span>
-            <span className="text-xs text-white/40 uppercase">{item.format}</span>
+        <TypeIcon className="h-3.5 w-3.5 md:h-4 md:w-4 text-white/40 flex-shrink-0 mt-0.5 sm:mt-0" />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5 md:gap-2">
+            <span className="text-xs md:text-sm text-white/90 truncate">{item.label ?? typeConfig?.label}</span>
+            <span className="text-[10px] md:text-xs text-white/40 uppercase">{item.format}</span>
             {item.redacted_field_count != null && item.redacted_field_count > 0 && (
-              <span className="text-xs px-1.5 py-0.5 bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center gap-1">
-                <EyeOff className="h-3 w-3" />
-                {item.redacted_field_count} redacted
+              <span className="text-[10px] md:text-xs px-1 md:px-1.5 py-0.5 bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center gap-0.5 md:gap-1">
+                <EyeOff className="h-2.5 w-2.5 md:h-3 md:w-3" />
+                <span className="hidden sm:inline">{item.redacted_field_count} redacted</span>
+                <span className="sm:hidden">{item.redacted_field_count}</span>
               </span>
             )}
           </div>
-          <div className="text-xs text-white/40">
+          <div className="text-[10px] md:text-xs text-white/40">
             {new Date(item.created_at).toLocaleString()} • {formatFileSize(item.file_size_bytes)}
           </div>
         </div>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5 md:gap-2 self-end sm:self-auto flex-shrink-0">
         {item.status === 'completed' && (
           <>
             <Button
@@ -201,12 +202,12 @@ function ExportJobRow({
               size="sm"
               onClick={() => onDownload(item.export_id)}
               disabled={isDownloading}
-              className="text-cyan-400 hover:text-cyan-300"
+              className="text-cyan-400 hover:text-cyan-300 h-7 w-7 md:h-8 md:w-8 p-0"
             >
               {isDownloading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-3.5 w-3.5 md:h-4 md:w-4 animate-spin" />
               ) : (
-                <Download className="h-4 w-4" />
+                <Download className="h-3.5 w-3.5 md:h-4 md:w-4" />
               )}
             </Button>
             <Button
@@ -214,9 +215,9 @@ function ExportJobRow({
               size="sm"
               onClick={() => onShare(item.export_id)}
               disabled={isSharing}
-              className="text-purple-400 hover:text-purple-300"
+              className="text-purple-400 hover:text-purple-300 h-7 w-7 md:h-8 md:w-8 p-0"
             >
-              {isSharing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+              {isSharing ? <Loader2 className="h-3.5 w-3.5 md:h-4 md:w-4 animate-spin" /> : <Link2 className="h-3.5 w-3.5 md:h-4 md:w-4" />}
             </Button>
           </>
         )}
@@ -224,9 +225,9 @@ function ExportJobRow({
           variant="ghost"
           size="sm"
           onClick={() => onDelete(item.export_id)}
-          className="text-red-400 hover:text-red-300"
+          className="text-red-400 hover:text-red-300 h-7 w-7 md:h-8 md:w-8 p-0"
         >
-          <Trash2 className="h-4 w-4" />
+          <Trash2 className="h-3.5 w-3.5 md:h-4 md:w-4" />
         </Button>
       </div>
     </div>
@@ -343,39 +344,39 @@ export function ExportsPage({ projectId }: ExportsPageProps) {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="flex-none border-b border-white/10 bg-black/40 p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Download className="h-5 w-5 text-cyan-400" />
-            <h1 className="text-lg font-semibold">Exports</h1>
-            <span className="text-sm text-white/60">
+      <div className="flex-none border-b border-white/10 bg-black/40 p-3 md:p-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-2 md:gap-3">
+            <Download className="h-4 w-4 md:h-5 md:w-5 text-cyan-400 flex-shrink-0" />
+            <h1 className="text-base md:text-lg font-semibold">Exports</h1>
+            <span className="hidden sm:inline text-xs md:text-sm text-white/60">
               Export simulation data, telemetry, and results
             </span>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="h-4 w-4 mr-2" />
+          <Button variant="ghost" size="sm" onClick={() => refetch()} className="text-xs self-end sm:self-auto">
+            <RefreshCw className="h-3 w-3 md:h-4 md:w-4 mr-1 md:mr-2" />
             Refresh
           </Button>
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-4xl mx-auto space-y-8">
+      <div className="flex-1 overflow-y-auto p-3 md:p-6">
+        <div className="max-w-4xl mx-auto space-y-6 md:space-y-8">
           {/* Create Export Section */}
-          <div className="border border-white/10 bg-white/5 p-6">
-            <h2 className="text-lg font-medium mb-4">Generate New Export</h2>
+          <div className="border border-white/10 bg-white/5 p-4 md:p-6">
+            <h2 className="text-base md:text-lg font-medium mb-3 md:mb-4">Generate New Export</h2>
 
             {/* Export Type */}
-            <div className="mb-6">
-              <label className="text-sm text-white/60 mb-2 block">Export Type</label>
-              <div className="grid grid-cols-2 gap-3">
+            <div className="mb-4 md:mb-6">
+              <label className="text-xs md:text-sm text-white/60 mb-2 block">Export Type</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-3">
                 {EXPORT_TYPES.map((type) => (
                   <button
                     key={type.id}
                     onClick={() => setSelectedType(type.id)}
                     className={cn(
-                      'p-3 border text-left transition-colors',
+                      'p-2.5 md:p-3 border text-left transition-colors',
                       selectedType === type.id
                         ? 'border-cyan-500/50 bg-cyan-500/10'
                         : 'border-white/10 hover:border-white/20'
@@ -384,44 +385,44 @@ export function ExportsPage({ projectId }: ExportsPageProps) {
                     <div className="flex items-center gap-2 mb-1">
                       <type.icon
                         className={cn(
-                          'h-4 w-4',
+                          'h-3.5 w-3.5 md:h-4 md:w-4',
                           selectedType === type.id ? 'text-cyan-400' : 'text-white/40'
                         )}
                       />
                       <span
                         className={cn(
-                          'font-medium',
+                          'text-xs md:text-sm font-medium',
                           selectedType === type.id ? 'text-cyan-300' : 'text-white/80'
                         )}
                       >
                         {type.label}
                       </span>
                     </div>
-                    <p className="text-xs text-white/40">{type.description}</p>
+                    <p className="text-[10px] md:text-xs text-white/40 line-clamp-2">{type.description}</p>
                   </button>
                 ))}
               </div>
             </div>
 
             {/* Format and Privacy */}
-            <div className="grid grid-cols-2 gap-6 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6 mb-4 md:mb-6">
               {/* Format */}
               <div>
-                <label className="text-sm text-white/60 mb-2 block">Format</label>
-                <div className="flex gap-2">
+                <label className="text-xs md:text-sm text-white/60 mb-2 block">Format</label>
+                <div className="flex gap-1.5 md:gap-2">
                   {EXPORT_FORMATS.map((format) => (
                     <button
                       key={format.id}
                       onClick={() => setSelectedFormat(format.id)}
                       className={cn(
-                        'flex-1 py-2 px-3 border flex items-center justify-center gap-2 transition-colors',
+                        'flex-1 py-1.5 md:py-2 px-2 md:px-3 border flex items-center justify-center gap-1 md:gap-2 transition-colors',
                         selectedFormat === format.id
                           ? 'border-cyan-500/50 bg-cyan-500/10 text-cyan-300'
                           : 'border-white/10 text-white/60 hover:border-white/20'
                       )}
                     >
-                      <format.icon className="h-4 w-4" />
-                      <span className="text-sm">{format.label}</span>
+                      <format.icon className="h-3 w-3 md:h-4 md:w-4" />
+                      <span className="text-[10px] md:text-sm">{format.label}</span>
                     </button>
                   ))}
                 </div>
@@ -429,21 +430,21 @@ export function ExportsPage({ projectId }: ExportsPageProps) {
 
               {/* Privacy */}
               <div>
-                <label className="text-sm text-white/60 mb-2 block">Privacy</label>
-                <div className="flex gap-2">
+                <label className="text-xs md:text-sm text-white/60 mb-2 block">Privacy</label>
+                <div className="flex gap-1.5 md:gap-2">
                   {PRIVACY_OPTIONS.map((privacy) => (
                     <button
                       key={privacy.id}
                       onClick={() => setSelectedPrivacy(privacy.id)}
                       className={cn(
-                        'flex-1 py-2 px-3 border flex items-center justify-center gap-2 transition-colors',
+                        'flex-1 py-1.5 md:py-2 px-2 md:px-3 border flex items-center justify-center gap-1 md:gap-2 transition-colors',
                         selectedPrivacy === privacy.id
                           ? 'border-purple-500/50 bg-purple-500/10 text-purple-300'
                           : 'border-white/10 text-white/60 hover:border-white/20'
                       )}
                     >
-                      <privacy.icon className="h-4 w-4" />
-                      <span className="text-sm">{privacy.label}</span>
+                      <privacy.icon className="h-3 w-3 md:h-4 md:w-4" />
+                      <span className="text-[10px] md:text-sm">{privacy.label}</span>
                     </button>
                   ))}
                 </div>
@@ -451,74 +452,74 @@ export function ExportsPage({ projectId }: ExportsPageProps) {
             </div>
 
             {/* Optional Settings */}
-            <div className="mb-6 space-y-4">
+            <div className="mb-4 md:mb-6 space-y-3 md:space-y-4">
               {/* Label */}
               <div>
-                <label className="text-sm text-white/60 mb-2 block">Label (optional)</label>
+                <label className="text-xs md:text-sm text-white/60 mb-1.5 md:mb-2 block">Label (optional)</label>
                 <input
                   type="text"
                   value={exportLabel}
                   onChange={(e) => setExportLabel(e.target.value)}
                   placeholder="e.g., Q4 Analysis Export"
-                  className="w-full px-3 py-2 bg-white/5 border border-white/10 text-white/90 placeholder:text-white/30"
+                  className="w-full px-2.5 md:px-3 py-1.5 md:py-2 text-sm bg-white/5 border border-white/10 text-white/90 placeholder:text-white/30"
                 />
               </div>
 
               {/* Include agent details (for telemetry) */}
               {selectedType === 'telemetry_snapshot' && (
-                <label className="flex items-center gap-2 cursor-pointer">
+                <label className="flex items-start sm:items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={includeAgentDetails}
                     onChange={(e) => setIncludeAgentDetails(e.target.checked)}
-                    className="w-4 h-4 bg-white/10 border-white/20"
+                    className="w-4 h-4 bg-white/10 border-white/20 mt-0.5 sm:mt-0 flex-shrink-0"
                   />
-                  <span className="text-sm text-white/80">Include detailed agent states</span>
-                  <span className="text-xs text-white/40">(larger file size)</span>
+                  <span className="text-xs md:text-sm text-white/80">Include detailed agent states</span>
+                  <span className="text-[10px] md:text-xs text-white/40">(larger file size)</span>
                 </label>
               )}
             </div>
 
             {/* Data Redaction Controls (project.md §11 Phase 9) */}
-            <div className="mb-6 border border-white/10 bg-white/5">
+            <div className="mb-4 md:mb-6 border border-white/10 bg-white/5">
               <button
                 type="button"
                 onClick={() => setShowRedactionOptions(!showRedactionOptions)}
-                className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-white/5 transition-colors"
+                className="w-full px-3 md:px-4 py-2.5 md:py-3 flex items-center justify-between text-left hover:bg-white/5 transition-colors"
               >
-                <div className="flex items-center gap-2">
-                  <Shield className="h-4 w-4 text-purple-400" />
-                  <span className="font-medium">Data Redaction</span>
+                <div className="flex items-center gap-2 min-w-0">
+                  <Shield className="h-3.5 w-3.5 md:h-4 md:w-4 text-purple-400 flex-shrink-0" />
+                  <span className="text-sm md:text-base font-medium truncate">Data Redaction</span>
                   {enableRedaction && (
-                    <span className="text-xs px-2 py-0.5 bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                      {selectedSensitivityTypes.size} types protected
+                    <span className="text-[10px] md:text-xs px-1.5 md:px-2 py-0.5 bg-purple-500/20 text-purple-300 border border-purple-500/30 whitespace-nowrap">
+                      {selectedSensitivityTypes.size} protected
                     </span>
                   )}
                 </div>
                 {showRedactionOptions ? (
-                  <ChevronUp className="h-4 w-4 text-white/40" />
+                  <ChevronUp className="h-4 w-4 text-white/40 flex-shrink-0" />
                 ) : (
-                  <ChevronDown className="h-4 w-4 text-white/40" />
+                  <ChevronDown className="h-4 w-4 text-white/40 flex-shrink-0" />
                 )}
               </button>
 
               {showRedactionOptions && (
-                <div className="px-4 pb-4 pt-2 border-t border-white/10 space-y-4">
+                <div className="px-3 md:px-4 pb-3 md:pb-4 pt-2 border-t border-white/10 space-y-3 md:space-y-4">
                   {/* Enable Redaction Toggle */}
-                  <label className="flex items-center justify-between cursor-pointer">
-                    <div className="flex items-center gap-2">
+                  <label className="flex items-center justify-between cursor-pointer gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
                       {enableRedaction ? (
-                        <EyeOff className="h-4 w-4 text-purple-400" />
+                        <EyeOff className="h-3.5 w-3.5 md:h-4 md:w-4 text-purple-400 flex-shrink-0" />
                       ) : (
-                        <Eye className="h-4 w-4 text-white/40" />
+                        <Eye className="h-3.5 w-3.5 md:h-4 md:w-4 text-white/40 flex-shrink-0" />
                       )}
-                      <span className="text-sm text-white/80">Enable automatic redaction</span>
+                      <span className="text-xs md:text-sm text-white/80">Enable automatic redaction</span>
                     </div>
                     <input
                       type="checkbox"
                       checked={enableRedaction}
                       onChange={(e) => setEnableRedaction(e.target.checked)}
-                      className="w-4 h-4 bg-white/10 border-white/20"
+                      className="w-4 h-4 bg-white/10 border-white/20 flex-shrink-0"
                     />
                   </label>
 
@@ -526,17 +527,17 @@ export function ExportsPage({ projectId }: ExportsPageProps) {
                     <>
                       {/* Sensitivity Types Grid */}
                       <div>
-                        <label className="text-xs text-white/40 mb-2 block">
+                        <label className="text-[10px] md:text-xs text-white/40 mb-1.5 md:mb-2 block">
                           Sensitivity types to redact
                         </label>
-                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1.5 md:gap-2">
                           {SENSITIVITY_TYPES.map((type) => (
                             <button
                               key={type.id}
                               type="button"
                               onClick={() => toggleSensitivityType(type.id)}
                               className={cn(
-                                'px-2 py-1.5 text-xs border transition-colors text-left',
+                                'px-1.5 md:px-2 py-1 md:py-1.5 text-[10px] md:text-xs border transition-colors text-left',
                                 selectedSensitivityTypes.has(type.id)
                                   ? 'border-purple-500/50 bg-purple-500/10 text-purple-300'
                                   : 'border-white/10 text-white/50 hover:border-white/20'
@@ -555,21 +556,21 @@ export function ExportsPage({ projectId }: ExportsPageProps) {
                           type="checkbox"
                           checked={includeRedactionSummary}
                           onChange={(e) => setIncludeRedactionSummary(e.target.checked)}
-                          className="w-4 h-4 bg-white/10 border-white/20"
+                          className="w-4 h-4 bg-white/10 border-white/20 flex-shrink-0"
                         />
-                        <span className="text-sm text-white/80">Include redaction summary</span>
-                        <Info className="h-3 w-3 text-white/30" />
+                        <span className="text-xs md:text-sm text-white/80">Include redaction summary</span>
+                        <Info className="h-3 w-3 text-white/30 flex-shrink-0" />
                       </label>
                     </>
                   )}
 
                   {/* Advanced: Include PII (Admin Only) */}
-                  <div className="pt-3 border-t border-white/10">
-                    <label className="flex items-center justify-between cursor-pointer">
-                      <div className="flex items-center gap-2">
-                        <AlertCircle className="h-4 w-4 text-yellow-400" />
-                        <span className="text-sm text-white/80">Include PII without redaction</span>
-                        <span className="text-xs px-1.5 py-0.5 bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">
+                  <div className="pt-2 md:pt-3 border-t border-white/10">
+                    <label className="flex items-start sm:items-center justify-between cursor-pointer gap-2">
+                      <div className="flex items-start sm:items-center gap-2 flex-wrap min-w-0">
+                        <AlertCircle className="h-3.5 w-3.5 md:h-4 md:w-4 text-yellow-400 flex-shrink-0 mt-0.5 sm:mt-0" />
+                        <span className="text-xs md:text-sm text-white/80">Include PII without redaction</span>
+                        <span className="text-[10px] md:text-xs px-1 md:px-1.5 py-0.5 bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">
                           Admin
                         </span>
                       </div>
@@ -577,11 +578,11 @@ export function ExportsPage({ projectId }: ExportsPageProps) {
                         type="checkbox"
                         checked={includePii}
                         onChange={(e) => setIncludePii(e.target.checked)}
-                        className="w-4 h-4 bg-white/10 border-white/20"
+                        className="w-4 h-4 bg-white/10 border-white/20 flex-shrink-0"
                       />
                     </label>
                     {includePii && (
-                      <div className="mt-2 ml-6 text-xs text-yellow-400/80 flex items-start gap-1">
+                      <div className="mt-2 ml-5 md:ml-6 text-[10px] md:text-xs text-yellow-400/80 flex items-start gap-1">
                         <AlertCircle className="h-3 w-3 mt-0.5 flex-shrink-0" />
                         <span>
                           Warning: Exported data will contain personally identifiable information.
@@ -593,11 +594,11 @@ export function ExportsPage({ projectId }: ExportsPageProps) {
 
                   {/* Include Raw Telemetry (Telemetry exports only) */}
                   {selectedType === 'telemetry_snapshot' && (
-                    <label className="flex items-center justify-between cursor-pointer">
-                      <div className="flex items-center gap-2">
-                        <Activity className="h-4 w-4 text-cyan-400" />
-                        <span className="text-sm text-white/80">Include raw telemetry data</span>
-                        <span className="text-xs px-1.5 py-0.5 bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                    <label className="flex items-start sm:items-center justify-between cursor-pointer gap-2">
+                      <div className="flex items-start sm:items-center gap-2 flex-wrap min-w-0">
+                        <Activity className="h-3.5 w-3.5 md:h-4 md:w-4 text-cyan-400 flex-shrink-0 mt-0.5 sm:mt-0" />
+                        <span className="text-xs md:text-sm text-white/80">Include raw telemetry data</span>
+                        <span className="text-[10px] md:text-xs px-1 md:px-1.5 py-0.5 bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
                           Permission
                         </span>
                       </div>
@@ -605,7 +606,7 @@ export function ExportsPage({ projectId }: ExportsPageProps) {
                         type="checkbox"
                         checked={includeRaw}
                         onChange={(e) => setIncludeRaw(e.target.checked)}
-                        className="w-4 h-4 bg-white/10 border-white/20"
+                        className="w-4 h-4 bg-white/10 border-white/20 flex-shrink-0"
                       />
                     </label>
                   )}
@@ -615,26 +616,26 @@ export function ExportsPage({ projectId }: ExportsPageProps) {
 
             {/* Generate Button */}
             <Button
-              className="w-full"
+              className="w-full text-xs md:text-sm"
               onClick={handleCreateExport}
               disabled={createExport.isPending}
             >
               {createExport.isPending ? (
                 <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  <Loader2 className="h-3.5 w-3.5 md:h-4 md:w-4 mr-1.5 md:mr-2 animate-spin" />
                   Generating...
                 </>
               ) : (
                 <>
-                  <Download className="h-4 w-4 mr-2" />
+                  <Download className="h-3.5 w-3.5 md:h-4 md:w-4 mr-1.5 md:mr-2" />
                   Generate Export
                 </>
               )}
             </Button>
 
             {createExport.isError && (
-              <div className="mt-3 flex items-center gap-2 text-red-400 text-sm">
-                <AlertCircle className="h-4 w-4" />
+              <div className="mt-2 md:mt-3 flex items-center gap-1.5 md:gap-2 text-red-400 text-xs md:text-sm">
+                <AlertCircle className="h-3.5 w-3.5 md:h-4 md:w-4 flex-shrink-0" />
                 <span>Failed to create export. Please try again.</span>
               </div>
             )}
@@ -642,30 +643,30 @@ export function ExportsPage({ projectId }: ExportsPageProps) {
 
           {/* Export History */}
           <div>
-            <h2 className="text-lg font-medium mb-4">Export History</h2>
+            <h2 className="text-base md:text-lg font-medium mb-3 md:mb-4">Export History</h2>
 
             {isLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-6 w-6 animate-spin text-cyan-400" />
+              <div className="flex items-center justify-center py-8 md:py-12">
+                <Loader2 className="h-5 w-5 md:h-6 md:w-6 animate-spin text-cyan-400" />
               </div>
             ) : !exports?.length ? (
-              <div className="text-center py-12 border border-white/10 bg-white/5">
-                <Download className="h-10 w-10 mx-auto mb-3 text-white/20" />
-                <p className="text-white/60">No exports yet</p>
-                <p className="text-sm text-white/40">
+              <div className="text-center py-8 md:py-12 border border-white/10 bg-white/5">
+                <Download className="h-8 w-8 md:h-10 md:w-10 mx-auto mb-2 md:mb-3 text-white/20" />
+                <p className="text-sm md:text-base text-white/60">No exports yet</p>
+                <p className="text-xs md:text-sm text-white/40">
                   Create your first export using the form above
                 </p>
               </div>
             ) : (
-              <div className="space-y-6">
+              <div className="space-y-4 md:space-y-6">
                 {/* Active exports */}
                 {groupedExports.active.length > 0 && (
                   <div>
-                    <h3 className="text-sm text-white/40 mb-2 flex items-center gap-2">
-                      <Loader2 className="h-3 w-3 animate-spin" />
+                    <h3 className="text-xs md:text-sm text-white/40 mb-1.5 md:mb-2 flex items-center gap-1.5 md:gap-2">
+                      <Loader2 className="h-2.5 w-2.5 md:h-3 md:w-3 animate-spin" />
                       Processing
                     </h3>
-                    <div className="space-y-2">
+                    <div className="space-y-1.5 md:space-y-2">
                       {groupedExports.active.map((item) => (
                         <ExportJobRow
                           key={item.export_id}
@@ -684,11 +685,11 @@ export function ExportsPage({ projectId }: ExportsPageProps) {
                 {/* Completed exports */}
                 {groupedExports.completed.length > 0 && (
                   <div>
-                    <h3 className="text-sm text-white/40 mb-2 flex items-center gap-2">
-                      <CheckCircle className="h-3 w-3 text-green-400" />
+                    <h3 className="text-xs md:text-sm text-white/40 mb-1.5 md:mb-2 flex items-center gap-1.5 md:gap-2">
+                      <CheckCircle className="h-2.5 w-2.5 md:h-3 md:w-3 text-green-400" />
                       Completed ({groupedExports.completed.length})
                     </h3>
-                    <div className="space-y-2">
+                    <div className="space-y-1.5 md:space-y-2">
                       {groupedExports.completed.map((item) => (
                         <ExportJobRow
                           key={item.export_id}
@@ -707,11 +708,11 @@ export function ExportsPage({ projectId }: ExportsPageProps) {
                 {/* Failed exports */}
                 {groupedExports.failed.length > 0 && (
                   <div>
-                    <h3 className="text-sm text-white/40 mb-2 flex items-center gap-2">
-                      <AlertCircle className="h-3 w-3 text-red-400" />
+                    <h3 className="text-xs md:text-sm text-white/40 mb-1.5 md:mb-2 flex items-center gap-1.5 md:gap-2">
+                      <AlertCircle className="h-2.5 w-2.5 md:h-3 md:w-3 text-red-400" />
                       Failed ({groupedExports.failed.length})
                     </h3>
-                    <div className="space-y-2">
+                    <div className="space-y-1.5 md:space-y-2">
                       {groupedExports.failed.map((item) => (
                         <ExportJobRow
                           key={item.export_id}
@@ -732,9 +733,10 @@ export function ExportsPage({ projectId }: ExportsPageProps) {
 
           {/* Copied Toast */}
           {copiedUrl && (
-            <div className="fixed bottom-4 right-4 flex items-center gap-2 px-4 py-2 bg-green-500/20 border border-green-500/30 text-green-300 text-sm">
-              <Copy className="h-4 w-4" />
-              Share link copied to clipboard
+            <div className="fixed bottom-3 md:bottom-4 right-3 md:right-4 flex items-center gap-1.5 md:gap-2 px-3 md:px-4 py-1.5 md:py-2 bg-green-500/20 border border-green-500/30 text-green-300 text-xs md:text-sm">
+              <Copy className="h-3.5 w-3.5 md:h-4 md:w-4" />
+              <span className="hidden sm:inline">Share link copied to clipboard</span>
+              <span className="sm:hidden">Link copied</span>
             </div>
           )}
         </div>

@@ -311,39 +311,39 @@ export default function CreateProjectWizardPage() {
   };
 
   return (
-    <div className="min-h-screen bg-black p-6">
+    <div className="min-h-screen bg-black p-4 md:p-6">
       {/* Header */}
-      <div className="mb-8">
+      <div className="mb-6 md:mb-8">
         <Link href="/dashboard/projects">
-          <Button variant="ghost" size="sm" className="mb-4">
-            <ArrowLeft className="w-3 h-3 mr-2" />
+          <Button variant="ghost" size="sm" className="mb-3 md:mb-4 text-[10px] md:text-xs">
+            <ArrowLeft className="w-3 h-3 mr-1 md:mr-2" />
             BACK TO PROJECTS
           </Button>
         </Link>
         <div className="flex items-center gap-2 mb-1">
-          <FolderKanban className="w-4 h-4 text-cyan-400" />
-          <span className="text-xs font-mono text-white/40 uppercase tracking-wider">Create Project</span>
+          <FolderKanban className="w-3.5 h-3.5 md:w-4 md:h-4 text-cyan-400" />
+          <span className="text-[10px] md:text-xs font-mono text-white/40 uppercase tracking-wider">Create Project</span>
         </div>
-        <h1 className="text-xl font-mono font-bold text-white">Project Wizard</h1>
-        <p className="text-sm font-mono text-white/50 mt-1">
+        <h1 className="text-lg md:text-xl font-mono font-bold text-white">Project Wizard</h1>
+        <p className="text-xs md:text-sm font-mono text-white/50 mt-1">
           Define your prediction goal and configure your simulation
         </p>
       </div>
 
       {/* Step Indicator */}
-      <div className="flex items-center gap-1 mb-8 max-w-3xl">
+      <div className="flex items-center gap-0.5 md:gap-1 mb-6 md:mb-8 max-w-3xl overflow-x-auto">
         {STEPS.map((step, index) => {
           const isActive = step.id === currentStep;
           const isCompleted = index < currentStepIndex;
           const isClickable = index <= currentStepIndex || (index === currentStepIndex + 1 && isStepValid(currentStep));
 
           return (
-            <div key={step.id} className="flex items-center flex-1">
+            <div key={step.id} className="flex items-center flex-1 min-w-0">
               <button
                 onClick={() => isClickable && goToStep(step.id)}
                 disabled={!isClickable}
                 className={cn(
-                  'flex items-center gap-2 px-3 py-2 border transition-all flex-1',
+                  'flex items-center gap-1 md:gap-2 px-2 md:px-3 py-1.5 md:py-2 border transition-all flex-1',
                   isActive
                     ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-400'
                     : isCompleted
@@ -353,15 +353,15 @@ export default function CreateProjectWizardPage() {
                 )}
               >
                 <span className={cn(
-                  'w-5 h-5 flex items-center justify-center text-[10px] font-mono font-bold',
+                  'w-4 h-4 md:w-5 md:h-5 flex items-center justify-center text-[9px] md:text-[10px] font-mono font-bold flex-shrink-0',
                   isCompleted ? 'bg-green-500 text-black' : isActive ? 'bg-cyan-500 text-black' : 'bg-white/10'
                 )}>
-                  {isCompleted ? <Check className="w-3 h-3" /> : step.number}
+                  {isCompleted ? <Check className="w-2.5 h-2.5 md:w-3 md:h-3" /> : step.number}
                 </span>
-                <span className="text-xs font-mono hidden sm:block">{step.label}</span>
+                <span className="text-[10px] md:text-xs font-mono hidden sm:block truncate">{step.label}</span>
               </button>
               {index < STEPS.length - 1 && (
-                <ChevronRight className="w-4 h-4 text-white/20 mx-1 flex-shrink-0" />
+                <ChevronRight className="w-3 h-3 md:w-4 md:h-4 text-white/20 mx-0.5 md:mx-1 flex-shrink-0" />
               )}
             </div>
           );
@@ -370,10 +370,10 @@ export default function CreateProjectWizardPage() {
 
       {/* Error Display */}
       {error && (
-        <div className="max-w-3xl mb-6 bg-red-500/10 border border-red-500/30 p-4">
+        <div className="max-w-3xl mb-4 md:mb-6 bg-red-500/10 border border-red-500/30 p-3 md:p-4">
           <div className="flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-red-400" />
-            <p className="text-sm font-mono text-red-400">{error}</p>
+            <AlertTriangle className="w-3.5 h-3.5 md:w-4 md:h-4 text-red-400 flex-shrink-0" />
+            <p className="text-xs md:text-sm font-mono text-red-400">{error}</p>
           </div>
         </div>
       )}
@@ -382,16 +382,16 @@ export default function CreateProjectWizardPage() {
       <div className="max-w-3xl">
         {/* Step 1: Goal */}
         {currentStep === 'goal' && (
-          <div className="bg-white/5 border border-white/10 p-6">
-            <div className="flex items-center gap-2 mb-6">
-              <Lightbulb className="w-5 h-5 text-cyan-400" />
-              <h2 className="text-lg font-mono font-bold text-white">Define Your Prediction Goal</h2>
+          <div className="bg-white/5 border border-white/10 p-4 md:p-6">
+            <div className="flex items-center gap-2 mb-4 md:mb-6">
+              <Lightbulb className="w-4 h-4 md:w-5 md:h-5 text-cyan-400" />
+              <h2 className="text-base md:text-lg font-mono font-bold text-white">Define Your Prediction Goal</h2>
             </div>
 
-            <div className="space-y-6">
+            <div className="space-y-4 md:space-y-6">
               {/* Goal Input */}
               <div>
-                <label className="block text-xs font-mono text-white/60 uppercase mb-2">
+                <label className="block text-[10px] md:text-xs font-mono text-white/60 uppercase mb-2">
                   What do you want to predict? <span className="text-red-400">*</span>
                 </label>
                 <textarea
@@ -399,26 +399,26 @@ export default function CreateProjectWizardPage() {
                   onChange={(e) => setFormData({ ...formData, goal: e.target.value })}
                   placeholder="e.g., How will consumer sentiment shift towards electric vehicles in urban markets over the next 6 months?"
                   rows={4}
-                  className="w-full px-4 py-3 bg-black border border-white/10 text-sm font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-cyan-500/50"
+                  className="w-full px-3 md:px-4 py-2 md:py-3 bg-black border border-white/10 text-xs md:text-sm font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-cyan-500/50"
                 />
-                <p className="text-[10px] font-mono text-white/30 mt-2">
+                <p className="text-[9px] md:text-[10px] font-mono text-white/30 mt-2">
                   Be specific about what you want to predict, the population, and the timeframe.
                 </p>
               </div>
 
               {/* Domain Hints */}
               <div>
-                <label className="block text-xs font-mono text-white/60 uppercase mb-2">
+                <label className="block text-[10px] md:text-xs font-mono text-white/60 uppercase mb-2">
                   Domain Hint (optional)
                 </label>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5 md:gap-2">
                   {DOMAIN_HINTS.map((domain) => (
                     <button
                       key={domain.id}
                       type="button"
                       onClick={() => setFormData({ ...formData, domain: domain.id })}
                       className={cn(
-                        'px-3 py-1.5 text-xs font-mono border transition-all',
+                        'px-2 md:px-3 py-1 md:py-1.5 text-[10px] md:text-xs font-mono border transition-all',
                         formData.domain === domain.id
                           ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-400'
                           : 'bg-white/5 border-white/10 text-white/60 hover:border-white/20'
@@ -431,19 +431,19 @@ export default function CreateProjectWizardPage() {
               </div>
 
               {/* Sensitive Domain */}
-              <div className="p-4 bg-yellow-500/5 border border-yellow-500/20">
-                <label className="flex items-start gap-3 cursor-pointer">
+              <div className="p-3 md:p-4 bg-yellow-500/5 border border-yellow-500/20">
+                <label className="flex items-start gap-2 md:gap-3 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={formData.isSensitive}
                     onChange={(e) => setFormData({ ...formData, isSensitive: e.target.checked })}
-                    className="mt-1 w-4 h-4 bg-white/5 border border-white/20"
+                    className="mt-0.5 md:mt-1 w-3.5 h-3.5 md:w-4 md:h-4 bg-white/5 border border-white/20"
                   />
                   <div>
-                    <span className="text-xs font-mono text-yellow-400 font-bold block">
+                    <span className="text-[10px] md:text-xs font-mono text-yellow-400 font-bold block">
                       Sensitive Domain
                     </span>
-                    <span className="text-[10px] font-mono text-white/50">
+                    <span className="text-[9px] md:text-[10px] font-mono text-white/50">
                       Enable additional privacy controls and policy checks for sensitive topics
                       (health, politics, finance, etc.)
                     </span>
@@ -456,18 +456,18 @@ export default function CreateProjectWizardPage() {
 
         {/* Step 2: Core Recommendation */}
         {currentStep === 'core' && (
-          <div className="bg-white/5 border border-white/10 p-6">
+          <div className="bg-white/5 border border-white/10 p-4 md:p-6">
             <div className="flex items-center gap-2 mb-2">
-              <Layers className="w-5 h-5 text-purple-400" />
-              <h2 className="text-lg font-mono font-bold text-white">Select Prediction Core</h2>
+              <Layers className="w-4 h-4 md:w-5 md:h-5 text-purple-400" />
+              <h2 className="text-sm md:text-lg font-mono font-bold text-white">Select Prediction Core</h2>
             </div>
-            <p className="text-sm font-mono text-white/50 mb-6">
+            <p className="text-xs md:text-sm font-mono text-white/50 mb-4 md:mb-6">
               Based on your goal, we recommend <span className="text-cyan-400">{
                 PREDICTION_CORES.find(c => c.id === recommendedCore)?.name
               }</span>
             </p>
 
-            <div className="space-y-3">
+            <div className="space-y-2 md:space-y-3">
               {PREDICTION_CORES.map((core) => {
                 const isSelected = formData.predictionCore === core.id;
                 const isRecommended = core.id === recommendedCore;
@@ -484,41 +484,41 @@ export default function CreateProjectWizardPage() {
                     type="button"
                     onClick={() => setFormData({ ...formData, predictionCore: core.id })}
                     className={cn(
-                      'w-full flex items-start gap-4 p-4 border transition-all text-left',
+                      'w-full flex items-start gap-3 md:gap-4 p-3 md:p-4 border transition-all text-left',
                       isSelected
                         ? `${colorClasses.bg} ${colorClasses.border}`
                         : 'bg-black border-white/10 hover:border-white/20'
                     )}
                   >
                     <div className={cn(
-                      'w-12 h-12 flex items-center justify-center flex-shrink-0',
+                      'w-10 h-10 md:w-12 md:h-12 flex items-center justify-center flex-shrink-0',
                       isSelected ? colorClasses.bg : 'bg-white/5'
                     )}>
-                      <Icon className={cn('w-6 h-6', isSelected ? colorClasses.text : 'text-white/40')} />
+                      <Icon className={cn('w-5 h-5 md:w-6 md:h-6', isSelected ? colorClasses.text : 'text-white/40')} />
                     </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <h3 className={cn('font-mono font-bold', isSelected ? colorClasses.text : 'text-white')}>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-1 md:gap-2">
+                        <h3 className={cn('text-xs md:text-sm font-mono font-bold', isSelected ? colorClasses.text : 'text-white')}>
                           {core.name}
                         </h3>
-                        <span className="text-[10px] font-mono text-white/40">
+                        <span className="text-[9px] md:text-[10px] font-mono text-white/40">
                           ({core.subtitle})
                         </span>
                         {isRecommended && (
-                          <span className="px-2 py-0.5 bg-green-500/20 text-green-400 text-[10px] font-mono">
+                          <span className="px-1.5 md:px-2 py-0.5 bg-green-500/20 text-green-400 text-[9px] md:text-[10px] font-mono">
                             RECOMMENDED
                           </span>
                         )}
                       </div>
-                      <p className="text-xs font-mono text-white/50 mt-1">
+                      <p className="text-[10px] md:text-xs font-mono text-white/50 mt-1 line-clamp-2 md:line-clamp-none">
                         {core.description}
                       </p>
                     </div>
                     <div className={cn(
-                      'w-5 h-5 border flex items-center justify-center flex-shrink-0',
+                      'w-4 h-4 md:w-5 md:h-5 border flex items-center justify-center flex-shrink-0',
                       isSelected ? `${colorClasses.border} ${colorClasses.bg}` : 'border-white/20'
                     )}>
-                      {isSelected && <Check className={cn('w-3 h-3', colorClasses.text)} />}
+                      {isSelected && <Check className={cn('w-2.5 h-2.5 md:w-3 md:h-3', colorClasses.text)} />}
                     </div>
                   </button>
                 );
@@ -529,16 +529,16 @@ export default function CreateProjectWizardPage() {
 
         {/* Step 3: Data & Personas */}
         {currentStep === 'data' && (
-          <div className="bg-white/5 border border-white/10 p-6">
+          <div className="bg-white/5 border border-white/10 p-4 md:p-6">
             <div className="flex items-center gap-2 mb-2">
-              <Database className="w-5 h-5 text-blue-400" />
-              <h2 className="text-lg font-mono font-bold text-white">Data & Personas Source</h2>
+              <Database className="w-4 h-4 md:w-5 md:h-5 text-blue-400" />
+              <h2 className="text-sm md:text-lg font-mono font-bold text-white">Data & Personas Source</h2>
             </div>
-            <p className="text-sm font-mono text-white/50 mb-6">
+            <p className="text-xs md:text-sm font-mono text-white/50 mb-4 md:mb-6">
               Choose how to populate your simulation with personas
             </p>
 
-            <div className="space-y-3">
+            <div className="space-y-2 md:space-y-3">
               {PERSONA_SOURCES.map((source) => {
                 const isSelected = formData.personaSource === source.id;
                 const Icon = source.icon;
@@ -549,7 +549,7 @@ export default function CreateProjectWizardPage() {
                     type="button"
                     onClick={() => setFormData({ ...formData, personaSource: source.id as WizardFormData['personaSource'] })}
                     className={cn(
-                      'w-full flex items-start gap-4 p-4 border transition-all text-left',
+                      'w-full flex items-start gap-3 md:gap-4 p-3 md:p-4 border transition-all text-left',
                       isSelected
                         ? 'bg-blue-500/10 border-blue-500/50'
                         : 'bg-black border-white/10 hover:border-white/20',
@@ -557,31 +557,31 @@ export default function CreateProjectWizardPage() {
                     )}
                   >
                     <div className={cn(
-                      'w-10 h-10 flex items-center justify-center flex-shrink-0',
+                      'w-8 h-8 md:w-10 md:h-10 flex items-center justify-center flex-shrink-0',
                       isSelected ? 'bg-blue-500/20' : 'bg-white/5'
                     )}>
-                      <Icon className={cn('w-5 h-5', isSelected ? 'text-blue-400' : 'text-white/40')} />
+                      <Icon className={cn('w-4 h-4 md:w-5 md:h-5', isSelected ? 'text-blue-400' : 'text-white/40')} />
                     </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <h3 className={cn('font-mono font-bold text-sm', isSelected ? 'text-blue-400' : 'text-white')}>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-1 md:gap-2">
+                        <h3 className={cn('font-mono font-bold text-xs md:text-sm', isSelected ? 'text-blue-400' : 'text-white')}>
                           {source.name}
                         </h3>
                         {source.advanced && (
-                          <span className="px-2 py-0.5 bg-white/10 text-white/40 text-[10px] font-mono">
+                          <span className="px-1.5 md:px-2 py-0.5 bg-white/10 text-white/40 text-[9px] md:text-[10px] font-mono">
                             ADVANCED
                           </span>
                         )}
                       </div>
-                      <p className="text-xs font-mono text-white/50 mt-1">
+                      <p className="text-[10px] md:text-xs font-mono text-white/50 mt-1 line-clamp-2 md:line-clamp-none">
                         {source.description}
                       </p>
-                      <div className="flex items-center gap-4 mt-2">
-                        <span className="text-[10px] font-mono text-white/40">
+                      <div className="flex flex-wrap items-center gap-2 md:gap-4 mt-2">
+                        <span className="text-[9px] md:text-[10px] font-mono text-white/40">
                           Est. personas: <span className="text-white/60">{source.estimatedCount}</span>
                         </span>
                         <span className={cn(
-                          'text-[10px] font-mono px-1.5 py-0.5',
+                          'text-[9px] md:text-[10px] font-mono px-1 md:px-1.5 py-0.5',
                           source.uncertainty === 'low' ? 'bg-green-500/20 text-green-400' :
                           source.uncertainty === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
                           'bg-red-500/20 text-red-400'
@@ -591,10 +591,10 @@ export default function CreateProjectWizardPage() {
                       </div>
                     </div>
                     <div className={cn(
-                      'w-5 h-5 border flex items-center justify-center flex-shrink-0',
+                      'w-4 h-4 md:w-5 md:h-5 border flex items-center justify-center flex-shrink-0',
                       isSelected ? 'border-blue-500/50 bg-blue-500/20' : 'border-white/20'
                     )}>
-                      {isSelected && <Check className="w-3 h-3 text-blue-400" />}
+                      {isSelected && <Check className="w-2.5 h-2.5 md:w-3 md:h-3 text-blue-400" />}
                     </div>
                   </button>
                 );
@@ -605,16 +605,16 @@ export default function CreateProjectWizardPage() {
 
         {/* Step 4: Outputs */}
         {currentStep === 'outputs' && (
-          <div className="bg-white/5 border border-white/10 p-6">
+          <div className="bg-white/5 border border-white/10 p-4 md:p-6">
             <div className="flex items-center gap-2 mb-2">
-              <BarChart3 className="w-5 h-5 text-green-400" />
-              <h2 className="text-lg font-mono font-bold text-white">Output Metrics</h2>
+              <BarChart3 className="w-4 h-4 md:w-5 md:h-5 text-green-400" />
+              <h2 className="text-sm md:text-lg font-mono font-bold text-white">Output Metrics</h2>
             </div>
-            <p className="text-sm font-mono text-white/50 mb-6">
+            <p className="text-xs md:text-sm font-mono text-white/50 mb-4 md:mb-6">
               Select which metrics to include in your simulation results
             </p>
 
-            <div className="space-y-3">
+            <div className="space-y-2 md:space-y-3">
               {OUTPUT_METRICS.map((metric) => {
                 const isSelected = formData.outputMetrics.includes(metric.id);
                 const Icon = metric.icon;
@@ -626,7 +626,7 @@ export default function CreateProjectWizardPage() {
                     onClick={() => toggleMetric(metric.id)}
                     disabled={metric.required}
                     className={cn(
-                      'w-full flex items-center gap-4 p-4 border transition-all text-left',
+                      'w-full flex items-center gap-3 md:gap-4 p-3 md:p-4 border transition-all text-left',
                       isSelected
                         ? 'bg-green-500/10 border-green-500/50'
                         : 'bg-black border-white/10 hover:border-white/20',
@@ -634,31 +634,31 @@ export default function CreateProjectWizardPage() {
                     )}
                   >
                     <div className={cn(
-                      'w-10 h-10 flex items-center justify-center flex-shrink-0',
+                      'w-8 h-8 md:w-10 md:h-10 flex items-center justify-center flex-shrink-0',
                       isSelected ? 'bg-green-500/20' : 'bg-white/5'
                     )}>
-                      <Icon className={cn('w-5 h-5', isSelected ? 'text-green-400' : 'text-white/40')} />
+                      <Icon className={cn('w-4 h-4 md:w-5 md:h-5', isSelected ? 'text-green-400' : 'text-white/40')} />
                     </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <h3 className={cn('font-mono font-bold text-sm', isSelected ? 'text-green-400' : 'text-white')}>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-1 md:gap-2">
+                        <h3 className={cn('font-mono font-bold text-xs md:text-sm', isSelected ? 'text-green-400' : 'text-white')}>
                           {metric.name}
                         </h3>
                         {metric.required && (
-                          <span className="px-2 py-0.5 bg-white/10 text-white/40 text-[10px] font-mono">
+                          <span className="px-1.5 md:px-2 py-0.5 bg-white/10 text-white/40 text-[9px] md:text-[10px] font-mono">
                             REQUIRED
                           </span>
                         )}
                       </div>
-                      <p className="text-xs font-mono text-white/50 mt-1">
+                      <p className="text-[10px] md:text-xs font-mono text-white/50 mt-1 line-clamp-2 md:line-clamp-none">
                         {metric.description}
                       </p>
                     </div>
                     <div className={cn(
-                      'w-5 h-5 border flex items-center justify-center flex-shrink-0',
+                      'w-4 h-4 md:w-5 md:h-5 border flex items-center justify-center flex-shrink-0',
                       isSelected ? 'border-green-500/50 bg-green-500/20' : 'border-white/20'
                     )}>
-                      {isSelected && <Check className="w-3 h-3 text-green-400" />}
+                      {isSelected && <Check className="w-2.5 h-2.5 md:w-3 md:h-3 text-green-400" />}
                     </div>
                   </button>
                 );
@@ -669,38 +669,38 @@ export default function CreateProjectWizardPage() {
 
         {/* Step 5: Review & Create */}
         {currentStep === 'review' && (
-          <div className="space-y-4">
-            <div className="bg-white/5 border border-white/10 p-6">
-              <div className="flex items-center gap-2 mb-6">
-                <FileText className="w-5 h-5 text-white/60" />
-                <h2 className="text-lg font-mono font-bold text-white">Review Project Configuration</h2>
+          <div className="space-y-3 md:space-y-4">
+            <div className="bg-white/5 border border-white/10 p-4 md:p-6">
+              <div className="flex items-center gap-2 mb-4 md:mb-6">
+                <FileText className="w-4 h-4 md:w-5 md:h-5 text-white/60" />
+                <h2 className="text-sm md:text-lg font-mono font-bold text-white">Review Project Configuration</h2>
               </div>
 
               {/* Summary */}
-              <div className="space-y-4">
+              <div className="space-y-3 md:space-y-4">
                 {/* Goal */}
-                <div className="p-4 bg-black border border-white/10">
-                  <div className="text-[10px] font-mono text-white/40 uppercase mb-2">Prediction Goal</div>
-                  <p className="text-sm font-mono text-white">{formData.goal}</p>
+                <div className="p-3 md:p-4 bg-black border border-white/10">
+                  <div className="text-[9px] md:text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">Prediction Goal</div>
+                  <p className="text-xs md:text-sm font-mono text-white">{formData.goal}</p>
                   {formData.domain && (
-                    <span className="inline-block mt-2 px-2 py-0.5 bg-white/10 text-xs font-mono text-white/60">
+                    <span className="inline-block mt-2 px-1.5 md:px-2 py-0.5 bg-white/10 text-[10px] md:text-xs font-mono text-white/60">
                       {DOMAIN_HINTS.find(d => d.id === formData.domain)?.label}
                     </span>
                   )}
                 </div>
 
                 {/* Core */}
-                <div className="p-4 bg-black border border-white/10">
-                  <div className="text-[10px] font-mono text-white/40 uppercase mb-2">Prediction Core</div>
-                  <div className="flex items-center gap-3">
+                <div className="p-3 md:p-4 bg-black border border-white/10">
+                  <div className="text-[9px] md:text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">Prediction Core</div>
+                  <div className="flex flex-wrap items-center gap-2 md:gap-3">
                     {(() => {
                       const core = PREDICTION_CORES.find(c => c.id === formData.predictionCore);
                       const Icon = core?.icon || Target;
                       return (
                         <>
-                          <Icon className="w-5 h-5 text-cyan-400" />
-                          <span className="text-sm font-mono text-white">{core?.name}</span>
-                          <span className="text-xs font-mono text-white/40">({core?.subtitle})</span>
+                          <Icon className="w-4 h-4 md:w-5 md:h-5 text-cyan-400 flex-shrink-0" />
+                          <span className="text-xs md:text-sm font-mono text-white">{core?.name}</span>
+                          <span className="text-[10px] md:text-xs font-mono text-white/40">({core?.subtitle})</span>
                         </>
                       );
                     })()}
@@ -708,17 +708,17 @@ export default function CreateProjectWizardPage() {
                 </div>
 
                 {/* Data Source */}
-                <div className="p-4 bg-black border border-white/10">
-                  <div className="text-[10px] font-mono text-white/40 uppercase mb-2">Persona Source</div>
-                  <div className="flex items-center gap-3">
+                <div className="p-3 md:p-4 bg-black border border-white/10">
+                  <div className="text-[9px] md:text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">Persona Source</div>
+                  <div className="flex flex-wrap items-center gap-2 md:gap-3">
                     {(() => {
                       const source = PERSONA_SOURCES.find(s => s.id === formData.personaSource);
                       const Icon = source?.icon || Users;
                       return (
                         <>
-                          <Icon className="w-5 h-5 text-blue-400" />
-                          <span className="text-sm font-mono text-white">{source?.name}</span>
-                          <span className="text-xs font-mono text-white/40">
+                          <Icon className="w-4 h-4 md:w-5 md:h-5 text-blue-400 flex-shrink-0" />
+                          <span className="text-xs md:text-sm font-mono text-white">{source?.name}</span>
+                          <span className="text-[10px] md:text-xs font-mono text-white/40">
                             (~{source?.estimatedCount} personas)
                           </span>
                         </>
@@ -728,13 +728,13 @@ export default function CreateProjectWizardPage() {
                 </div>
 
                 {/* Output Metrics */}
-                <div className="p-4 bg-black border border-white/10">
-                  <div className="text-[10px] font-mono text-white/40 uppercase mb-2">Output Metrics</div>
-                  <div className="flex flex-wrap gap-2">
+                <div className="p-3 md:p-4 bg-black border border-white/10">
+                  <div className="text-[9px] md:text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">Output Metrics</div>
+                  <div className="flex flex-wrap gap-1.5 md:gap-2">
                     {formData.outputMetrics.map(metricId => {
                       const metric = OUTPUT_METRICS.find(m => m.id === metricId);
                       return (
-                        <span key={metricId} className="px-2 py-1 bg-green-500/10 border border-green-500/30 text-xs font-mono text-green-400">
+                        <span key={metricId} className="px-1.5 md:px-2 py-0.5 md:py-1 bg-green-500/10 border border-green-500/30 text-[10px] md:text-xs font-mono text-green-400">
                           {metric?.name}
                         </span>
                       );
@@ -745,12 +745,12 @@ export default function CreateProjectWizardPage() {
 
               {/* Sensitive Domain Warning */}
               {formData.isSensitive && (
-                <div className="mt-4 p-4 bg-yellow-500/10 border border-yellow-500/30">
-                  <div className="flex items-start gap-3">
-                    <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0" />
-                    <div>
-                      <p className="text-xs font-mono text-yellow-400 font-bold">Sensitive Domain Enabled</p>
-                      <p className="text-[10px] font-mono text-white/50 mt-1">
+                <div className="mt-3 md:mt-4 p-3 md:p-4 bg-yellow-500/10 border border-yellow-500/30">
+                  <div className="flex items-start gap-2 md:gap-3">
+                    <AlertTriangle className="w-4 h-4 md:w-5 md:h-5 text-yellow-400 flex-shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-[10px] md:text-xs font-mono text-yellow-400 font-bold">Sensitive Domain Enabled</p>
+                      <p className="text-[9px] md:text-[10px] font-mono text-white/50 mt-1">
                         Additional privacy controls and audit logging will be applied to this project.
                         Results may be restricted based on your organization&apos;s policies.
                       </p>
@@ -761,16 +761,16 @@ export default function CreateProjectWizardPage() {
             </div>
 
             {/* Project Name (editable) */}
-            <div className="bg-white/5 border border-white/10 p-6">
-              <div className="text-[10px] font-mono text-white/40 uppercase mb-2">Project Name</div>
+            <div className="bg-white/5 border border-white/10 p-4 md:p-6">
+              <div className="text-[9px] md:text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">Project Name</div>
               <input
                 type="text"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 placeholder={formData.goal.slice(0, 50) || 'Auto-generated from goal'}
-                className="w-full px-3 py-2 bg-black border border-white/10 text-sm font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-white/20"
+                className="w-full px-2.5 md:px-3 py-2 bg-black border border-white/10 text-xs md:text-sm font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-white/20"
               />
-              <p className="text-[10px] font-mono text-white/30 mt-2">
+              <p className="text-[9px] md:text-[10px] font-mono text-white/30 mt-2">
                 Leave blank to auto-generate from your prediction goal
               </p>
             </div>
@@ -778,18 +778,18 @@ export default function CreateProjectWizardPage() {
         )}
 
         {/* Navigation Buttons */}
-        <div className="flex justify-between mt-6">
+        <div className="flex flex-col-reverse sm:flex-row justify-between gap-3 mt-4 md:mt-6">
           <div>
             {currentStepIndex > 0 && (
-              <Button variant="secondary" onClick={goBack}>
-                <ArrowLeft className="w-3 h-3 mr-2" />
+              <Button variant="secondary" onClick={goBack} size="sm" className="w-full sm:w-auto text-[10px] md:text-xs">
+                <ArrowLeft className="w-3 h-3 mr-1 md:mr-2" />
                 BACK
               </Button>
             )}
           </div>
-          <div className="flex gap-3">
-            <Link href="/dashboard/projects">
-              <Button variant="outline">
+          <div className="flex flex-col sm:flex-row gap-2 md:gap-3">
+            <Link href="/dashboard/projects" className="w-full sm:w-auto">
+              <Button variant="outline" size="sm" className="w-full text-[10px] md:text-xs">
                 CANCEL
               </Button>
             </Link>
@@ -797,15 +797,17 @@ export default function CreateProjectWizardPage() {
               <Button
                 onClick={handleSubmit}
                 disabled={createProjectSpec.isPending}
+                size="sm"
+                className="w-full sm:w-auto text-[10px] md:text-xs"
               >
                 {createProjectSpec.isPending ? (
                   <>
-                    <Loader2 className="w-3 h-3 mr-2 animate-spin" />
+                    <Loader2 className="w-3 h-3 mr-1 md:mr-2 animate-spin" />
                     CREATING...
                   </>
                 ) : (
                   <>
-                    <FolderKanban className="w-3 h-3 mr-2" />
+                    <FolderKanban className="w-3 h-3 mr-1 md:mr-2" />
                     CREATE PROJECT
                   </>
                 )}
@@ -814,9 +816,11 @@ export default function CreateProjectWizardPage() {
               <Button
                 onClick={goNext}
                 disabled={!isStepValid(currentStep)}
+                size="sm"
+                className="w-full sm:w-auto text-[10px] md:text-xs"
               >
                 NEXT
-                <ArrowRight className="w-3 h-3 ml-2" />
+                <ArrowRight className="w-3 h-3 ml-1 md:ml-2" />
               </Button>
             )}
           </div>
@@ -824,13 +828,13 @@ export default function CreateProjectWizardPage() {
       </div>
 
       {/* Footer */}
-      <div className="mt-8 pt-4 border-t border-white/5 max-w-3xl">
-        <div className="flex items-center justify-between text-[10px] font-mono text-white/30">
+      <div className="mt-6 md:mt-8 pt-3 md:pt-4 border-t border-white/5 max-w-3xl">
+        <div className="flex items-center justify-between text-[9px] md:text-[10px] font-mono text-white/30">
           <div className="flex items-center gap-1">
-            <Terminal className="w-3 h-3" />
+            <Terminal className="w-2.5 h-2.5 md:w-3 md:h-3" />
             <span>PROJECT WIZARD</span>
           </div>
-          <span>Interaction_design.md §5.3</span>
+          <span className="hidden sm:inline">Interaction_design.md §5.3</span>
         </div>
       </div>
     </div>

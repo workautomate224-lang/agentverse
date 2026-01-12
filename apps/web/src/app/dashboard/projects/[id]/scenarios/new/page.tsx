@@ -156,28 +156,55 @@ export default function NewScenarioPage() {
   };
 
   return (
-    <div className="min-h-screen bg-black p-6">
+    <div className="min-h-screen bg-black p-4 md:p-6">
       {/* Header */}
-      <div className="max-w-4xl mx-auto mb-8">
+      <div className="max-w-4xl mx-auto mb-6 md:mb-8">
         <Link href={`/dashboard/projects/${projectId}`}>
-          <Button variant="ghost" size="sm" className="text-white/60 hover:text-white hover:bg-white/5 font-mono text-xs mb-4">
-            <ArrowLeft className="w-3 h-3 mr-2" />
-            BACK TO PROJECT
+          <Button variant="ghost" size="sm" className="text-white/60 hover:text-white hover:bg-white/5 font-mono text-[10px] md:text-xs mb-3 md:mb-4">
+            <ArrowLeft className="w-3 h-3 mr-1.5 md:mr-2" />
+            <span className="hidden sm:inline">BACK TO PROJECT</span>
+            <span className="sm:hidden">BACK</span>
           </Button>
         </Link>
         <div className="flex items-center gap-2 mb-1">
-          <FileText className="w-4 h-4 text-white/60" />
-          <span className="text-xs font-mono text-white/40 uppercase tracking-wider">Scenario Module</span>
+          <FileText className="w-3.5 h-3.5 md:w-4 md:h-4 text-white/60" />
+          <span className="text-[10px] md:text-xs font-mono text-white/40 uppercase tracking-wider">Scenario Module</span>
         </div>
-        <h1 className="text-xl font-mono font-bold text-white">Create New Scenario</h1>
-        <p className="text-xs font-mono text-white/40 mt-1">
+        <h1 className="text-lg md:text-xl font-mono font-bold text-white">Create New Scenario</h1>
+        <p className="text-[10px] md:text-xs font-mono text-white/40 mt-1">
           Set up your simulation scenario step by step
         </p>
       </div>
 
       {/* Progress Steps */}
-      <div className="max-w-4xl mx-auto mb-8">
-        <div className="flex items-center justify-between">
+      <div className="max-w-4xl mx-auto mb-6 md:mb-8">
+        {/* Mobile: Compact step indicator */}
+        <div className="flex md:hidden items-center justify-center gap-2 mb-4">
+          <span className="text-xs font-mono text-white/40">Step</span>
+          <span className="text-sm font-mono font-bold text-white">{currentStep}</span>
+          <span className="text-xs font-mono text-white/40">of {steps.length}</span>
+          <span className="text-xs font-mono text-white ml-2">
+            {steps.find(s => s.id === currentStep)?.name}
+          </span>
+        </div>
+        {/* Mobile: Simple dots indicator */}
+        <div className="flex md:hidden items-center justify-center gap-2">
+          {steps.map((step) => (
+            <div
+              key={step.id}
+              className={cn(
+                'w-2 h-2 transition-colors',
+                currentStep === step.id
+                  ? 'bg-white'
+                  : currentStep > step.id
+                  ? 'bg-white/50'
+                  : 'bg-white/20'
+              )}
+            />
+          ))}
+        </div>
+        {/* Desktop: Full step indicator */}
+        <div className="hidden md:flex items-center justify-between">
           {steps.map((step, index) => (
             <div key={step.id} className="flex items-center">
               <div
@@ -199,16 +226,15 @@ export default function NewScenarioPage() {
               {index < steps.length - 1 && (
                 <div
                   className={cn(
-                    'w-full h-[2px] mx-2',
+                    'h-[2px] mx-2 flex-1 min-w-[40px] lg:min-w-[60px]',
                     currentStep > step.id ? 'bg-white' : 'bg-white/10'
                   )}
-                  style={{ width: '60px' }}
                 />
               )}
             </div>
           ))}
         </div>
-        <div className="flex items-center justify-between mt-2">
+        <div className="hidden md:flex items-center justify-between mt-2">
           {steps.map((step) => (
             <span
               key={step.id}
@@ -225,10 +251,10 @@ export default function NewScenarioPage() {
 
       {/* Step Content */}
       <div className="max-w-4xl mx-auto">
-        <div className="bg-white/5 border border-white/10 p-6 mb-6">
+        <div className="bg-white/5 border border-white/10 p-4 md:p-6 mb-4 md:mb-6">
           {error && (
-            <div className="mb-4 bg-red-500/10 border border-red-500/30 p-4">
-              <p className="text-xs font-mono text-red-400">{error}</p>
+            <div className="mb-3 md:mb-4 bg-red-500/10 border border-red-500/30 p-3 md:p-4">
+              <p className="text-[10px] md:text-xs font-mono text-red-400">{error}</p>
             </div>
           )}
 
@@ -248,41 +274,43 @@ export default function NewScenarioPage() {
         </div>
 
         {/* Navigation */}
-        <div className="flex justify-between">
+        <div className="flex justify-between gap-3">
           <Button
             variant="outline"
             onClick={handleBack}
             disabled={currentStep === 1}
-            className="font-mono text-xs border-white/20 text-white/60 hover:bg-white/5"
+            className="font-mono text-[10px] md:text-xs border-white/20 text-white/60 hover:bg-white/5"
           >
-            <ArrowLeft className="w-3 h-3 mr-2" />
-            BACK
+            <ArrowLeft className="w-3 h-3 mr-1.5 md:mr-2" />
+            <span className="hidden sm:inline">BACK</span>
           </Button>
 
           {currentStep < 5 ? (
             <Button
               onClick={handleNext}
               disabled={!canProceed()}
-              
+              className="font-mono text-[10px] md:text-xs"
             >
               NEXT
-              <ArrowRight className="w-3 h-3 ml-2" />
+              <ArrowRight className="w-3 h-3 ml-1.5 md:ml-2" />
             </Button>
           ) : (
             <Button
               onClick={handleSubmit}
               disabled={createScenario.isPending}
-              
+              className="font-mono text-[10px] md:text-xs"
             >
               {createScenario.isPending ? (
                 <>
-                  <Loader2 className="w-3 h-3 mr-2 animate-spin" />
-                  CREATING...
+                  <Loader2 className="w-3 h-3 mr-1.5 md:mr-2 animate-spin" />
+                  <span className="hidden sm:inline">CREATING...</span>
+                  <span className="sm:hidden">...</span>
                 </>
               ) : (
                 <>
-                  <Rocket className="w-3 h-3 mr-2" />
-                  CREATE SCENARIO
+                  <Rocket className="w-3 h-3 mr-1.5 md:mr-2" />
+                  <span className="hidden sm:inline">CREATE SCENARIO</span>
+                  <span className="sm:hidden">CREATE</span>
                 </>
               )}
             </Button>
@@ -291,11 +319,12 @@ export default function NewScenarioPage() {
       </div>
 
       {/* Footer Status */}
-      <div className="max-w-4xl mx-auto mt-8 pt-4 border-t border-white/5">
+      <div className="max-w-4xl mx-auto mt-6 md:mt-8 pt-3 md:pt-4 border-t border-white/5">
         <div className="flex items-center justify-between text-[10px] font-mono text-white/30">
           <div className="flex items-center gap-1">
             <Terminal className="w-3 h-3" />
-            <span>SCENARIO CREATE MODULE</span>
+            <span className="hidden sm:inline">SCENARIO CREATE MODULE</span>
+            <span className="sm:hidden">SCENARIO</span>
           </div>
           <span>AGENTVERSE v1.0.0</span>
         </div>
@@ -313,11 +342,11 @@ function Step1Basics({
   updateFormData: (updates: Partial<FormData>) => void;
 }) {
   return (
-    <div className="space-y-4">
-      <h2 className="text-sm font-mono font-bold text-white uppercase mb-4">Basic Information</h2>
+    <div className="space-y-3 md:space-y-4">
+      <h2 className="text-xs md:text-sm font-mono font-bold text-white uppercase mb-3 md:mb-4">Basic Information</h2>
 
       <div>
-        <label className="block text-[10px] font-mono text-white/40 uppercase mb-2">
+        <label className="block text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">
           Scenario Name <span className="text-red-400">*</span>
         </label>
         <input
@@ -325,18 +354,18 @@ function Step1Basics({
           value={formData.name}
           onChange={(e) => updateFormData({ name: e.target.value })}
           placeholder="e.g., Product Launch Survey"
-          className="w-full px-3 py-2 bg-black border border-white/10 text-xs font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-white/30"
+          className="w-full px-2.5 md:px-3 py-2 bg-black border border-white/10 text-[11px] md:text-xs font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-white/30"
         />
       </div>
 
       <div>
-        <label className="block text-[10px] font-mono text-white/40 uppercase mb-2">Description</label>
+        <label className="block text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">Description</label>
         <textarea
           value={formData.description}
           onChange={(e) => updateFormData({ description: e.target.value })}
           placeholder="What is this scenario about?"
           rows={3}
-          className="w-full px-3 py-2 bg-black border border-white/10 text-xs font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-white/30 resize-none"
+          className="w-full px-2.5 md:px-3 py-2 bg-black border border-white/10 text-[11px] md:text-xs font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-white/30 resize-none"
         />
       </div>
     </div>
@@ -427,20 +456,20 @@ function Step2Context({
   };
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-sm font-mono font-bold text-white uppercase mb-4">Simulation Context</h2>
+    <div className="space-y-3 md:space-y-4">
+      <h2 className="text-xs md:text-sm font-mono font-bold text-white uppercase mb-3 md:mb-4">Simulation Context</h2>
 
       {/* AI Tools Panel */}
-      <div className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/30 p-4 mb-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Sparkles className="w-4 h-4 text-purple-400" />
-          <span className="text-xs font-mono font-bold text-white uppercase">AI Assistant</span>
+      <div className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/30 p-3 md:p-4 mb-3 md:mb-4">
+        <div className="flex items-center gap-2 mb-2 md:mb-3">
+          <Sparkles className="w-3.5 h-3.5 md:w-4 md:h-4 text-purple-400" />
+          <span className="text-[10px] md:text-xs font-mono font-bold text-white uppercase">AI Assistant</span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
           {/* Template Selection */}
           <div>
-            <label className="block text-[10px] font-mono text-white/40 uppercase mb-2">
+            <label className="block text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">
               <LayoutTemplate className="w-3 h-3 inline mr-1" />
               Use Template
             </label>
@@ -448,7 +477,7 @@ function Step2Context({
               value={selectedTemplate}
               onChange={(e) => handleTemplateSelect(e.target.value)}
               disabled={templatesLoading}
-              className="w-full px-3 py-2 bg-black border border-white/20 text-xs font-mono text-white focus:outline-none focus:border-purple-500/50"
+              className="w-full px-2.5 md:px-3 py-2 bg-black border border-white/20 text-[11px] md:text-xs font-mono text-white focus:outline-none focus:border-purple-500/50"
             >
               <option value="">-- Select a template --</option>
               {templatesData?.templates.map((template) => (
@@ -461,7 +490,7 @@ function Step2Context({
 
           {/* AI Generate Button */}
           <div>
-            <label className="block text-[10px] font-mono text-white/40 uppercase mb-2">
+            <label className="block text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">
               <Sparkles className="w-3 h-3 inline mr-1" />
               Generate from Title
             </label>
@@ -469,17 +498,19 @@ function Step2Context({
               onClick={handleGenerateContext}
               disabled={generateContent.isPending || !formData.name.trim()}
               variant="outline"
-              className="w-full font-mono text-xs border-purple-500/30 text-purple-400 hover:bg-purple-500/10 hover:text-purple-300"
+              className="w-full font-mono text-[10px] md:text-xs border-purple-500/30 text-purple-400 hover:bg-purple-500/10 hover:text-purple-300"
             >
               {generateContent.isPending ? (
                 <>
-                  <Loader2 className="w-3 h-3 mr-2 animate-spin" />
-                  GENERATING...
+                  <Loader2 className="w-3 h-3 mr-1.5 md:mr-2 animate-spin" />
+                  <span className="hidden sm:inline">GENERATING...</span>
+                  <span className="sm:hidden">...</span>
                 </>
               ) : (
                 <>
-                  <Sparkles className="w-3 h-3 mr-2" />
-                  GENERATE WITH AI
+                  <Sparkles className="w-3 h-3 mr-1.5 md:mr-2" />
+                  <span className="hidden sm:inline">GENERATE WITH AI</span>
+                  <span className="sm:hidden">GENERATE</span>
                 </>
               )}
             </Button>
@@ -492,10 +523,10 @@ function Step2Context({
         </div>
       </div>
 
-      <div className="bg-white/5 border border-white/10 p-4 mb-4">
+      <div className="bg-white/5 border border-white/10 p-3 md:p-4 mb-3 md:mb-4">
         <div className="flex items-start gap-2">
-          <Info className="w-4 h-4 text-white/60 mt-0.5" />
-          <div className="text-xs font-mono text-white/60">
+          <Info className="w-3.5 h-3.5 md:w-4 md:h-4 text-white/60 mt-0.5 flex-shrink-0" />
+          <div className="text-[10px] md:text-xs font-mono text-white/60 min-w-0">
             <p className="font-bold text-white mb-1">What is context?</p>
             <p>
               The context provides background information that all AI agents will
@@ -507,15 +538,15 @@ function Step2Context({
       </div>
 
       <div>
-        <label className="block text-[10px] font-mono text-white/40 uppercase mb-2">
+        <label className="block text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">
           Context <span className="text-red-400">*</span>
         </label>
         <textarea
           value={formData.context}
           onChange={(e) => updateFormData({ context: e.target.value })}
           placeholder={`Example: "You are evaluating a new smartphone that costs $999. It features a 6.7-inch OLED display, 5G connectivity, and a 48MP camera system. The phone is from a well-known brand and offers 2-year warranty."`}
-          rows={8}
-          className="w-full px-3 py-2 bg-black border border-white/10 text-xs font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-white/30 resize-none"
+          rows={6}
+          className="w-full px-2.5 md:px-3 py-2 bg-black border border-white/10 text-[11px] md:text-xs font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-white/30 resize-none"
         />
         <p className="text-[10px] font-mono text-white/30 mt-1">
           {formData.context.length} characters • All AI-generated content is fully editable
@@ -558,37 +589,37 @@ function Step3Questions({
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-mono font-bold text-white uppercase">Questions</h2>
+    <div className="space-y-3 md:space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 md:mb-4">
+        <h2 className="text-xs md:text-sm font-mono font-bold text-white uppercase">Questions</h2>
         <Button
           onClick={addQuestion}
           variant="outline"
           size="sm"
-          className="font-mono text-[10px] border-white/20 text-white/60 hover:bg-white/5"
+          className="font-mono text-[10px] border-white/20 text-white/60 hover:bg-white/5 w-full sm:w-auto"
         >
-          <Plus className="w-3 h-3 mr-2" />
+          <Plus className="w-3 h-3 mr-1.5 md:mr-2" />
           ADD QUESTION
         </Button>
       </div>
 
       {formData.questions.length === 0 ? (
-        <div className="text-center py-12 bg-white/5 border border-dashed border-white/20">
-          <MessageSquare className="w-10 h-10 text-white/20 mx-auto mb-4" />
-          <h3 className="font-mono text-sm font-bold text-white mb-1">NO QUESTIONS YET</h3>
-          <p className="text-xs font-mono text-white/40 mb-4">
+        <div className="text-center py-8 md:py-12 bg-white/5 border border-dashed border-white/20">
+          <MessageSquare className="w-8 h-8 md:w-10 md:h-10 text-white/20 mx-auto mb-3 md:mb-4" />
+          <h3 className="font-mono text-xs md:text-sm font-bold text-white mb-1">NO QUESTIONS YET</h3>
+          <p className="text-[10px] md:text-xs font-mono text-white/40 mb-3 md:mb-4 px-4">
             Add questions that AI agents will answer
           </p>
           <Button
             onClick={addQuestion}
-            
+            className="font-mono text-[10px] md:text-xs"
           >
-            <Plus className="w-3 h-3 mr-2" />
+            <Plus className="w-3 h-3 mr-1.5 md:mr-2" />
             ADD FIRST QUESTION
           </Button>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3 md:space-y-4">
           {formData.questions.map((question, index) => (
             <QuestionEditor
               key={question.id}
@@ -634,8 +665,8 @@ function QuestionEditor({
   };
 
   return (
-    <div className="bg-white/5 border border-white/10 p-4">
-      <div className="flex items-start justify-between mb-4">
+    <div className="bg-white/5 border border-white/10 p-3 md:p-4">
+      <div className="flex items-start justify-between mb-3 md:mb-4">
         <span className="text-[10px] font-mono text-white/40 uppercase">
           Question {index + 1}
         </span>
@@ -647,15 +678,15 @@ function QuestionEditor({
         </button>
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-3 md:space-y-4">
         <div>
-          <label className="block text-[10px] font-mono text-white/40 uppercase mb-2">Question Type</label>
+          <label className="block text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">Question Type</label>
           <select
             value={question.type}
             onChange={(e) =>
               onUpdate({ type: e.target.value as Question['type'] })
             }
-            className="w-full px-3 py-2 bg-black border border-white/10 text-xs font-mono text-white focus:outline-none focus:border-white/30"
+            className="w-full px-2.5 md:px-3 py-2 bg-black border border-white/10 text-[11px] md:text-xs font-mono text-white focus:outline-none focus:border-white/30"
           >
             <option value="multiple_choice">Multiple Choice</option>
             <option value="scale">Scale (1-10)</option>
@@ -664,19 +695,19 @@ function QuestionEditor({
         </div>
 
         <div>
-          <label className="block text-[10px] font-mono text-white/40 uppercase mb-2">Question Text</label>
+          <label className="block text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">Question Text</label>
           <input
             type="text"
             value={question.text}
             onChange={(e) => onUpdate({ text: e.target.value })}
             placeholder="Enter your question"
-            className="w-full px-3 py-2 bg-black border border-white/10 text-xs font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-white/30"
+            className="w-full px-2.5 md:px-3 py-2 bg-black border border-white/10 text-[11px] md:text-xs font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-white/30"
           />
         </div>
 
         {question.type === 'multiple_choice' && (
           <div>
-            <label className="block text-[10px] font-mono text-white/40 uppercase mb-2">Options</label>
+            <label className="block text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">Options</label>
             <div className="space-y-2">
               {(question.options || []).map((option, optionIndex) => (
                 <div key={optionIndex} className="flex items-center gap-2">
@@ -684,12 +715,12 @@ function QuestionEditor({
                     type="text"
                     value={option}
                     onChange={(e) => updateOption(optionIndex, e.target.value)}
-                    className="flex-1 px-3 py-2 bg-black border border-white/10 text-xs font-mono text-white focus:outline-none focus:border-white/30"
+                    className="flex-1 min-w-0 px-2.5 md:px-3 py-2 bg-black border border-white/10 text-[11px] md:text-xs font-mono text-white focus:outline-none focus:border-white/30"
                   />
                   {(question.options?.length || 0) > 2 && (
                     <button
                       onClick={() => removeOption(optionIndex)}
-                      className="p-2 hover:bg-white/10 text-white/40 hover:text-white"
+                      className="p-1.5 md:p-2 hover:bg-white/10 text-white/40 hover:text-white flex-shrink-0"
                     >
                       <X className="w-3 h-3" />
                     </button>
@@ -700,9 +731,9 @@ function QuestionEditor({
                 onClick={addOption}
                 variant="outline"
                 size="sm"
-                className="font-mono text-[10px] border-white/20 text-white/60 hover:bg-white/5"
+                className="font-mono text-[10px] border-white/20 text-white/60 hover:bg-white/5 w-full sm:w-auto"
               >
-                <Plus className="w-3 h-3 mr-2" />
+                <Plus className="w-3 h-3 mr-1.5 md:mr-2" />
                 ADD OPTION
               </Button>
             </div>
@@ -722,11 +753,11 @@ function Step4Population({
   updateFormData: (updates: Partial<FormData>) => void;
 }) {
   return (
-    <div className="space-y-6">
-      <h2 className="text-sm font-mono font-bold text-white uppercase mb-4">Population Settings</h2>
+    <div className="space-y-4 md:space-y-6">
+      <h2 className="text-xs md:text-sm font-mono font-bold text-white uppercase mb-3 md:mb-4">Population Settings</h2>
 
       <div>
-        <label className="block text-[10px] font-mono text-white/40 uppercase mb-2">
+        <label className="block text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">
           Population Size <span className="text-red-400">*</span>
         </label>
         <input
@@ -737,7 +768,7 @@ function Step4Population({
           }
           min={10}
           max={10000}
-          className="w-full px-3 py-2 bg-black border border-white/10 text-xs font-mono text-white focus:outline-none focus:border-white/30"
+          className="w-full px-2.5 md:px-3 py-2 bg-black border border-white/10 text-[11px] md:text-xs font-mono text-white focus:outline-none focus:border-white/30"
         />
         <p className="text-[10px] font-mono text-white/30 mt-1">
           Number of AI agents to simulate (10 - 10,000)
@@ -745,8 +776,8 @@ function Step4Population({
       </div>
 
       <div>
-        <h3 className="text-xs font-mono font-bold text-white uppercase mb-3">Demographics Distribution</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <h3 className="text-[10px] md:text-xs font-mono font-bold text-white uppercase mb-2 md:mb-3">Demographics Distribution</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
           <DemographicsSlider
             title="Age Groups"
             distribution={formData.demographics.age_distribution}
@@ -781,12 +812,12 @@ function DemographicsSlider({
   onChange: (dist: { [key: string]: number }) => void;
 }) {
   return (
-    <div className="bg-white/5 border border-white/10 p-4">
-      <h4 className="text-xs font-mono font-bold text-white uppercase mb-3">{title}</h4>
-      <div className="space-y-3">
+    <div className="bg-white/5 border border-white/10 p-3 md:p-4">
+      <h4 className="text-[10px] md:text-xs font-mono font-bold text-white uppercase mb-2 md:mb-3">{title}</h4>
+      <div className="space-y-2 md:space-y-3">
         {Object.entries(distribution).map(([key, value]) => (
           <div key={key}>
-            <div className="flex items-center justify-between text-xs font-mono mb-1">
+            <div className="flex items-center justify-between text-[10px] md:text-xs font-mono mb-1">
               <span className="capitalize text-white/60">{key.replace('_', ' ')}</span>
               <span className="text-white">{value}%</span>
             </div>
@@ -798,7 +829,7 @@ function DemographicsSlider({
               onChange={(e) =>
                 onChange({ ...distribution, [key]: parseInt(e.target.value) })
               }
-              className="w-full accent-white"
+              className="w-full accent-white h-1.5 md:h-2"
             />
           </div>
         ))}
@@ -810,55 +841,55 @@ function DemographicsSlider({
 // Step 5: Review
 function Step5Review({ formData }: { formData: FormData }) {
   return (
-    <div className="space-y-6">
-      <h2 className="text-sm font-mono font-bold text-white uppercase mb-4">Review & Create</h2>
+    <div className="space-y-4 md:space-y-6">
+      <h2 className="text-xs md:text-sm font-mono font-bold text-white uppercase mb-3 md:mb-4">Review & Create</h2>
 
-      <div className="space-y-4">
-        <div className="bg-white/5 border border-white/10 p-4">
-          <h3 className="text-xs font-mono font-bold text-white uppercase mb-2">Basic Information</h3>
-          <dl className="grid grid-cols-2 gap-2 text-xs font-mono">
+      <div className="space-y-3 md:space-y-4">
+        <div className="bg-white/5 border border-white/10 p-3 md:p-4">
+          <h3 className="text-[10px] md:text-xs font-mono font-bold text-white uppercase mb-2">Basic Information</h3>
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 md:gap-2 text-[10px] md:text-xs font-mono">
             <dt className="text-white/40">Name:</dt>
-            <dd className="text-white">{formData.name}</dd>
+            <dd className="text-white break-words">{formData.name}</dd>
             <dt className="text-white/40">Description:</dt>
-            <dd className="text-white">{formData.description || '-'}</dd>
+            <dd className="text-white break-words">{formData.description || '-'}</dd>
           </dl>
         </div>
 
-        <div className="bg-white/5 border border-white/10 p-4">
-          <h3 className="text-xs font-mono font-bold text-white uppercase mb-2">Context</h3>
-          <p className="text-xs font-mono text-white/60 whitespace-pre-wrap">
+        <div className="bg-white/5 border border-white/10 p-3 md:p-4">
+          <h3 className="text-[10px] md:text-xs font-mono font-bold text-white uppercase mb-2">Context</h3>
+          <p className="text-[10px] md:text-xs font-mono text-white/60 whitespace-pre-wrap break-words">
             {formData.context}
           </p>
         </div>
 
-        <div className="bg-white/5 border border-white/10 p-4">
-          <h3 className="text-xs font-mono font-bold text-white uppercase mb-2">
+        <div className="bg-white/5 border border-white/10 p-3 md:p-4">
+          <h3 className="text-[10px] md:text-xs font-mono font-bold text-white uppercase mb-2">
             Questions ({formData.questions.length})
           </h3>
-          <ul className="space-y-2">
+          <ul className="space-y-1.5 md:space-y-2">
             {formData.questions.map((q, i) => (
-              <li key={q.id} className="text-xs font-mono">
+              <li key={q.id} className="text-[10px] md:text-xs font-mono">
                 <span className="text-white">{i + 1}.</span>{' '}
-                <span className="text-white/60">{q.text}</span>
-                <span className="text-white/30 ml-2">({q.type})</span>
+                <span className="text-white/60 break-words">{q.text}</span>
+                <span className="text-white/30 ml-1 md:ml-2">({q.type.replace('_', ' ')})</span>
               </li>
             ))}
           </ul>
         </div>
 
-        <div className="bg-white/5 border border-white/10 p-4">
-          <h3 className="text-xs font-mono font-bold text-white uppercase mb-2">Population</h3>
-          <p className="text-xs font-mono">
+        <div className="bg-white/5 border border-white/10 p-3 md:p-4">
+          <h3 className="text-[10px] md:text-xs font-mono font-bold text-white uppercase mb-2">Population</h3>
+          <p className="text-[10px] md:text-xs font-mono">
             <span className="text-white">{formData.population_size.toLocaleString()}</span>
             <span className="text-white/40"> AI agents</span>
           </p>
         </div>
       </div>
 
-      <div className="bg-white/5 border border-white/10 p-4">
+      <div className="bg-white/5 border border-white/10 p-3 md:p-4">
         <div className="flex items-start gap-2">
-          <Info className="w-4 h-4 text-white/60 mt-0.5" />
-          <div className="text-xs font-mono text-white/60">
+          <Info className="w-3.5 h-3.5 md:w-4 md:h-4 text-white/60 mt-0.5 flex-shrink-0" />
+          <div className="text-[10px] md:text-xs font-mono text-white/60 min-w-0">
             <p className="font-bold text-white mb-1">Ready to create</p>
             <p>
               Your scenario will be saved as a draft. You can run the simulation

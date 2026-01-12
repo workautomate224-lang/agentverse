@@ -21,6 +21,8 @@ import {
   Trash2,
   Eye,
   Gamepad2,
+  Menu,
+  Filter,
 } from 'lucide-react';
 import { usePersonaTemplates, useInfinitePersonas, useDeletePersonaTemplate } from '@/hooks/useApi';
 import { PersonaTemplate, PersonaRecord } from '@/lib/api';
@@ -49,6 +51,7 @@ export default function PersonasStudioPage() {
   const [sourceFilter, setSourceFilter] = useState<string>('');
   const [regionFilter, setRegionFilter] = useState<string>('');
   const [showInspector, setShowInspector] = useState(false);
+  const [showLeftPanel, setShowLeftPanel] = useState(false);
 
   // Fetch templates (sources)
   const { data: templates, isLoading: templatesLoading, refetch } = usePersonaTemplates({
@@ -114,25 +117,44 @@ export default function PersonasStudioPage() {
 
   return (
     <div className="min-h-screen bg-black flex">
+      {/* Mobile Left Panel Overlay */}
+      {showLeftPanel && (
+        <div
+          className="fixed inset-0 bg-black/60 z-40 lg:hidden"
+          onClick={() => setShowLeftPanel(false)}
+        />
+      )}
+
       {/* Left Panel - Sources & Segments */}
-      <div className="w-64 border-r border-white/10 flex flex-col">
+      <div className={cn(
+        "fixed lg:relative inset-y-0 left-0 z-50 lg:z-0 w-56 md:w-64 border-r border-white/10 flex flex-col bg-black transform transition-transform duration-200 lg:translate-x-0",
+        showLeftPanel ? "translate-x-0" : "-translate-x-full"
+      )}>
         {/* Header */}
-        <div className="p-4 border-b border-white/10">
-          <div className="flex items-center gap-2 mb-1">
-            <UserCircle className="w-4 h-4 text-white/60" />
-            <span className="text-xs font-mono text-white/40 uppercase tracking-wider">Personas Studio</span>
+        <div className="p-3 md:p-4 border-b border-white/10">
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-2">
+              <UserCircle className="w-3.5 h-3.5 md:w-4 md:h-4 text-white/60" />
+              <span className="text-[10px] md:text-xs font-mono text-white/40 uppercase tracking-wider">Personas Studio</span>
+            </div>
+            <button
+              onClick={() => setShowLeftPanel(false)}
+              className="lg:hidden p-1 hover:bg-white/10"
+            >
+              <X className="w-4 h-4 text-white/60" />
+            </button>
           </div>
-          <h1 className="text-lg font-mono font-bold text-white">Sources</h1>
+          <h1 className="text-base md:text-lg font-mono font-bold text-white">Sources</h1>
         </div>
 
         {/* Quick Stats */}
-        <div className="p-3 border-b border-white/10">
-          <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-            <div className="bg-white/5 p-2">
+        <div className="p-2 md:p-3 border-b border-white/10">
+          <div className="grid grid-cols-2 gap-1.5 md:gap-2 text-[10px] md:text-xs font-mono">
+            <div className="bg-white/5 p-1.5 md:p-2">
               <span className="text-white/40">Total</span>
               <p className="text-white font-bold">{totalPersonas}</p>
             </div>
-            <div className="bg-white/5 p-2">
+            <div className="bg-white/5 p-1.5 md:p-2">
               <span className="text-white/40">Sources</span>
               <p className="text-white font-bold">{templates?.length || 0}</p>
             </div>
@@ -140,57 +162,57 @@ export default function PersonasStudioPage() {
         </div>
 
         {/* Source Types */}
-        <div className="p-3 border-b border-white/10">
-          <p className="text-[10px] font-mono text-white/40 uppercase mb-2">By Source</p>
-          <div className="space-y-1">
+        <div className="p-2 md:p-3 border-b border-white/10">
+          <p className="text-[9px] md:text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">By Source</p>
+          <div className="space-y-0.5 md:space-y-1">
             <button
-              onClick={() => setSourceFilter('')}
+              onClick={() => { setSourceFilter(''); setShowLeftPanel(false); }}
               className={cn(
-                "w-full flex items-center justify-between px-2 py-1.5 text-xs font-mono transition-colors",
+                "w-full flex items-center justify-between px-1.5 md:px-2 py-1 md:py-1.5 text-[10px] md:text-xs font-mono transition-colors",
                 sourceFilter === '' ? "bg-white/10 text-white" : "text-white/60 hover:bg-white/5"
               )}
             >
-              <div className="flex items-center gap-2">
-                <FolderOpen className="w-3 h-3" />
+              <div className="flex items-center gap-1.5 md:gap-2">
+                <FolderOpen className="w-2.5 h-2.5 md:w-3 md:h-3" />
                 <span>All Sources</span>
               </div>
               <span className="text-white/40">{totalPersonas}</span>
             </button>
             <button
-              onClick={() => setSourceFilter('file_upload')}
+              onClick={() => { setSourceFilter('file_upload'); setShowLeftPanel(false); }}
               className={cn(
-                "w-full flex items-center justify-between px-2 py-1.5 text-xs font-mono transition-colors",
+                "w-full flex items-center justify-between px-1.5 md:px-2 py-1 md:py-1.5 text-[10px] md:text-xs font-mono transition-colors",
                 sourceFilter === 'file_upload' ? "bg-white/10 text-yellow-400" : "text-white/60 hover:bg-white/5"
               )}
             >
-              <div className="flex items-center gap-2">
-                <FileSpreadsheet className="w-3 h-3" />
+              <div className="flex items-center gap-1.5 md:gap-2">
+                <FileSpreadsheet className="w-2.5 h-2.5 md:w-3 md:h-3" />
                 <span>Uploaded</span>
               </div>
               <span className="text-white/40">{uploadedCount}</span>
             </button>
             <button
-              onClick={() => setSourceFilter('ai_generated')}
+              onClick={() => { setSourceFilter('ai_generated'); setShowLeftPanel(false); }}
               className={cn(
-                "w-full flex items-center justify-between px-2 py-1.5 text-xs font-mono transition-colors",
+                "w-full flex items-center justify-between px-1.5 md:px-2 py-1 md:py-1.5 text-[10px] md:text-xs font-mono transition-colors",
                 sourceFilter === 'ai_generated' ? "bg-white/10 text-cyan-400" : "text-white/60 hover:bg-white/5"
               )}
             >
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-3 h-3" />
+              <div className="flex items-center gap-1.5 md:gap-2">
+                <Sparkles className="w-2.5 h-2.5 md:w-3 md:h-3" />
                 <span>Generated</span>
               </div>
               <span className="text-white/40">{generatedCount}</span>
             </button>
             <button
-              onClick={() => setSourceFilter('ai_research')}
+              onClick={() => { setSourceFilter('ai_research'); setShowLeftPanel(false); }}
               className={cn(
-                "w-full flex items-center justify-between px-2 py-1.5 text-xs font-mono transition-colors",
+                "w-full flex items-center justify-between px-1.5 md:px-2 py-1 md:py-1.5 text-[10px] md:text-xs font-mono transition-colors",
                 sourceFilter === 'ai_research' ? "bg-white/10 text-purple-400" : "text-white/60 hover:bg-white/5"
               )}
             >
-              <div className="flex items-center gap-2">
-                <Brain className="w-3 h-3" />
+              <div className="flex items-center gap-1.5 md:gap-2">
+                <Brain className="w-2.5 h-2.5 md:w-3 md:h-3" />
                 <span>Deep Search</span>
               </div>
               <span className="text-white/40">{researchCount}</span>
@@ -199,30 +221,30 @@ export default function PersonasStudioPage() {
         </div>
 
         {/* Segments */}
-        <div className="flex-1 overflow-auto p-3">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[10px] font-mono text-white/40 uppercase">Segments</p>
+        <div className="flex-1 overflow-auto p-2 md:p-3">
+          <div className="flex items-center justify-between mb-1.5 md:mb-2">
+            <p className="text-[9px] md:text-[10px] font-mono text-white/40 uppercase">Segments</p>
             <Button
               variant="ghost"
               size="sm"
-              className="h-5 px-1.5 text-[10px] font-mono text-white/40 hover:text-white"
+              className="h-4 md:h-5 px-1 md:px-1.5 text-[9px] md:text-[10px] font-mono text-white/40 hover:text-white"
             >
-              <Plus className="w-2.5 h-2.5 mr-1" />
+              <Plus className="w-2 h-2 md:w-2.5 md:h-2.5 mr-0.5 md:mr-1" />
               NEW
             </Button>
           </div>
-          <div className="space-y-1">
+          <div className="space-y-0.5 md:space-y-1">
             {segments.map((segment) => (
               <button
                 key={segment.id}
-                onClick={() => setRegionFilter(segment.id)}
+                onClick={() => { setRegionFilter(segment.id); setShowLeftPanel(false); }}
                 className={cn(
-                  "w-full flex items-center justify-between px-2 py-1.5 text-xs font-mono transition-colors",
+                  "w-full flex items-center justify-between px-1.5 md:px-2 py-1 md:py-1.5 text-[10px] md:text-xs font-mono transition-colors",
                   regionFilter === segment.id ? "bg-white/10 text-white" : "text-white/60 hover:bg-white/5"
                 )}
               >
-                <div className="flex items-center gap-2">
-                  <Tag className="w-3 h-3" />
+                <div className="flex items-center gap-1.5 md:gap-2">
+                  <Tag className="w-2.5 h-2.5 md:w-3 md:h-3" />
                   <span>{segment.name}</span>
                 </div>
                 <span className="text-white/40">{segment.count}</span>
@@ -230,10 +252,10 @@ export default function PersonasStudioPage() {
             ))}
             {regionFilter && (
               <button
-                onClick={() => setRegionFilter('')}
-                className="w-full flex items-center gap-2 px-2 py-1.5 text-xs font-mono text-white/40 hover:text-white hover:bg-white/5"
+                onClick={() => { setRegionFilter(''); setShowLeftPanel(false); }}
+                className="w-full flex items-center gap-1.5 md:gap-2 px-1.5 md:px-2 py-1 md:py-1.5 text-[10px] md:text-xs font-mono text-white/40 hover:text-white hover:bg-white/5"
               >
-                <X className="w-3 h-3" />
+                <X className="w-2.5 h-2.5 md:w-3 md:h-3" />
                 <span>Clear filter</span>
               </button>
             )}
@@ -241,22 +263,23 @@ export default function PersonasStudioPage() {
         </div>
 
         {/* Action Buttons */}
-        <div className="p-3 border-t border-white/10 space-y-2">
-          <Link href="/dashboard/personas/new?mode=upload" className="block">
-            <Button size="sm" variant="outline" className="w-full justify-start text-xs font-mono">
-              <Upload className="w-3 h-3 mr-2" />
-              IMPORT PERSONAS
+        <div className="p-2 md:p-3 border-t border-white/10 space-y-1.5 md:space-y-2">
+          <Link href="/dashboard/personas/new?mode=upload" className="block" onClick={() => setShowLeftPanel(false)}>
+            <Button size="sm" variant="outline" className="w-full justify-start text-[10px] md:text-xs font-mono h-7 md:h-8">
+              <Upload className="w-2.5 h-2.5 md:w-3 md:h-3 mr-1.5 md:mr-2" />
+              <span className="hidden sm:inline">IMPORT PERSONAS</span>
+              <span className="sm:hidden">IMPORT</span>
             </Button>
           </Link>
-          <Link href="/dashboard/personas/new?mode=generate" className="block">
-            <Button size="sm" variant="outline" className="w-full justify-start text-xs font-mono">
-              <Sparkles className="w-3 h-3 mr-2" />
+          <Link href="/dashboard/personas/new?mode=generate" className="block" onClick={() => setShowLeftPanel(false)}>
+            <Button size="sm" variant="outline" className="w-full justify-start text-[10px] md:text-xs font-mono h-7 md:h-8">
+              <Sparkles className="w-2.5 h-2.5 md:w-3 md:h-3 mr-1.5 md:mr-2" />
               GENERATE
             </Button>
           </Link>
-          <Link href="/dashboard/personas/new?mode=research" className="block">
-            <Button size="sm" variant="outline" className="w-full justify-start text-xs font-mono">
-              <Brain className="w-3 h-3 mr-2" />
+          <Link href="/dashboard/personas/new?mode=research" className="block" onClick={() => setShowLeftPanel(false)}>
+            <Button size="sm" variant="outline" className="w-full justify-start text-[10px] md:text-xs font-mono h-7 md:h-8">
+              <Brain className="w-2.5 h-2.5 md:w-3 md:h-3 mr-1.5 md:mr-2" />
               DEEP SEARCH
             </Button>
           </Link>
@@ -264,47 +287,72 @@ export default function PersonasStudioPage() {
       </div>
 
       {/* Center Panel - Persona List */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         {/* Top Bar */}
-        <div className="p-4 border-b border-white/10 flex items-center gap-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-white/30" />
-            <input
-              type="text"
-              placeholder="Search personas..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-3 py-2 bg-white/5 border border-white/10 text-xs font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-white/30"
-            />
+        <div className="p-3 md:p-4 border-b border-white/10">
+          {/* Mobile Header Row */}
+          <div className="flex items-center gap-2 mb-2 lg:hidden">
+            <button
+              onClick={() => setShowLeftPanel(true)}
+              className="p-1.5 hover:bg-white/10 border border-white/10"
+            >
+              <Menu className="w-4 h-4 text-white/60" />
+            </button>
+            <div className="flex items-center gap-1.5">
+              <UserCircle className="w-3.5 h-3.5 text-white/60" />
+              <span className="text-xs font-mono font-bold text-white">Personas</span>
+            </div>
+            {(sourceFilter || regionFilter) && (
+              <span className="ml-auto text-[9px] font-mono text-cyan-400 bg-cyan-400/10 px-1.5 py-0.5">
+                <Filter className="w-2.5 h-2.5 inline mr-1" />
+                FILTERED
+              </span>
+            )}
           </div>
-          <select
-            value={regionFilter}
-            onChange={(e) => setRegionFilter(e.target.value)}
-            className="px-3 py-2 bg-white/5 border border-white/10 text-xs font-mono text-white appearance-none focus:outline-none focus:border-white/30"
-          >
-            <option value="">All Regions</option>
-            <option value="us">United States</option>
-            <option value="europe">Europe</option>
-            <option value="asia">Southeast Asia</option>
-            <option value="china">China</option>
-          </select>
-          <Button size="sm" variant="outline" className="text-xs font-mono">
-            <CheckCircle className="w-3 h-3 mr-2" />
-            VALIDATE SET
-          </Button>
+
+          {/* Search and Filters */}
+          <div className="flex flex-col sm:flex-row gap-2 md:gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-2 md:left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-white/30" />
+              <input
+                type="text"
+                placeholder="Search personas..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-7 md:pl-8 pr-3 py-1.5 md:py-2 bg-white/5 border border-white/10 text-[10px] md:text-xs font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-white/30"
+              />
+            </div>
+            <div className="flex gap-2">
+              <select
+                value={regionFilter}
+                onChange={(e) => setRegionFilter(e.target.value)}
+                className="flex-1 sm:flex-none px-2 md:px-3 py-1.5 md:py-2 bg-white/5 border border-white/10 text-[10px] md:text-xs font-mono text-white appearance-none focus:outline-none focus:border-white/30"
+              >
+                <option value="">All Regions</option>
+                <option value="us">United States</option>
+                <option value="europe">Europe</option>
+                <option value="asia">Southeast Asia</option>
+                <option value="china">China</option>
+              </select>
+              <Button size="sm" variant="outline" className="text-[10px] md:text-xs font-mono h-7 md:h-auto px-2 md:px-3">
+                <CheckCircle className="w-2.5 h-2.5 md:w-3 md:h-3 md:mr-2" />
+                <span className="hidden md:inline">VALIDATE SET</span>
+              </Button>
+            </div>
+          </div>
         </div>
 
         {/* Content Area */}
-        <div className="flex-1 overflow-auto p-4">
+        <div className="flex-1 overflow-auto p-3 md:p-4">
           {templatesLoading ? (
             <SkeletonList items={6} />
           ) : !templates || templates.length === 0 ? (
             <EmptyState />
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3 md:space-y-4">
               {/* Template/Source List */}
               {!selectedTemplateId ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-2 md:gap-3">
                   {filteredTemplates?.map((template) => (
                     <SourceCard
                       key={template.id}
@@ -318,32 +366,32 @@ export default function PersonasStudioPage() {
                 /* Persona List for Selected Template */
                 <div>
                   {/* Breadcrumb */}
-                  <div className="flex items-center gap-2 mb-4">
+                  <div className="flex flex-wrap items-center gap-1.5 md:gap-2 mb-3 md:mb-4">
                     <button
                       onClick={() => setSelectedTemplateId(null)}
-                      className="text-xs font-mono text-white/60 hover:text-white"
+                      className="text-[10px] md:text-xs font-mono text-white/60 hover:text-white"
                     >
                       Sources
                     </button>
-                    <ChevronRight className="w-3 h-3 text-white/30" />
-                    <span className="text-xs font-mono text-white">
+                    <ChevronRight className="w-2.5 h-2.5 md:w-3 md:h-3 text-white/30" />
+                    <span className="text-[10px] md:text-xs font-mono text-white truncate max-w-[120px] md:max-w-none">
                       {selectedTemplate?.name}
                     </span>
-                    <span className="text-xs font-mono text-white/40">
-                      ({selectedTemplate?.persona_count} personas)
+                    <span className="text-[10px] md:text-xs font-mono text-white/40">
+                      ({selectedTemplate?.persona_count})
                     </span>
                   </div>
 
                   {personasLoading && personas.length === 0 ? (
                     <SkeletonList items={8} className="space-y-1" />
                   ) : personas.length === 0 ? (
-                    <div className="bg-white/5 border border-white/10 p-8 text-center">
-                      <p className="text-sm font-mono text-white/60">No personas in this source</p>
+                    <div className="bg-white/5 border border-white/10 p-6 md:p-8 text-center">
+                      <p className="text-xs md:text-sm font-mono text-white/60">No personas in this source</p>
                     </div>
                   ) : (
                     <div className="space-y-1">
-                      {/* Header Row */}
-                      <div className="grid grid-cols-12 gap-2 px-3 py-2 text-[10px] font-mono text-white/40 uppercase border-b border-white/10">
+                      {/* Header Row - Hidden on Mobile */}
+                      <div className="hidden md:grid grid-cols-12 gap-2 px-3 py-2 text-[10px] font-mono text-white/40 uppercase border-b border-white/10">
                         <div className="col-span-4">Persona</div>
                         <div className="col-span-2">Source</div>
                         <div className="col-span-2">Confidence</div>
@@ -375,22 +423,31 @@ export default function PersonasStudioPage() {
         </div>
       </div>
 
-      {/* Right Panel - Inspector Drawer */}
+      {/* Right Panel - Inspector Drawer (Overlay on Mobile) */}
       {showInspector && selectedPersona && (
-        <div className="w-80 border-l border-white/10 flex flex-col">
-          <div className="p-4 border-b border-white/10 flex items-center justify-between">
-            <h2 className="text-sm font-mono font-bold text-white">Persona Inspector</h2>
-            <button
-              onClick={() => setShowInspector(false)}
-              className="p-1 hover:bg-white/10 transition-colors"
-            >
-              <X className="w-4 h-4 text-white/60" />
-            </button>
+        <>
+          {/* Mobile Overlay */}
+          <div
+            className="fixed inset-0 bg-black/60 z-40 lg:hidden"
+            onClick={() => setShowInspector(false)}
+          />
+          <div className={cn(
+            "fixed lg:relative inset-y-0 right-0 z-50 lg:z-0 w-72 md:w-80 border-l border-white/10 flex flex-col bg-black"
+          )}>
+            <div className="p-3 md:p-4 border-b border-white/10 flex items-center justify-between">
+              <h2 className="text-xs md:text-sm font-mono font-bold text-white">Persona Inspector</h2>
+              <button
+                onClick={() => setShowInspector(false)}
+                className="p-1 hover:bg-white/10 transition-colors"
+              >
+                <X className="w-3.5 h-3.5 md:w-4 md:h-4 text-white/60" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-3 md:p-4">
+              <PersonaInspector persona={selectedPersona} template={selectedTemplate} />
+            </div>
           </div>
-          <div className="flex-1 overflow-auto p-4">
-            <PersonaInspector persona={selectedPersona} template={selectedTemplate} />
-          </div>
-        </div>
+        </>
       )}
     </div>
   );
@@ -399,30 +456,30 @@ export default function PersonasStudioPage() {
 function EmptyState() {
   return (
     <div className="bg-white/5 border border-white/10">
-      <div className="p-12 text-center">
-        <div className="w-16 h-16 bg-white/5 flex items-center justify-center mx-auto mb-4">
-          <Users className="w-8 h-8 text-white/30" />
+      <div className="p-6 md:p-12 text-center">
+        <div className="w-12 h-12 md:w-16 md:h-16 bg-white/5 flex items-center justify-center mx-auto mb-3 md:mb-4">
+          <Users className="w-6 h-6 md:w-8 md:h-8 text-white/30" />
         </div>
-        <h3 className="text-lg font-mono font-bold text-white mb-2">No Personas Yet</h3>
-        <p className="text-sm font-mono text-white/60 mb-6 max-w-md mx-auto">
+        <h3 className="text-sm md:text-lg font-mono font-bold text-white mb-1.5 md:mb-2">No Personas Yet</h3>
+        <p className="text-[10px] md:text-sm font-mono text-white/60 mb-4 md:mb-6 max-w-md mx-auto">
           Start building your persona set by importing data, generating from goals, or using deep search.
         </p>
-        <div className="flex items-center justify-center gap-3">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-2 md:gap-3">
           <Link href="/dashboard/personas/new?mode=upload">
-            <Button size="sm">
-              <Upload className="w-3 h-3 mr-2" />
+            <Button size="sm" className="w-full sm:w-auto text-[10px] md:text-xs">
+              <Upload className="w-2.5 h-2.5 md:w-3 md:h-3 mr-1.5 md:mr-2" />
               IMPORT
             </Button>
           </Link>
           <Link href="/dashboard/personas/new?mode=generate">
-            <Button size="sm" variant="outline">
-              <Sparkles className="w-3 h-3 mr-2" />
+            <Button size="sm" variant="outline" className="w-full sm:w-auto text-[10px] md:text-xs">
+              <Sparkles className="w-2.5 h-2.5 md:w-3 md:h-3 mr-1.5 md:mr-2" />
               GENERATE
             </Button>
           </Link>
           <Link href="/dashboard/personas/new?mode=research">
-            <Button size="sm" variant="outline">
-              <Brain className="w-3 h-3 mr-2" />
+            <Button size="sm" variant="outline" className="w-full sm:w-auto text-[10px] md:text-xs">
+              <Brain className="w-2.5 h-2.5 md:w-3 md:h-3 mr-1.5 md:mr-2" />
               DEEP SEARCH
             </Button>
           </Link>
@@ -463,47 +520,47 @@ function SourceCard({
       className="bg-white/5 border border-white/10 hover:bg-white/[0.07] hover:border-white/20 transition-all cursor-pointer"
       onClick={onSelect}
     >
-      <div className="p-4">
-        <div className="flex items-start justify-between mb-3">
-          <div className={cn("flex items-center gap-2 text-xs font-mono", config.color)}>
+      <div className="p-3 md:p-4">
+        <div className="flex items-start justify-between mb-2 md:mb-3">
+          <div className={cn("flex items-center gap-1.5 md:gap-2 text-[10px] md:text-xs font-mono", config.color)}>
             {config.icon}
             <span>{config.label}</span>
           </div>
           <div className="relative" onClick={(e) => e.stopPropagation()}>
             <button
               onClick={() => setShowMenu(!showMenu)}
-              className="p-1.5 hover:bg-white/10 transition-colors"
+              className="p-1 md:p-1.5 hover:bg-white/10 transition-colors"
             >
               <MoreVertical className="w-3 h-3 text-white/40" />
             </button>
             {showMenu && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
-                <div className="absolute right-0 mt-1 w-32 bg-black border border-white/20 py-1 z-20">
+                <div className="absolute right-0 mt-1 w-28 md:w-32 bg-black border border-white/20 py-1 z-20">
                   <Link
                     href={`/dashboard/personas/${template.id}`}
-                    className="flex items-center gap-2 px-3 py-1.5 text-xs font-mono text-white/60 hover:bg-white/10"
+                    className="flex items-center gap-1.5 md:gap-2 px-2 md:px-3 py-1.5 text-[10px] md:text-xs font-mono text-white/60 hover:bg-white/10"
                     onClick={() => setShowMenu(false)}
                   >
-                    <Eye className="w-3 h-3" />
+                    <Eye className="w-2.5 h-2.5 md:w-3 md:h-3" />
                     Details
                   </Link>
                   {template.persona_count > 0 && (
                     <Link
                       href={`/dashboard/personas/${template.id}/world`}
-                      className="flex items-center gap-2 px-3 py-1.5 text-xs font-mono text-cyan-400 hover:bg-white/10"
+                      className="flex items-center gap-1.5 md:gap-2 px-2 md:px-3 py-1.5 text-[10px] md:text-xs font-mono text-cyan-400 hover:bg-white/10"
                       onClick={() => setShowMenu(false)}
                     >
-                      <Gamepad2 className="w-3 h-3" />
+                      <Gamepad2 className="w-2.5 h-2.5 md:w-3 md:h-3" />
                       Vi World
                     </Link>
                   )}
                   <button
                     onClick={handleDelete}
                     disabled={deleteTemplate.isPending}
-                    className="flex items-center gap-2 w-full px-3 py-1.5 text-xs font-mono text-red-400 hover:bg-white/10 disabled:opacity-50"
+                    className="flex items-center gap-1.5 md:gap-2 w-full px-2 md:px-3 py-1.5 text-[10px] md:text-xs font-mono text-red-400 hover:bg-white/10 disabled:opacity-50"
                   >
-                    <Trash2 className="w-3 h-3" />
+                    <Trash2 className="w-2.5 h-2.5 md:w-3 md:h-3" />
                     Delete
                   </button>
                 </div>
@@ -512,24 +569,24 @@ function SourceCard({
           </div>
         </div>
 
-        <h3 className="text-sm font-mono font-bold text-white mb-1">{template.name}</h3>
-        <p className="text-xs font-mono text-white/40 mb-3 line-clamp-2">
+        <h3 className="text-xs md:text-sm font-mono font-bold text-white mb-0.5 md:mb-1 truncate">{template.name}</h3>
+        <p className="text-[10px] md:text-xs font-mono text-white/40 mb-2 md:mb-3 line-clamp-2">
           {template.description || 'No description'}
         </p>
 
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-mono text-white/60 px-2 py-0.5 bg-white/5">
+        <div className="flex flex-wrap items-center gap-1.5 md:gap-2">
+          <span className="text-[9px] md:text-xs font-mono text-white/60 px-1.5 md:px-2 py-0.5 bg-white/5">
             {template.persona_count} personas
           </span>
           <span className={cn(
-            "text-xs font-mono px-2 py-0.5",
+            "text-[9px] md:text-xs font-mono px-1.5 md:px-2 py-0.5",
             template.confidence_score >= 0.8 ? "text-green-400 bg-green-500/10" :
             template.confidence_score >= 0.5 ? "text-yellow-400 bg-yellow-500/10" :
             "text-red-400 bg-red-500/10"
           )}>
-            {Math.round(template.confidence_score * 100)}% conf
+            {Math.round(template.confidence_score * 100)}%
           </span>
-          <span className="text-xs font-mono text-white/40 px-2 py-0.5 bg-white/5 uppercase">
+          <span className="text-[9px] md:text-xs font-mono text-white/40 px-1.5 md:px-2 py-0.5 bg-white/5 uppercase">
             {template.region}
           </span>
         </div>
@@ -554,34 +611,66 @@ function PersonaRow({
     <button
       onClick={onSelect}
       className={cn(
-        "w-full grid grid-cols-12 gap-2 px-3 py-2 text-xs font-mono text-left transition-colors",
+        "w-full text-left transition-colors",
         isSelected ? "bg-white/10 text-white" : "text-white/60 hover:bg-white/5"
       )}
     >
-      <div className="col-span-4 flex items-center gap-2">
-        <UserCircle className="w-4 h-4 text-white/30" />
-        <span className="truncate">
-          {String(demographics?.name || demographics?.occupation || `Persona ${persona.id.slice(0, 8)}`)}
-        </span>
+      {/* Mobile Card View */}
+      <div className="md:hidden p-2.5 border-b border-white/5">
+        <div className="flex items-center gap-2 mb-1.5">
+          <UserCircle className="w-3.5 h-3.5 text-white/30 flex-shrink-0" />
+          <span className="text-[10px] font-mono truncate flex-1">
+            {String(demographics?.name || demographics?.occupation || `Persona ${persona.id.slice(0, 8)}`)}
+          </span>
+          <span className={cn(
+            "text-[9px] font-mono font-bold",
+            persona.confidence_score >= 0.8 ? "text-green-400" :
+            persona.confidence_score >= 0.5 ? "text-yellow-400" :
+            "text-red-400"
+          )}>
+            {Math.round(persona.confidence_score * 100)}%
+          </span>
+        </div>
+        <div className="flex items-center gap-2 text-[9px] font-mono">
+          <span className={cn("flex items-center gap-1", config.color)}>
+            {config.icon}
+          </span>
+          <span className="text-white/40 uppercase">
+            {String(demographics?.region || demographics?.country || 'N/A')}
+          </span>
+          <span className="text-white/30 ml-auto">
+            {new Date(persona.created_at).toLocaleDateString()}
+          </span>
+        </div>
       </div>
-      <div className={cn("col-span-2 flex items-center gap-1", config.color)}>
-        {config.icon}
-        <span>{config.label}</span>
-      </div>
-      <div className="col-span-2">
-        <span className={cn(
-          persona.confidence_score >= 0.8 ? "text-green-400" :
-          persona.confidence_score >= 0.5 ? "text-yellow-400" :
-          "text-red-400"
-        )}>
-          {Math.round(persona.confidence_score * 100)}%
-        </span>
-      </div>
-      <div className="col-span-2 text-white/40 uppercase">
-        {String(demographics?.region || demographics?.country || 'N/A')}
-      </div>
-      <div className="col-span-2 text-white/30">
-        {new Date(persona.created_at).toLocaleDateString()}
+
+      {/* Desktop Table Row */}
+      <div className="hidden md:grid grid-cols-12 gap-2 px-3 py-2 text-xs font-mono">
+        <div className="col-span-4 flex items-center gap-2">
+          <UserCircle className="w-4 h-4 text-white/30" />
+          <span className="truncate">
+            {String(demographics?.name || demographics?.occupation || `Persona ${persona.id.slice(0, 8)}`)}
+          </span>
+        </div>
+        <div className={cn("col-span-2 flex items-center gap-1", config.color)}>
+          {config.icon}
+          <span>{config.label}</span>
+        </div>
+        <div className="col-span-2">
+          <span className={cn(
+            persona.confidence_score >= 0.8 ? "text-green-400" :
+            persona.confidence_score >= 0.5 ? "text-yellow-400" :
+            "text-red-400"
+          )}>
+            {Math.round(persona.confidence_score * 100)}%
+          </span>
+        </div>
+        <div className="col-span-2 text-white/40 uppercase">
+          {String(demographics?.region || demographics?.country || 'N/A')}
+        </div>
+        <div className="col-span-2 text-white/30">
+          {new Date(persona.created_at).toLocaleDateString()}
+        </div>
       </div>
     </button>
   );
@@ -599,28 +688,28 @@ function PersonaInspector({
   const behavioral = persona.behavioral as Record<string, unknown>;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3 md:space-y-4">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 bg-white/10 flex items-center justify-center">
-          <UserCircle className="w-6 h-6 text-white/60" />
+      <div className="flex items-center gap-2 md:gap-3">
+        <div className="w-8 h-8 md:w-10 md:h-10 bg-white/10 flex items-center justify-center flex-shrink-0">
+          <UserCircle className="w-5 h-5 md:w-6 md:h-6 text-white/60" />
         </div>
-        <div>
-          <h3 className="text-sm font-mono font-bold text-white">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-xs md:text-sm font-mono font-bold text-white truncate">
             {String(demographics?.name || demographics?.occupation || 'Persona')}
           </h3>
-          <p className="text-xs font-mono text-white/40">
+          <p className="text-[10px] md:text-xs font-mono text-white/40 truncate">
             {template?.name || 'Unknown source'}
           </p>
         </div>
       </div>
 
       {/* Confidence */}
-      <div className="bg-white/5 p-3">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[10px] font-mono text-white/40 uppercase">Confidence</span>
+      <div className="bg-white/5 p-2 md:p-3">
+        <div className="flex items-center justify-between mb-1.5 md:mb-2">
+          <span className="text-[9px] md:text-[10px] font-mono text-white/40 uppercase">Confidence</span>
           <span className={cn(
-            "text-xs font-mono font-bold",
+            "text-[10px] md:text-xs font-mono font-bold",
             persona.confidence_score >= 0.8 ? "text-green-400" :
             persona.confidence_score >= 0.5 ? "text-yellow-400" :
             "text-red-400"
@@ -643,12 +732,12 @@ function PersonaInspector({
 
       {/* Demographics */}
       <div>
-        <h4 className="text-[10px] font-mono text-white/40 uppercase mb-2">Demographics</h4>
-        <div className="bg-white/5 p-3 space-y-2">
+        <h4 className="text-[9px] md:text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">Demographics</h4>
+        <div className="bg-white/5 p-2 md:p-3 space-y-1.5 md:space-y-2">
           {Object.entries(demographics).map(([key, value]) => (
-            <div key={key} className="flex items-center justify-between text-xs font-mono">
-              <span className="text-white/40 capitalize">{key.replace(/_/g, ' ')}</span>
-              <span className="text-white">{String(value)}</span>
+            <div key={key} className="flex items-center justify-between text-[10px] md:text-xs font-mono gap-2">
+              <span className="text-white/40 capitalize truncate">{key.replace(/_/g, ' ')}</span>
+              <span className="text-white truncate text-right">{String(value)}</span>
             </div>
           ))}
         </div>
@@ -657,12 +746,12 @@ function PersonaInspector({
       {/* Psychographics */}
       {psychographics && Object.keys(psychographics).length > 0 && (
         <div>
-          <h4 className="text-[10px] font-mono text-white/40 uppercase mb-2">Psychographics</h4>
-          <div className="bg-white/5 p-3 space-y-2">
+          <h4 className="text-[9px] md:text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">Psychographics</h4>
+          <div className="bg-white/5 p-2 md:p-3 space-y-1.5 md:space-y-2">
             {Object.entries(psychographics).slice(0, 5).map(([key, value]) => (
-              <div key={key} className="flex items-center justify-between text-xs font-mono">
-                <span className="text-white/40 capitalize">{key.replace(/_/g, ' ')}</span>
-                <span className="text-white">{typeof value === 'object' ? JSON.stringify(value) : String(value)}</span>
+              <div key={key} className="flex items-center justify-between text-[10px] md:text-xs font-mono gap-2">
+                <span className="text-white/40 capitalize truncate">{key.replace(/_/g, ' ')}</span>
+                <span className="text-white truncate text-right max-w-[60%]">{typeof value === 'object' ? JSON.stringify(value) : String(value)}</span>
               </div>
             ))}
           </div>
@@ -672,12 +761,12 @@ function PersonaInspector({
       {/* Behavioral */}
       {behavioral && Object.keys(behavioral).length > 0 && (
         <div>
-          <h4 className="text-[10px] font-mono text-white/40 uppercase mb-2">Behavioral</h4>
-          <div className="bg-white/5 p-3 space-y-2">
+          <h4 className="text-[9px] md:text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">Behavioral</h4>
+          <div className="bg-white/5 p-2 md:p-3 space-y-1.5 md:space-y-2">
             {Object.entries(behavioral).slice(0, 5).map(([key, value]) => (
-              <div key={key} className="flex items-center justify-between text-xs font-mono">
-                <span className="text-white/40 capitalize">{key.replace(/_/g, ' ')}</span>
-                <span className="text-white">{typeof value === 'object' ? JSON.stringify(value) : String(value)}</span>
+              <div key={key} className="flex items-center justify-between text-[10px] md:text-xs font-mono gap-2">
+                <span className="text-white/40 capitalize truncate">{key.replace(/_/g, ' ')}</span>
+                <span className="text-white truncate text-right max-w-[60%]">{typeof value === 'object' ? JSON.stringify(value) : String(value)}</span>
               </div>
             ))}
           </div>
@@ -685,15 +774,15 @@ function PersonaInspector({
       )}
 
       {/* Actions */}
-      <div className="pt-4 border-t border-white/10 space-y-2">
-        <Button size="sm" variant="outline" className="w-full text-xs font-mono">
-          <Eye className="w-3 h-3 mr-2" />
+      <div className="pt-3 md:pt-4 border-t border-white/10 space-y-1.5 md:space-y-2">
+        <Button size="sm" variant="outline" className="w-full text-[10px] md:text-xs font-mono h-7 md:h-8">
+          <Eye className="w-2.5 h-2.5 md:w-3 md:h-3 mr-1.5 md:mr-2" />
           VIEW FULL DETAILS
         </Button>
         {template?.persona_count && template.persona_count > 0 && (
           <Link href={`/dashboard/personas/${template?.id}/world`} className="block">
-            <Button size="sm" variant="outline" className="w-full text-xs font-mono text-cyan-400 border-cyan-400/30 hover:bg-cyan-400/10">
-              <Gamepad2 className="w-3 h-3 mr-2" />
+            <Button size="sm" variant="outline" className="w-full text-[10px] md:text-xs font-mono h-7 md:h-8 text-cyan-400 border-cyan-400/30 hover:bg-cyan-400/10">
+              <Gamepad2 className="w-2.5 h-2.5 md:w-3 md:h-3 mr-1.5 md:mr-2" />
               OPEN VI WORLD
             </Button>
           </Link>

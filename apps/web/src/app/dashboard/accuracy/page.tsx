@@ -43,16 +43,16 @@ export default function AccuracyPage() {
   };
 
   return (
-    <div className="min-h-screen bg-black p-6">
+    <div className="min-h-screen bg-black p-4 md:p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 md:mb-8">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <Target className="w-4 h-4 text-white/60" />
-            <span className="text-xs font-mono text-white/40 uppercase tracking-wider">Validation Module</span>
+            <Target className="w-3.5 h-3.5 md:w-4 md:h-4 text-white/60" />
+            <span className="text-[10px] md:text-xs font-mono text-white/40 uppercase tracking-wider">Validation Module</span>
           </div>
-          <h1 className="text-xl font-mono font-bold text-white">Accuracy Tracking</h1>
-          <p className="text-sm font-mono text-white/50 mt-1">
+          <h1 className="text-lg md:text-xl font-mono font-bold text-white">Accuracy Tracking</h1>
+          <p className="text-xs md:text-sm font-mono text-white/50 mt-1">
             Validate predictions against real-world outcomes
           </p>
         </div>
@@ -61,20 +61,22 @@ export default function AccuracyPage() {
             <Button
               onClick={handleSeedBenchmarks}
               disabled={seedBenchmarks.isPending}
-              className="bg-white/10 border border-white/20 text-white hover:bg-white/20 font-mono text-xs h-8"
+              className="bg-white/10 border border-white/20 text-white hover:bg-white/20 font-mono text-[10px] md:text-xs h-7 md:h-8"
             >
               {seedBenchmarks.isPending ? (
-                <Loader2 className="w-3 h-3 mr-2 animate-spin" />
+                <Loader2 className="w-3 h-3 mr-1.5 md:mr-2 animate-spin" />
               ) : (
-                <Database className="w-3 h-3 mr-2" />
+                <Database className="w-3 h-3 mr-1.5 md:mr-2" />
               )}
-              SEED DATA
+              <span className="hidden sm:inline">SEED DATA</span>
+              <span className="sm:hidden">SEED</span>
             </Button>
           )}
           <Link href="/dashboard/accuracy/benchmarks/new">
-            <Button size="sm">
-              <Plus className="w-3 h-3 mr-2" />
-              ADD BENCHMARK
+            <Button size="sm" className="font-mono text-[10px] md:text-xs h-7 md:h-8">
+              <Plus className="w-3 h-3 mr-1.5 md:mr-2" />
+              <span className="hidden sm:inline">ADD BENCHMARK</span>
+              <span className="sm:hidden">ADD</span>
             </Button>
           </Link>
         </div>
@@ -82,15 +84,15 @@ export default function AccuracyPage() {
 
       {/* Loading State */}
       {isLoading && (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-5 h-5 animate-spin text-white/40" />
+        <div className="flex items-center justify-center py-8 md:py-12">
+          <Loader2 className="w-4 h-4 md:w-5 md:h-5 animate-spin text-white/40" />
         </div>
       )}
 
       {!isLoading && (
         <>
           {/* Stats Overview */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-8">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mb-6 md:mb-8">
             <StatCard
               icon={Target}
               label="AVG ACCURACY"
@@ -121,20 +123,20 @@ export default function AccuracyPage() {
 
           {/* Accuracy by Category */}
           {stats?.accuracy_by_category && Object.keys(stats.accuracy_by_category).length > 0 && (
-            <div className="bg-white/5 border border-white/10 p-6 mb-8">
-              <div className="flex items-center gap-2 mb-4">
+            <div className="bg-white/5 border border-white/10 p-4 md:p-6 mb-6 md:mb-8">
+              <div className="flex items-center gap-2 mb-3 md:mb-4">
                 <Activity className="w-3 h-3 text-white/40" />
-                <h2 className="text-xs font-mono text-white/40 uppercase tracking-wider">Accuracy by Category</h2>
+                <h2 className="text-[10px] md:text-xs font-mono text-white/40 uppercase tracking-wider">Accuracy by Category</h2>
               </div>
-              <div className="space-y-4">
+              <div className="space-y-3 md:space-y-4">
                 {Object.entries(stats.accuracy_by_category).map(([category, accuracy]) => (
-                  <div key={category} className="flex items-center gap-4">
-                    <span className="w-24 text-xs font-mono text-white/60 uppercase">{category}</span>
+                  <div key={category} className="flex items-center gap-2 md:gap-4">
+                    <span className="w-16 sm:w-24 text-[10px] md:text-xs font-mono text-white/60 uppercase truncate">{category}</span>
                     <div className="flex-1">
-                      <div className="w-full bg-white/10 h-2">
+                      <div className="w-full bg-white/10 h-1.5 md:h-2">
                         <div
                           className={cn(
-                            'h-2 transition-all',
+                            'h-1.5 md:h-2 transition-all',
                             accuracy >= 0.9 ? 'bg-green-500' :
                             accuracy >= 0.7 ? 'bg-yellow-500' : 'bg-red-500'
                           )}
@@ -142,7 +144,7 @@ export default function AccuracyPage() {
                         />
                       </div>
                     </div>
-                    <span className="w-16 text-right text-sm font-mono font-bold text-white">
+                    <span className="w-12 md:w-16 text-right text-xs md:text-sm font-mono font-bold text-white">
                       {(accuracy * 100).toFixed(1)}%
                     </span>
                   </div>
@@ -153,14 +155,14 @@ export default function AccuracyPage() {
 
           {/* Areas for Improvement */}
           {stats?.areas_for_improvement && stats.areas_for_improvement.length > 0 && (
-            <div className="bg-yellow-500/10 border border-yellow-500/30 p-4 mb-8">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="w-4 h-4 text-yellow-500 mt-0.5" />
+            <div className="bg-yellow-500/10 border border-yellow-500/30 p-3 md:p-4 mb-6 md:mb-8">
+              <div className="flex items-start gap-2 md:gap-3">
+                <AlertTriangle className="w-3.5 h-3.5 md:w-4 md:h-4 text-yellow-500 mt-0.5" />
                 <div>
-                  <h3 className="text-sm font-mono font-bold text-yellow-400 mb-2">AREAS FOR IMPROVEMENT</h3>
+                  <h3 className="text-xs md:text-sm font-mono font-bold text-yellow-400 mb-1.5 md:mb-2">AREAS FOR IMPROVEMENT</h3>
                   <ul className="space-y-1">
                     {stats.areas_for_improvement.map((area, i) => (
-                      <li key={i} className="text-xs font-mono text-yellow-400/70">{area}</li>
+                      <li key={i} className="text-[10px] md:text-xs font-mono text-yellow-400/70">{area}</li>
                     ))}
                   </ul>
                 </div>
@@ -169,27 +171,28 @@ export default function AccuracyPage() {
           )}
 
           {/* Two Column Layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
             {/* Benchmarks List */}
             <div className="bg-white/5 border border-white/10">
-              <div className="p-4 border-b border-white/10">
+              <div className="p-3 md:p-4 border-b border-white/10">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Database className="w-3 h-3 text-white/40" />
-                    <h2 className="text-xs font-mono text-white/40 uppercase tracking-wider">Benchmarks</h2>
+                    <h2 className="text-[10px] md:text-xs font-mono text-white/40 uppercase tracking-wider">Benchmarks</h2>
                   </div>
                   <Link href="/dashboard/accuracy/benchmarks" className="text-[10px] font-mono text-white/30 hover:text-white/60 transition-colors">
-                    VIEW ALL &rarr;
+                    <span className="hidden sm:inline">VIEW ALL &rarr;</span>
+                    <span className="sm:hidden">ALL &rarr;</span>
                   </Link>
                 </div>
               </div>
               <div className="divide-y divide-white/5">
                 {(!benchmarks || benchmarks.length === 0) ? (
-                  <div className="p-8 text-center">
-                    <div className="w-10 h-10 bg-white/5 flex items-center justify-center mx-auto mb-3">
-                      <Database className="w-4 h-4 text-white/30" />
+                  <div className="p-6 md:p-8 text-center">
+                    <div className="w-8 h-8 md:w-10 md:h-10 bg-white/5 flex items-center justify-center mx-auto mb-2 md:mb-3">
+                      <Database className="w-3.5 h-3.5 md:w-4 md:h-4 text-white/30" />
                     </div>
-                    <p className="text-xs font-mono text-white/40 mb-3">No benchmarks yet</p>
+                    <p className="text-[10px] md:text-xs font-mono text-white/40 mb-2 md:mb-3">No benchmarks yet</p>
                     <Button
                       size="sm"
                       onClick={handleSeedBenchmarks}
@@ -209,24 +212,25 @@ export default function AccuracyPage() {
 
             {/* Recent Validations */}
             <div className="bg-white/5 border border-white/10">
-              <div className="p-4 border-b border-white/10">
+              <div className="p-3 md:p-4 border-b border-white/10">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Activity className="w-3 h-3 text-white/40" />
-                    <h2 className="text-xs font-mono text-white/40 uppercase tracking-wider">Recent Validations</h2>
+                    <h2 className="text-[10px] md:text-xs font-mono text-white/40 uppercase tracking-wider">Recent Validations</h2>
                   </div>
                   <Link href="/dashboard/accuracy/validations" className="text-[10px] font-mono text-white/30 hover:text-white/60 transition-colors">
-                    VIEW ALL &rarr;
+                    <span className="hidden sm:inline">VIEW ALL &rarr;</span>
+                    <span className="sm:hidden">ALL &rarr;</span>
                   </Link>
                 </div>
               </div>
               <div className="divide-y divide-white/5">
                 {(!validations || validations.length === 0) ? (
-                  <div className="p-8 text-center">
-                    <div className="w-10 h-10 bg-white/5 flex items-center justify-center mx-auto mb-3">
-                      <Activity className="w-4 h-4 text-white/30" />
+                  <div className="p-6 md:p-8 text-center">
+                    <div className="w-8 h-8 md:w-10 md:h-10 bg-white/5 flex items-center justify-center mx-auto mb-2 md:mb-3">
+                      <Activity className="w-3.5 h-3.5 md:w-4 md:h-4 text-white/30" />
                     </div>
-                    <p className="text-xs font-mono text-white/40 mb-1">No validations yet</p>
+                    <p className="text-[10px] md:text-xs font-mono text-white/40 mb-1">No validations yet</p>
                     <p className="text-[10px] font-mono text-white/30">
                       Validate a prediction against a benchmark
                     </p>
@@ -242,14 +246,14 @@ export default function AccuracyPage() {
 
           {/* Accuracy Trend */}
           {stats?.accuracy_trend && stats.accuracy_trend.length > 0 && (
-            <div className="bg-white/5 border border-white/10 p-6 mt-8">
-              <div className="flex items-center gap-2 mb-4">
+            <div className="bg-white/5 border border-white/10 p-4 md:p-6 mt-6 md:mt-8">
+              <div className="flex items-center gap-2 mb-3 md:mb-4">
                 <Activity className="w-3 h-3 text-white/40" />
-                <h2 className="text-xs font-mono text-white/40 uppercase tracking-wider">Accuracy Trend</h2>
+                <h2 className="text-[10px] md:text-xs font-mono text-white/40 uppercase tracking-wider">Accuracy Trend</h2>
               </div>
-              <div className="h-32 flex items-end gap-1">
+              <div className="h-24 md:h-32 flex items-end gap-0.5 md:gap-1 overflow-x-auto">
                 {stats.accuracy_trend.map((point, i) => (
-                  <div key={i} className="flex-1 flex flex-col items-center">
+                  <div key={i} className="flex-1 min-w-[16px] md:min-w-[20px] flex flex-col items-center">
                     <div
                       className={cn(
                         'w-full transition-all',
@@ -258,7 +262,7 @@ export default function AccuracyPage() {
                       )}
                       style={{ height: `${point.accuracy * 100}%` }}
                     />
-                    <span className="text-[8px] font-mono text-white/30 mt-2 rotate-45 origin-left whitespace-nowrap">
+                    <span className="text-[6px] md:text-[8px] font-mono text-white/30 mt-1.5 md:mt-2 rotate-45 origin-left whitespace-nowrap">
                       {point.date}
                     </span>
                   </div>
@@ -270,13 +274,12 @@ export default function AccuracyPage() {
       )}
 
       {/* Footer Status */}
-      <div className="mt-8 pt-4 border-t border-white/5">
+      <div className="mt-6 md:mt-8 pt-3 md:pt-4 border-t border-white/5">
         <div className="flex items-center justify-between text-[10px] font-mono text-white/30">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-1">
-              <Terminal className="w-3 h-3" />
-              <span>VALIDATION MODULE</span>
-            </div>
+          <div className="flex items-center gap-1">
+            <Terminal className="w-3 h-3" />
+            <span className="hidden sm:inline">VALIDATION MODULE</span>
+            <span className="sm:hidden">VALIDATION</span>
           </div>
           <span>AGENTVERSE v1.0.0</span>
         </div>
@@ -297,38 +300,38 @@ function StatCard({
   subtext: string;
 }) {
   return (
-    <div className="bg-white/5 border border-white/10 p-4 hover:bg-white/[0.07] transition-colors">
-      <div className="flex items-start justify-between mb-2">
-        <Icon className="w-4 h-4 text-white/40" />
+    <div className="bg-white/5 border border-white/10 p-3 md:p-4 hover:bg-white/[0.07] transition-colors">
+      <div className="flex items-start justify-between mb-1.5 md:mb-2">
+        <Icon className="w-3.5 h-3.5 md:w-4 md:h-4 text-white/40" />
       </div>
-      <p className="text-[10px] font-mono text-white/40 uppercase tracking-wider">{label}</p>
-      <p className="text-2xl font-mono font-bold text-white mt-1">{value}</p>
-      <p className="text-[10px] font-mono text-white/30 mt-1">{subtext}</p>
+      <p className="text-[9px] md:text-[10px] font-mono text-white/40 uppercase tracking-wider">{label}</p>
+      <p className="text-lg md:text-2xl font-mono font-bold text-white mt-0.5 md:mt-1 truncate">{value}</p>
+      <p className="text-[9px] md:text-[10px] font-mono text-white/30 mt-0.5 md:mt-1 line-clamp-1">{subtext}</p>
     </div>
   );
 }
 
 function BenchmarkItem({ benchmark }: { benchmark: Benchmark }) {
   return (
-    <div className="p-4 hover:bg-white/5 transition-colors">
-      <div className="flex items-start justify-between">
-        <div className="flex-1">
-          <h4 className="text-sm font-mono text-white">{benchmark.name}</h4>
-          <div className="flex items-center gap-2 mt-1">
-            <span className="text-[10px] font-mono text-white/40 uppercase px-1.5 py-0.5 bg-white/10">
+    <div className="p-3 md:p-4 hover:bg-white/5 transition-colors">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-3">
+        <div className="flex-1 min-w-0">
+          <h4 className="text-xs md:text-sm font-mono text-white truncate">{benchmark.name}</h4>
+          <div className="flex items-center gap-1.5 md:gap-2 mt-1 flex-wrap">
+            <span className="text-[9px] md:text-[10px] font-mono text-white/40 uppercase px-1 md:px-1.5 py-0.5 bg-white/10">
               {benchmark.category}
             </span>
-            <span className="text-[10px] font-mono text-white/30">{benchmark.region.toUpperCase()}</span>
+            <span className="text-[9px] md:text-[10px] font-mono text-white/30">{benchmark.region.toUpperCase()}</span>
             {benchmark.event_date && (
-              <span className="text-[10px] font-mono text-white/20">
+              <span className="text-[9px] md:text-[10px] font-mono text-white/20 hidden sm:inline">
                 {new Date(benchmark.event_date).toLocaleDateString()}
               </span>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 md:gap-2">
           <span className={cn(
-            'text-[10px] font-mono uppercase px-1.5 py-0.5',
+            'text-[9px] md:text-[10px] font-mono uppercase px-1 md:px-1.5 py-0.5',
             benchmark.verification_status === 'verified'
               ? 'bg-green-500/20 text-green-400'
               : 'bg-yellow-500/20 text-yellow-400'
@@ -347,28 +350,28 @@ function ValidationItem({ validation }: { validation: ValidationRecord }) {
                         validation.accuracy_score >= 0.7 ? 'text-yellow-400' : 'text-red-400';
 
   return (
-    <div className="p-4 hover:bg-white/5 transition-colors">
-      <div className="flex items-center justify-between">
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
+    <div className="p-3 md:p-4 hover:bg-white/5 transition-colors">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 md:gap-2">
             {validation.within_confidence_interval ? (
-              <CheckCircle className="w-3 h-3 text-green-500" />
+              <CheckCircle className="w-3 h-3 text-green-500 flex-shrink-0" />
             ) : (
-              <AlertTriangle className="w-3 h-3 text-yellow-500" />
+              <AlertTriangle className="w-3 h-3 text-yellow-500 flex-shrink-0" />
             )}
-            <span className="text-xs font-mono text-white/60">
+            <span className="text-[10px] md:text-xs font-mono text-white/60 truncate">
               VAL_{validation.id.slice(0, 8).toUpperCase()}
             </span>
           </div>
-          <p className="text-[10px] font-mono text-white/30 mt-1">
+          <p className="text-[9px] md:text-[10px] font-mono text-white/30 mt-0.5 md:mt-1 truncate">
             {new Date(validation.validated_at).toLocaleString()}
           </p>
         </div>
-        <div className="text-right">
-          <p className={cn('text-lg font-mono font-bold', accuracyColor)}>
+        <div className="text-right flex-shrink-0">
+          <p className={cn('text-base md:text-lg font-mono font-bold', accuracyColor)}>
             {(validation.accuracy_score * 100).toFixed(1)}%
           </p>
-          <p className="text-[10px] font-mono text-white/30">
+          <p className="text-[9px] md:text-[10px] font-mono text-white/30">
             {validation.within_confidence_interval ? 'WITHIN CI' : 'OUTSIDE CI'}
           </p>
         </div>

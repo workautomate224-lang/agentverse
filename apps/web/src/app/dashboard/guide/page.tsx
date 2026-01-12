@@ -237,57 +237,58 @@ export default function GuidePage() {
   const [activeSection, setActiveSection] = useState<'workflow' | 'cores' | 'features'>('workflow');
 
   return (
-    <div className="min-h-screen bg-black p-6">
+    <div className="min-h-screen bg-black p-4 md:p-6">
       {/* Header */}
-      <div className="mb-8">
+      <div className="mb-6 md:mb-8">
         <Link href="/dashboard">
-          <Button variant="ghost" size="sm" className="mb-4">
-            <ArrowLeft className="w-3 h-3 mr-2" />
-            BACK TO DASHBOARD
+          <Button variant="ghost" size="sm" className="mb-3 md:mb-4 font-mono text-[10px] md:text-xs">
+            <ArrowLeft className="w-3 h-3 mr-1.5 md:mr-2" />
+            <span className="hidden sm:inline">BACK TO DASHBOARD</span>
+            <span className="sm:hidden">BACK</span>
           </Button>
         </Link>
 
         <div className="flex items-center gap-2 mb-1">
-          <Terminal className="w-4 h-4 text-white/60" />
-          <span className="text-xs font-mono text-white/40 uppercase tracking-wider">Platform Handbook</span>
+          <Terminal className="w-3.5 h-3.5 md:w-4 md:h-4 text-white/60" />
+          <span className="text-[10px] md:text-xs font-mono text-white/40 uppercase tracking-wider">Platform Handbook</span>
         </div>
-        <h1 className="text-2xl font-mono font-bold text-white">AgentVerse User Guide</h1>
-        <p className="text-sm font-mono text-white/50 mt-2 max-w-2xl">
+        <h1 className="text-lg md:text-2xl font-mono font-bold text-white">AgentVerse User Guide</h1>
+        <p className="text-xs md:text-sm font-mono text-white/50 mt-1.5 md:mt-2 max-w-2xl">
           AgentVerse is a <span className="text-cyan-400">Future Predictive AI Platform</span> that creates reversible,
-          on-demand simulations producing auditable predictions. Explore branching scenarios,
-          ask "what if" questions, and visualize population dynamics.
+          on-demand simulations producing auditable predictions.
         </p>
       </div>
 
       {/* Section Tabs */}
-      <div className="flex gap-2 mb-8">
+      <div className="flex flex-wrap gap-1.5 md:gap-2 mb-6 md:mb-8">
         {[
-          { id: 'workflow', label: '8-STEP WORKFLOW', icon: Play },
-          { id: 'cores', label: 'PREDICTION CORES', icon: Target },
-          { id: 'features', label: 'KEY FEATURES', icon: Zap },
+          { id: 'workflow', label: '8-STEP WORKFLOW', shortLabel: 'WORKFLOW', icon: Play },
+          { id: 'cores', label: 'PREDICTION CORES', shortLabel: 'CORES', icon: Target },
+          { id: 'features', label: 'KEY FEATURES', shortLabel: 'FEATURES', icon: Zap },
         ].map((section) => (
           <button
             key={section.id}
             onClick={() => setActiveSection(section.id as 'workflow' | 'cores' | 'features')}
             className={cn(
-              'flex items-center gap-2 px-4 py-2 text-xs font-mono transition-colors',
+              'flex items-center gap-1.5 md:gap-2 px-2.5 md:px-4 py-1.5 md:py-2 text-[10px] md:text-xs font-mono transition-colors',
               activeSection === section.id
                 ? 'bg-white text-black'
                 : 'bg-white/5 text-white/60 hover:bg-white/10 border border-white/10'
             )}
           >
             <section.icon className="w-3 h-3" />
-            {section.label}
+            <span className="hidden sm:inline">{section.label}</span>
+            <span className="sm:hidden">{section.shortLabel}</span>
           </button>
         ))}
       </div>
 
       {/* Workflow Section */}
       {activeSection === 'workflow' && (
-        <div className="space-y-4">
-          <div className="bg-white/5 border border-white/10 p-4 mb-6">
-            <h2 className="text-sm font-mono font-bold text-white uppercase mb-2">Complete Workflow</h2>
-            <p className="text-xs font-mono text-white/50">
+        <div className="space-y-3 md:space-y-4">
+          <div className="bg-white/5 border border-white/10 p-3 md:p-4 mb-4 md:mb-6">
+            <h2 className="text-xs md:text-sm font-mono font-bold text-white uppercase mb-1.5 md:mb-2">Complete Workflow</h2>
+            <p className="text-[10px] md:text-xs font-mono text-white/50">
               From project creation to insight extraction - follow these steps for your first prediction
             </p>
           </div>
@@ -307,23 +308,23 @@ export default function GuidePage() {
               >
                 <button
                   onClick={() => setExpandedStep(isExpanded ? null : step.id)}
-                  className="w-full p-4 flex items-center justify-between"
+                  className="w-full p-3 md:p-4 flex items-center justify-between gap-2"
                 >
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2.5 md:gap-4 min-w-0">
                     <div className={cn(
-                      'w-10 h-10 flex items-center justify-center font-mono font-bold text-sm',
+                      'w-8 h-8 md:w-10 md:h-10 flex items-center justify-center font-mono font-bold text-xs md:text-sm flex-shrink-0',
                       isCompleted ? 'bg-green-500/20 text-green-400' :
                       isExpanded ? 'bg-cyan-400 text-black' : 'bg-white/10 text-white/60'
                     )}>
-                      {isCompleted ? <CheckCircle className="w-5 h-5" /> : step.id}
+                      {isCompleted ? <CheckCircle className="w-4 h-4 md:w-5 md:h-5" /> : step.id}
                     </div>
-                    <div className="text-left">
-                      <h3 className="font-mono font-bold text-white text-sm">{step.title}</h3>
-                      <p className="text-xs font-mono text-white/40">{step.description}</p>
+                    <div className="text-left min-w-0">
+                      <h3 className="font-mono font-bold text-white text-xs md:text-sm truncate">{step.title}</h3>
+                      <p className="text-[10px] md:text-xs font-mono text-white/40 truncate">{step.description}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <StepIcon className="w-5 h-5 text-white/40" />
+                  <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
+                    <StepIcon className="w-4 h-4 md:w-5 md:h-5 text-white/40 hidden sm:block" />
                     {isExpanded ? (
                       <ChevronUp className="w-4 h-4 text-white/40" />
                     ) : (
@@ -333,30 +334,30 @@ export default function GuidePage() {
                 </button>
 
                 {isExpanded && (
-                  <div className="px-4 pb-4 pt-0 border-t border-white/10">
-                    <div className="ml-14 space-y-4">
-                      <div className="space-y-2 mt-4">
+                  <div className="px-3 md:px-4 pb-3 md:pb-4 pt-0 border-t border-white/10">
+                    <div className="ml-0 md:ml-14 space-y-3 md:space-y-4">
+                      <div className="space-y-1.5 md:space-y-2 mt-3 md:mt-4">
                         {step.details.map((detail, idx) => (
                           <div key={idx} className="flex items-start gap-2">
-                            <span className="text-cyan-400/60 text-xs font-mono mt-0.5">{idx + 1}.</span>
-                            <span className="text-xs font-mono text-white/70">{detail}</span>
+                            <span className="text-cyan-400/60 text-[10px] md:text-xs font-mono mt-0.5">{idx + 1}.</span>
+                            <span className="text-[10px] md:text-xs font-mono text-white/70">{detail}</span>
                           </div>
                         ))}
                       </div>
 
-                      <div className="bg-cyan-400/5 border border-cyan-400/20 p-3">
+                      <div className="bg-cyan-400/5 border border-cyan-400/20 p-2.5 md:p-3">
                         <div className="flex items-center gap-2 mb-1">
                           <Lightbulb className="w-3 h-3 text-cyan-400" />
-                          <span className="text-[10px] font-mono text-cyan-400 uppercase">Pro Tip</span>
+                          <span className="text-[9px] md:text-[10px] font-mono text-cyan-400 uppercase">Pro Tip</span>
                         </div>
-                        <p className="text-xs font-mono text-white/60">{step.tip}</p>
+                        <p className="text-[10px] md:text-xs font-mono text-white/60">{step.tip}</p>
                       </div>
 
-                      <div className="flex items-center justify-between pt-2">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pt-2">
                         <Link href={step.link}>
-                          <Button size="sm">
+                          <Button size="sm" className="w-full sm:w-auto font-mono text-[10px] md:text-xs">
                             {step.linkText}
-                            <ArrowRight className="w-3 h-3 ml-2" />
+                            <ArrowRight className="w-3 h-3 ml-1.5 md:ml-2" />
                           </Button>
                         </Link>
                         {index < steps.length - 1 && (
@@ -364,9 +365,10 @@ export default function GuidePage() {
                             variant="ghost"
                             size="sm"
                             onClick={() => setExpandedStep(step.id + 1)}
+                            className="w-full sm:w-auto font-mono text-[10px] md:text-xs"
                           >
                             Next Step
-                            <ArrowRight className="w-3 h-3 ml-2" />
+                            <ArrowRight className="w-3 h-3 ml-1.5 md:ml-2" />
                           </Button>
                         )}
                       </div>
@@ -381,41 +383,41 @@ export default function GuidePage() {
 
       {/* Prediction Cores Section */}
       {activeSection === 'cores' && (
-        <div className="space-y-4">
-          <div className="bg-white/5 border border-white/10 p-4 mb-6">
-            <h2 className="text-sm font-mono font-bold text-white uppercase mb-2">Prediction Cores</h2>
-            <p className="text-xs font-mono text-white/50">
+        <div className="space-y-3 md:space-y-4">
+          <div className="bg-white/5 border border-white/10 p-3 md:p-4 mb-4 md:mb-6">
+            <h2 className="text-xs md:text-sm font-mono font-bold text-white uppercase mb-1.5 md:mb-2">Prediction Cores</h2>
+            <p className="text-[10px] md:text-xs font-mono text-white/50">
               Choose the right simulation mode based on your prediction needs
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
             {predictionCores.map((core) => {
               const CoreIcon = core.icon;
               return (
-                <div key={core.type} className="bg-white/5 border border-white/10 p-6">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-10 h-10 bg-cyan-400/10 flex items-center justify-center">
-                      <CoreIcon className="w-5 h-5 text-cyan-400" />
+                <div key={core.type} className="bg-white/5 border border-white/10 p-4 md:p-6">
+                  <div className="flex items-center gap-2.5 md:gap-3 mb-3 md:mb-4">
+                    <div className="w-8 h-8 md:w-10 md:h-10 bg-cyan-400/10 flex items-center justify-center flex-shrink-0">
+                      <CoreIcon className="w-4 h-4 md:w-5 md:h-5 text-cyan-400" />
                     </div>
-                    <h3 className="font-mono font-bold text-white text-sm">{core.type}</h3>
+                    <h3 className="font-mono font-bold text-white text-xs md:text-sm">{core.type}</h3>
                   </div>
-                  <p className="text-xs font-mono text-white/60 mb-4">{core.description}</p>
+                  <p className="text-[10px] md:text-xs font-mono text-white/60 mb-3 md:mb-4">{core.description}</p>
 
-                  <div className="space-y-3">
+                  <div className="space-y-2.5 md:space-y-3">
                     <div>
-                      <p className="text-[10px] font-mono text-white/40 uppercase mb-2">Use Cases:</p>
+                      <p className="text-[9px] md:text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">Use Cases:</p>
                       {core.useCases.map((useCase, idx) => (
                         <div key={idx} className="flex items-center gap-2">
-                          <div className="w-1 h-1 bg-cyan-400/40" />
-                          <span className="text-xs font-mono text-white/50">{useCase}</span>
+                          <div className="w-1 h-1 bg-cyan-400/40 flex-shrink-0" />
+                          <span className="text-[10px] md:text-xs font-mono text-white/50">{useCase}</span>
                         </div>
                       ))}
                     </div>
 
-                    <div className="pt-3 border-t border-white/10">
-                      <p className="text-[10px] font-mono text-cyan-400/60 uppercase mb-1">When to use:</p>
-                      <p className="text-xs font-mono text-white/50">{core.when}</p>
+                    <div className="pt-2.5 md:pt-3 border-t border-white/10">
+                      <p className="text-[9px] md:text-[10px] font-mono text-cyan-400/60 uppercase mb-1">When to use:</p>
+                      <p className="text-[10px] md:text-xs font-mono text-white/50">{core.when}</p>
                     </div>
                   </div>
                 </div>
@@ -423,9 +425,9 @@ export default function GuidePage() {
             })}
           </div>
 
-          <div className="mt-6 bg-white/5 border border-white/10 p-4">
-            <h3 className="text-sm font-mono font-bold text-white mb-2">Quick Decision Guide</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-mono">
+          <div className="mt-4 md:mt-6 bg-white/5 border border-white/10 p-3 md:p-4">
+            <h3 className="text-xs md:text-sm font-mono font-bold text-white mb-2">Quick Decision Guide</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 md:gap-4 text-[10px] md:text-xs font-mono">
               <div className="text-white/60">
                 <span className="text-cyan-400">Collective:</span> "What will the market think?"
               </div>
@@ -438,11 +440,11 @@ export default function GuidePage() {
             </div>
           </div>
 
-          <div className="mt-6">
+          <div className="mt-4 md:mt-6">
             <Link href="/dashboard/projects/new">
-              <Button>
+              <Button className="w-full sm:w-auto font-mono text-[10px] md:text-xs">
                 Create Your First Project
-                <ArrowRight className="w-3 h-3 ml-2" />
+                <ArrowRight className="w-3 h-3 ml-1.5 md:ml-2" />
               </Button>
             </Link>
           </div>
@@ -451,26 +453,26 @@ export default function GuidePage() {
 
       {/* Features Section */}
       {activeSection === 'features' && (
-        <div className="space-y-4">
-          <div className="bg-white/5 border border-white/10 p-4 mb-6">
-            <h2 className="text-sm font-mono font-bold text-white uppercase mb-2">Key Features</h2>
-            <p className="text-xs font-mono text-white/50">
+        <div className="space-y-3 md:space-y-4">
+          <div className="bg-white/5 border border-white/10 p-3 md:p-4 mb-4 md:mb-6">
+            <h2 className="text-xs md:text-sm font-mono font-bold text-white uppercase mb-1.5 md:mb-2">Key Features</h2>
+            <p className="text-[10px] md:text-xs font-mono text-white/50">
               Core capabilities of the AgentVerse platform
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
             {features.map((feature) => {
               const FeatureIcon = feature.icon;
               return (
-                <div key={feature.title} className="bg-white/5 border border-white/10 p-6">
-                  <div className="flex items-start gap-4">
-                    <div className="w-10 h-10 bg-cyan-400/10 flex items-center justify-center flex-shrink-0">
-                      <FeatureIcon className="w-5 h-5 text-cyan-400" />
+                <div key={feature.title} className="bg-white/5 border border-white/10 p-4 md:p-6">
+                  <div className="flex items-start gap-3 md:gap-4">
+                    <div className="w-8 h-8 md:w-10 md:h-10 bg-cyan-400/10 flex items-center justify-center flex-shrink-0">
+                      <FeatureIcon className="w-4 h-4 md:w-5 md:h-5 text-cyan-400" />
                     </div>
-                    <div>
-                      <h3 className="font-mono font-bold text-white text-sm mb-2">{feature.title}</h3>
-                      <p className="text-xs font-mono text-white/50">{feature.description}</p>
+                    <div className="min-w-0">
+                      <h3 className="font-mono font-bold text-white text-xs md:text-sm mb-1.5 md:mb-2">{feature.title}</h3>
+                      <p className="text-[10px] md:text-xs font-mono text-white/50">{feature.description}</p>
                     </div>
                   </div>
                 </div>
@@ -478,9 +480,9 @@ export default function GuidePage() {
             })}
           </div>
 
-          <div className="bg-white/5 border border-white/10 p-6 mt-6">
-            <h3 className="font-mono font-bold text-white text-sm mb-4">Core Principles</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-white/5 border border-white/10 p-4 md:p-6 mt-4 md:mt-6">
+            <h3 className="font-mono font-bold text-white text-xs md:text-sm mb-3 md:mb-4">Core Principles</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
               {[
                 { label: 'Fork-Not-Mutate', desc: 'Nodes are immutable - changes create new branches' },
                 { label: 'On-Demand Execution', desc: 'Simulations run explicitly, not continuously' },
@@ -489,22 +491,22 @@ export default function GuidePage() {
                 { label: 'LLMs as Compilers', desc: 'AI translates prompts, rules execute deterministically' },
                 { label: 'Multi-Tenant', desc: 'Isolated data per organization with role-based access' },
               ].map((principle, idx) => (
-                <div key={idx} className="flex items-start gap-3">
-                  <div className="w-5 h-5 border border-cyan-400/30 flex items-center justify-center text-[10px] font-mono text-cyan-400/60 flex-shrink-0">
+                <div key={idx} className="flex items-start gap-2.5 md:gap-3">
+                  <div className="w-4 h-4 md:w-5 md:h-5 border border-cyan-400/30 flex items-center justify-center text-[9px] md:text-[10px] font-mono text-cyan-400/60 flex-shrink-0">
                     {idx + 1}
                   </div>
-                  <div>
-                    <span className="text-xs font-mono text-white font-bold">{principle.label}</span>
-                    <p className="text-[11px] font-mono text-white/40">{principle.desc}</p>
+                  <div className="min-w-0">
+                    <span className="text-[10px] md:text-xs font-mono text-white font-bold">{principle.label}</span>
+                    <p className="text-[9px] md:text-[11px] font-mono text-white/40">{principle.desc}</p>
                   </div>
                 </div>
               ))}
             </div>
           </div>
 
-          <div className="bg-cyan-400/5 border border-cyan-400/20 p-6 mt-6">
-            <h3 className="font-mono font-bold text-cyan-400 text-sm mb-4">Quick Start Checklist</h3>
-            <div className="space-y-3">
+          <div className="bg-cyan-400/5 border border-cyan-400/20 p-4 md:p-6 mt-4 md:mt-6">
+            <h3 className="font-mono font-bold text-cyan-400 text-xs md:text-sm mb-3 md:mb-4">Quick Start Checklist</h3>
+            <div className="space-y-2.5 md:space-y-3">
               {[
                 'Create your first project with a clear prediction goal',
                 'Select the appropriate Prediction Core (Collective/Target/Hybrid)',
@@ -513,11 +515,11 @@ export default function GuidePage() {
                 'Use "Ask" to explore what-if scenarios',
                 'Review Reliability metrics before acting on predictions',
               ].map((item, idx) => (
-                <div key={idx} className="flex items-center gap-3">
-                  <div className="w-5 h-5 border border-cyan-400/30 flex items-center justify-center text-[10px] font-mono text-cyan-400">
+                <div key={idx} className="flex items-start gap-2.5 md:gap-3">
+                  <div className="w-4 h-4 md:w-5 md:h-5 border border-cyan-400/30 flex items-center justify-center text-[9px] md:text-[10px] font-mono text-cyan-400 flex-shrink-0">
                     {idx + 1}
                   </div>
-                  <span className="text-xs font-mono text-white/60">{item}</span>
+                  <span className="text-[10px] md:text-xs font-mono text-white/60">{item}</span>
                 </div>
               ))}
             </div>
@@ -526,13 +528,15 @@ export default function GuidePage() {
       )}
 
       {/* Footer */}
-      <div className="mt-12 pt-4 border-t border-white/5">
+      <div className="mt-8 md:mt-12 pt-3 md:pt-4 border-t border-white/5">
         <div className="flex items-center justify-between text-[10px] font-mono text-white/30">
           <div className="flex items-center gap-1">
             <Terminal className="w-3 h-3" />
-            <span>USER HANDBOOK</span>
+            <span className="hidden sm:inline">USER HANDBOOK</span>
+            <span className="sm:hidden">GUIDE</span>
           </div>
-          <span>AGENTVERSE v1.0.0 - Future Predictive AI Platform</span>
+          <span className="hidden sm:inline">AGENTVERSE v1.0.0 - Future Predictive AI Platform</span>
+          <span className="sm:hidden">AGENTVERSE v1.0.0</span>
         </div>
       </div>
     </div>

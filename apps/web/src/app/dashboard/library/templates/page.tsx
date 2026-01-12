@@ -68,10 +68,10 @@ const dummyTemplates = [
 
 export default function TemplatesPage() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       {/* Action Bar */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3 flex-1">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 md:gap-4">
+        <div className="flex items-center gap-2 md:gap-3 flex-1">
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
             <input
@@ -82,22 +82,22 @@ export default function TemplatesPage() {
           </div>
           <button className="flex items-center gap-2 px-3 py-2 text-xs font-mono text-white/60 bg-white/5 border border-white/10 hover:bg-white/10 transition-colors">
             <Filter className="w-3.5 h-3.5" />
-            <span>Filters</span>
+            <span className="hidden sm:inline">Filters</span>
           </button>
         </div>
-        <button className="flex items-center gap-2 px-4 py-2 text-xs font-mono text-black bg-cyan-400 hover:bg-cyan-300 transition-colors">
+        <button className="flex items-center gap-2 px-3 md:px-4 py-2 text-xs font-mono text-black bg-cyan-400 hover:bg-cyan-300 transition-colors whitespace-nowrap">
           <Plus className="w-3.5 h-3.5" />
           <span>Create Template</span>
         </button>
       </div>
 
       {/* Category Tabs */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-2">
+      <div className="flex items-center gap-2 overflow-x-auto pb-2 -mx-4 md:mx-0 px-4 md:px-0 scrollbar-hide">
         {['All', 'Product Research', 'Brand Research', 'Pricing Research', 'Market Research', 'UX Research'].map(
           (category) => (
             <button
               key={category}
-              className={`px-3 py-1.5 text-xs font-mono whitespace-nowrap transition-colors ${
+              className={`px-3 py-1.5 text-[10px] md:text-xs font-mono whitespace-nowrap transition-colors flex-shrink-0 ${
                 category === 'All'
                   ? 'bg-white text-black'
                   : 'text-white/50 bg-white/5 hover:bg-white/10'
@@ -110,30 +110,30 @@ export default function TemplatesPage() {
       </div>
 
       {/* Templates Grid */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
         {dummyTemplates.map((template) => (
           <div
             key={template.id}
-            className="bg-white/5 border border-white/10 p-5 hover:border-cyan-500/30 transition-colors cursor-pointer group"
+            className="bg-white/5 border border-white/10 p-4 md:p-5 hover:border-cyan-500/30 transition-colors cursor-pointer group"
           >
             <div className="flex items-start justify-between mb-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-                <LayoutTemplate className="w-5 h-5 text-white" />
+              <div className="w-8 h-8 md:w-10 md:h-10 bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
+                <LayoutTemplate className="w-4 h-4 md:w-5 md:h-5 text-white" />
               </div>
               {template.isOfficial && (
-                <span className="text-[10px] font-mono text-cyan-400 bg-cyan-400/10 px-2 py-0.5">
+                <span className="text-[9px] md:text-[10px] font-mono text-cyan-400 bg-cyan-400/10 px-1.5 md:px-2 py-0.5">
                   Official
                 </span>
               )}
             </div>
-            <h3 className="text-sm font-mono font-bold text-white group-hover:text-cyan-400 transition-colors mb-2">
+            <h3 className="text-xs md:text-sm font-mono font-bold text-white group-hover:text-cyan-400 transition-colors mb-2 truncate">
               {template.name}
             </h3>
-            <p className="text-xs font-mono text-white/50 mb-4 line-clamp-2">
+            <p className="text-[10px] md:text-xs font-mono text-white/50 mb-3 md:mb-4 line-clamp-2">
               {template.description}
             </p>
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3 text-[10px] font-mono text-white/30">
+              <div className="flex items-center gap-2 md:gap-3 text-[9px] md:text-[10px] font-mono text-white/30">
                 <span className="flex items-center gap-1">
                   <Star className="w-3 h-3 text-yellow-500" />
                   {template.rating}
@@ -143,7 +143,7 @@ export default function TemplatesPage() {
                   {template.uses}
                 </span>
               </div>
-              <span className="text-[10px] font-mono text-white/20">{template.category}</span>
+              <span className="text-[9px] md:text-[10px] font-mono text-white/20 truncate ml-2">{template.category}</span>
             </div>
           </div>
         ))}

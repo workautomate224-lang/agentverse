@@ -346,22 +346,29 @@ export default function NewProductPage() {
     <div className="min-h-screen bg-black">
       {/* Header */}
       <div className="bg-black border-b border-white/10 sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-8 py-4">
+        <div className="max-w-5xl mx-auto px-4 md:px-8 py-3 md:py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Link href="/dashboard/products" className="p-2 hover:bg-white/5 text-white/60 hover:text-white">
-                <ArrowLeft className="w-5 h-5" />
+            <div className="flex items-center gap-2 md:gap-4 min-w-0">
+              <Link href="/dashboard/products" className="p-1.5 md:p-2 hover:bg-white/5 text-white/60 hover:text-white flex-shrink-0">
+                <ArrowLeft className="w-4 h-4 md:w-5 md:h-5" />
               </Link>
-              <div>
+              <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <Package className="w-4 h-4 text-white/60" />
-                  <span className="text-xs font-mono text-white/40 uppercase tracking-wider">Product Module</span>
+                  <Package className="w-3.5 h-3.5 md:w-4 md:h-4 text-white/60 flex-shrink-0" />
+                  <span className="text-[10px] md:text-xs font-mono text-white/40 uppercase tracking-wider hidden sm:inline">Product Module</span>
                 </div>
-                <h1 className="text-xl font-mono font-bold text-white">Create New Product</h1>
+                <h1 className="text-base md:text-xl font-mono font-bold text-white truncate">Create New Product</h1>
               </div>
             </div>
 
-            {/* Progress Steps */}
+            {/* Mobile: Step indicator */}
+            <div className="flex md:hidden items-center gap-2">
+              <span className="text-[10px] font-mono text-white/40">Step</span>
+              <span className="text-xs font-mono font-bold text-white">{currentStepIndex + 1}</span>
+              <span className="text-[10px] font-mono text-white/40">of {steps.length}</span>
+            </div>
+
+            {/* Desktop: Progress Steps */}
             <div className="hidden md:flex items-center gap-2">
               {steps.map((step, index) => (
                 <div key={step.id} className="flex items-center">
@@ -393,27 +400,44 @@ export default function NewProductPage() {
               ))}
             </div>
           </div>
+
+          {/* Mobile: Dots progress indicator */}
+          <div className="flex md:hidden items-center justify-center gap-2 mt-3">
+            {steps.map((step, index) => (
+              <div
+                key={step.id}
+                className={cn(
+                  'w-2 h-2 transition-colors',
+                  currentStepIndex === index
+                    ? 'bg-white'
+                    : currentStepIndex > index
+                    ? 'bg-white/50'
+                    : 'bg-white/20'
+                )}
+              />
+            ))}
+          </div>
         </div>
       </div>
 
       {/* Content */}
-      <div className="max-w-5xl mx-auto px-8 py-8">
+      <div className="max-w-5xl mx-auto px-4 md:px-8 py-4 md:py-8">
         {/* Step 1: Choose Type */}
         {currentStep === 'type' && (
           <div>
-            <h2 className="text-sm font-mono font-bold text-white mb-2 uppercase">Choose Product Type</h2>
-            <p className="text-xs font-mono text-white/40 mb-6">
+            <h2 className="text-xs md:text-sm font-mono font-bold text-white mb-1 md:mb-2 uppercase">Choose Product Type</h2>
+            <p className="text-[10px] md:text-xs font-mono text-white/40 mb-4 md:mb-6">
               Select the type of research study you want to create
             </p>
 
             {/* Advanced AI Models Section */}
-            <div className="mb-8">
-              <div className="flex items-center gap-2 mb-4">
-                <Gem className="w-4 h-4 text-purple-400" />
-                <span className="text-xs font-mono text-purple-400 uppercase tracking-wider">Advanced AI Models</span>
+            <div className="mb-6 md:mb-8">
+              <div className="flex items-center gap-2 mb-3 md:mb-4">
+                <Gem className="w-3.5 h-3.5 md:w-4 md:h-4 text-purple-400" />
+                <span className="text-[10px] md:text-xs font-mono text-purple-400 uppercase tracking-wider">Advanced AI Models</span>
                 <span className="text-[8px] font-mono bg-purple-500/20 text-purple-400 px-1.5 py-0.5 uppercase">Enterprise</span>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
                 {Object.entries(productTypeConfig)
                   .filter(([, config]) => config.category === 'advanced')
                   .map(([type, config]) => (
@@ -421,26 +445,26 @@ export default function NewProductPage() {
                       key={type}
                       onClick={() => setProductType(type as ProductTypeKey)}
                       className={cn(
-                        'text-left p-6 border transition-all',
+                        'text-left p-4 md:p-6 border transition-all',
                         productType === type
                           ? 'border-purple-400 bg-purple-500/20'
                           : 'border-purple-500/20 hover:border-purple-500/40 bg-gradient-to-br from-purple-500/10 to-blue-500/5'
                       )}
                     >
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="w-12 h-12 bg-purple-500/20 flex items-center justify-center">
-                          <config.icon className="w-6 h-6 text-purple-400" />
+                      <div className="flex items-start justify-between mb-3 md:mb-4">
+                        <div className="w-10 h-10 md:w-12 md:h-12 bg-purple-500/20 flex items-center justify-center">
+                          <config.icon className="w-5 h-5 md:w-6 md:h-6 text-purple-400" />
                         </div>
                         {config.badge && (
-                          <span className="text-[8px] font-mono bg-purple-500/30 text-purple-300 px-1.5 py-0.5 uppercase">
+                          <span className="text-[7px] md:text-[8px] font-mono bg-purple-500/30 text-purple-300 px-1 md:px-1.5 py-0.5 uppercase">
                             {config.badge}
                           </span>
                         )}
                       </div>
-                      <h3 className="text-sm font-mono font-bold text-white mb-1">{config.name}</h3>
-                      <p className="text-xs font-mono text-white/50">{config.description}</p>
+                      <h3 className="text-xs md:text-sm font-mono font-bold text-white mb-1">{config.name}</h3>
+                      <p className="text-[10px] md:text-xs font-mono text-white/50 line-clamp-2">{config.description}</p>
                       {productType === type && (
-                        <div className="mt-4 flex items-center gap-2 text-purple-400">
+                        <div className="mt-3 md:mt-4 flex items-center gap-2 text-purple-400">
                           <Check className="w-3 h-3" />
                           <span className="text-[10px] font-mono uppercase">Selected</span>
                         </div>
@@ -452,11 +476,11 @@ export default function NewProductPage() {
 
             {/* Standard Products Section */}
             <div>
-              <div className="flex items-center gap-2 mb-4">
-                <Terminal className="w-4 h-4 text-white/40" />
-                <span className="text-xs font-mono text-white/40 uppercase tracking-wider">Standard Products</span>
+              <div className="flex items-center gap-2 mb-3 md:mb-4">
+                <Terminal className="w-3.5 h-3.5 md:w-4 md:h-4 text-white/40" />
+                <span className="text-[10px] md:text-xs font-mono text-white/40 uppercase tracking-wider">Standard Products</span>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
                 {Object.entries(productTypeConfig)
                   .filter(([, config]) => config.category === 'basic')
                   .map(([type, config]) => (
@@ -464,19 +488,19 @@ export default function NewProductPage() {
                       key={type}
                       onClick={() => setProductType(type as ProductTypeKey)}
                       className={cn(
-                        'text-left p-6 border transition-all',
+                        'text-left p-4 md:p-6 border transition-all',
                         productType === type
                           ? 'border-white bg-white/10'
                           : 'border-white/10 hover:border-white/30 bg-white/5'
                       )}
                     >
-                      <div className="w-12 h-12 bg-white/10 flex items-center justify-center mb-4">
-                        <config.icon className="w-6 h-6 text-white/60" />
+                      <div className="w-10 h-10 md:w-12 md:h-12 bg-white/10 flex items-center justify-center mb-3 md:mb-4">
+                        <config.icon className="w-5 h-5 md:w-6 md:h-6 text-white/60" />
                       </div>
-                      <h3 className="text-sm font-mono font-bold text-white mb-1">{config.name}</h3>
-                      <p className="text-xs font-mono text-white/40">{config.description}</p>
+                      <h3 className="text-xs md:text-sm font-mono font-bold text-white mb-1">{config.name}</h3>
+                      <p className="text-[10px] md:text-xs font-mono text-white/40 line-clamp-2">{config.description}</p>
                       {productType === type && (
-                        <div className="mt-4 flex items-center gap-2 text-white">
+                        <div className="mt-3 md:mt-4 flex items-center gap-2 text-white">
                           <Check className="w-3 h-3" />
                           <span className="text-[10px] font-mono uppercase">Selected</span>
                         </div>
@@ -491,24 +515,24 @@ export default function NewProductPage() {
         {/* Step 2: Details */}
         {currentStep === 'details' && typeConfig && (
           <div>
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 bg-white/10 flex items-center justify-center">
-                <Icon className="w-5 h-5 text-white/60" />
+            <div className="flex items-center gap-2 md:gap-3 mb-4 md:mb-6">
+              <div className="w-8 h-8 md:w-10 md:h-10 bg-white/10 flex items-center justify-center flex-shrink-0">
+                <Icon className="w-4 h-4 md:w-5 md:h-5 text-white/60" />
               </div>
-              <div>
-                <h2 className="text-sm font-mono font-bold text-white uppercase">{typeConfig.name} Details</h2>
-                <p className="text-xs font-mono text-white/40">Define your study parameters</p>
+              <div className="min-w-0">
+                <h2 className="text-xs md:text-sm font-mono font-bold text-white uppercase truncate">{typeConfig.name} Details</h2>
+                <p className="text-[10px] md:text-xs font-mono text-white/40">Define your study parameters</p>
               </div>
             </div>
 
-            <div className="bg-white/5 border border-white/10 p-6 space-y-6">
+            <div className="bg-white/5 border border-white/10 p-4 md:p-6 space-y-4 md:space-y-6">
               {/* Project Selection */}
               <div>
-                <label className="block text-[10px] font-mono text-white/40 uppercase mb-2">
+                <label className="block text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">
                   Project <span className="text-red-400">*</span>
                 </label>
                 {projectsLoading ? (
-                  <div className="flex items-center gap-2 text-white/40 text-xs font-mono">
+                  <div className="flex items-center gap-2 text-white/40 text-[11px] md:text-xs font-mono">
                     <Loader2 className="w-3 h-3 animate-spin" />
                     Loading projects...
                   </div>
@@ -516,7 +540,7 @@ export default function NewProductPage() {
                   <select
                     value={projectId}
                     onChange={(e) => setProjectId(e.target.value)}
-                    className="w-full px-3 py-2 bg-black border border-white/10 text-xs font-mono text-white focus:outline-none focus:border-white/30"
+                    className="w-full px-2.5 md:px-3 py-2 bg-black border border-white/10 text-[11px] md:text-xs font-mono text-white focus:outline-none focus:border-white/30"
                   >
                     {projects.map((project) => (
                       <option key={project.id} value={project.id}>
@@ -525,8 +549,8 @@ export default function NewProductPage() {
                     ))}
                   </select>
                 ) : (
-                  <div className="bg-yellow-500/10 border border-yellow-500/30 p-4">
-                    <p className="text-xs font-mono text-yellow-400">
+                  <div className="bg-yellow-500/10 border border-yellow-500/30 p-3 md:p-4">
+                    <p className="text-[10px] md:text-xs font-mono text-yellow-400">
                       No projects found.{' '}
                       <Link href="/dashboard/projects/new" className="underline hover:text-yellow-300">
                         Create a project
@@ -539,7 +563,7 @@ export default function NewProductPage() {
 
               {/* Name */}
               <div>
-                <label className="block text-[10px] font-mono text-white/40 uppercase mb-2">
+                <label className="block text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">
                   Product Name <span className="text-red-400">*</span>
                 </label>
                 <input
@@ -547,13 +571,13 @@ export default function NewProductPage() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder={`e.g., Q1 ${typeConfig.name} Study`}
-                  className="w-full px-3 py-2 bg-black border border-white/10 text-xs font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-white/30"
+                  className="w-full px-2.5 md:px-3 py-2 bg-black border border-white/10 text-[11px] md:text-xs font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-white/30"
                 />
               </div>
 
               {/* Description with AI Generate */}
               <div>
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-1.5 md:mb-2">
                   <label className="block text-[10px] font-mono text-white/40 uppercase">
                     Description
                   </label>
@@ -592,17 +616,19 @@ export default function NewProductPage() {
                     disabled={generateContent.isPending || !name.trim()}
                     variant="ghost"
                     size="sm"
-                    className="h-6 text-[10px] font-mono text-purple-400 hover:text-purple-300 hover:bg-purple-500/10"
+                    className="h-6 text-[10px] font-mono text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 w-fit"
                   >
                     {generateContent.isPending ? (
                       <>
                         <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                        GENERATING...
+                        <span className="hidden sm:inline">GENERATING...</span>
+                        <span className="sm:hidden">GEN...</span>
                       </>
                     ) : (
                       <>
                         <Sparkles className="w-3 h-3 mr-1" />
-                        GENERATE WITH AI
+                        <span className="hidden sm:inline">GENERATE WITH AI</span>
+                        <span className="sm:hidden">AI GEN</span>
                       </>
                     )}
                   </Button>
@@ -612,7 +638,7 @@ export default function NewProductPage() {
                   onChange={(e) => setDescription(e.target.value)}
                   rows={3}
                   placeholder="Describe the objective of this study..."
-                  className="w-full px-3 py-2 bg-black border border-white/10 text-xs font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-white/30 resize-none"
+                  className="w-full px-2.5 md:px-3 py-2 bg-black border border-white/10 text-[11px] md:text-xs font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-white/30 resize-none"
                 />
                 <p className="text-[10px] font-mono text-white/30 mt-1">
                   All AI-generated content is fully editable
@@ -621,23 +647,23 @@ export default function NewProductPage() {
 
               {/* Sub-Type Selection */}
               <div>
-                <label className="block text-[10px] font-mono text-white/40 uppercase mb-2">
+                <label className="block text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">
                   Study Type <span className="text-red-400">*</span>
                 </label>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3">
                   {typeConfig.subTypes.map((st) => (
                     <button
                       key={st.value}
                       onClick={() => setSubType(st.value)}
                       className={cn(
-                        'text-left p-3 border transition-all',
+                        'text-left p-2.5 md:p-3 border transition-all',
                         subType === st.value
                           ? 'border-white bg-white/10'
                           : 'border-white/10 hover:border-white/30 bg-white/5'
                       )}
                     >
-                      <p className="font-mono text-xs text-white">{st.name}</p>
-                      <p className="text-[10px] font-mono text-white/40 mt-0.5">{st.description}</p>
+                      <p className="font-mono text-[11px] md:text-xs text-white">{st.name}</p>
+                      <p className="text-[10px] font-mono text-white/40 mt-0.5 line-clamp-1">{st.description}</p>
                     </button>
                   ))}
                 </div>
@@ -649,23 +675,23 @@ export default function NewProductPage() {
         {/* Step 3: Target Market */}
         {currentStep === 'target' && typeConfig && (
           <div>
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 bg-white/10 flex items-center justify-center">
-                <Globe className="w-5 h-5 text-white/60" />
+            <div className="flex items-center gap-2 md:gap-3 mb-4 md:mb-6">
+              <div className="w-8 h-8 md:w-10 md:h-10 bg-white/10 flex items-center justify-center flex-shrink-0">
+                <Globe className="w-4 h-4 md:w-5 md:h-5 text-white/60" />
               </div>
               <div>
-                <h2 className="text-sm font-mono font-bold text-white uppercase">Target Market</h2>
-                <p className="text-xs font-mono text-white/40">Define your target audience</p>
+                <h2 className="text-xs md:text-sm font-mono font-bold text-white uppercase">Target Market</h2>
+                <p className="text-[10px] md:text-xs font-mono text-white/40">Define your target audience</p>
               </div>
             </div>
 
-            <div className="bg-white/5 border border-white/10 p-6 space-y-6">
+            <div className="bg-white/5 border border-white/10 p-4 md:p-6 space-y-4 md:space-y-6">
               {/* Regions */}
               <div>
-                <label className="block text-[10px] font-mono text-white/40 uppercase mb-2">
+                <label className="block text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">
                   Regions
                 </label>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5 md:gap-2">
                   {regions.map((region) => (
                     <button
                       key={region.value}
@@ -677,7 +703,7 @@ export default function NewProductPage() {
                         }
                       }}
                       className={cn(
-                        'px-3 py-1.5 text-xs font-mono transition-colors border',
+                        'px-2 md:px-3 py-1 md:py-1.5 text-[10px] md:text-xs font-mono transition-colors border',
                         selectedRegions.includes(region.value)
                           ? 'bg-white text-black border-white'
                           : 'bg-white/5 text-white/60 border-white/10 hover:border-white/30'
@@ -691,10 +717,10 @@ export default function NewProductPage() {
 
               {/* Countries */}
               <div>
-                <label className="block text-[10px] font-mono text-white/40 uppercase mb-2">
+                <label className="block text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">
                   Countries
                 </label>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5 md:gap-2">
                   {countries.map((country) => (
                     <button
                       key={country.value}
@@ -706,7 +732,7 @@ export default function NewProductPage() {
                         }
                       }}
                       className={cn(
-                        'px-3 py-1.5 text-xs font-mono transition-colors border',
+                        'px-2 md:px-3 py-1 md:py-1.5 text-[10px] md:text-xs font-mono transition-colors border',
                         selectedCountries.includes(country.value)
                           ? 'bg-white text-black border-white'
                           : 'bg-white/5 text-white/60 border-white/10 hover:border-white/30'
@@ -719,13 +745,13 @@ export default function NewProductPage() {
               </div>
 
               {/* Demographics */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
                 {/* Age Groups */}
                 <div>
-                  <label className="block text-[10px] font-mono text-white/40 uppercase mb-2">
+                  <label className="block text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">
                     Age Groups
                   </label>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-1.5 md:gap-2">
                     {ageGroups.map((age) => (
                       <button
                         key={age.value}
@@ -737,7 +763,7 @@ export default function NewProductPage() {
                           }
                         }}
                         className={cn(
-                          'px-3 py-1.5 text-xs font-mono transition-colors border',
+                          'px-2 md:px-3 py-1 md:py-1.5 text-[10px] md:text-xs font-mono transition-colors border',
                           selectedAgeGroups.includes(age.value)
                             ? 'bg-white text-black border-white'
                             : 'bg-white/5 text-white/60 border-white/10 hover:border-white/30'
@@ -751,10 +777,10 @@ export default function NewProductPage() {
 
                 {/* Income Groups */}
                 <div>
-                  <label className="block text-[10px] font-mono text-white/40 uppercase mb-2">
+                  <label className="block text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">
                     Income Groups
                   </label>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-1.5 md:gap-2">
                     {incomeGroups.map((income) => (
                       <button
                         key={income.value}
@@ -766,7 +792,7 @@ export default function NewProductPage() {
                           }
                         }}
                         className={cn(
-                          'px-3 py-1.5 text-xs font-mono transition-colors border',
+                          'px-2 md:px-3 py-1 md:py-1.5 text-[10px] md:text-xs font-mono transition-colors border',
                           selectedIncomeGroups.includes(income.value)
                             ? 'bg-white text-black border-white'
                             : 'bg-white/5 text-white/60 border-white/10 hover:border-white/30'
@@ -781,11 +807,11 @@ export default function NewProductPage() {
 
               {/* Gender Split */}
               <div>
-                <label className="block text-[10px] font-mono text-white/40 uppercase mb-2">
+                <label className="block text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">
                   Gender Distribution
                 </label>
-                <div className="flex items-center gap-4">
-                  <div className="flex-1">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 md:gap-4">
+                  <div className="flex-1 w-full sm:w-auto">
                     <input
                       type="range"
                       min="0"
@@ -798,7 +824,7 @@ export default function NewProductPage() {
                       className="w-full accent-white"
                     />
                   </div>
-                  <div className="flex items-center gap-4 text-xs font-mono">
+                  <div className="flex items-center gap-3 md:gap-4 text-[10px] md:text-xs font-mono">
                     <span className="text-white">{genderSplit.male}% Male</span>
                     <span className="text-white/60">{genderSplit.female}% Female</span>
                   </div>
@@ -811,38 +837,38 @@ export default function NewProductPage() {
         {/* Step 4: Configuration */}
         {currentStep === 'config' && typeConfig && (
           <div>
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 bg-white/10 flex items-center justify-center">
-                <Settings className="w-5 h-5 text-white/60" />
+            <div className="flex items-center gap-2 md:gap-3 mb-4 md:mb-6">
+              <div className="w-8 h-8 md:w-10 md:h-10 bg-white/10 flex items-center justify-center flex-shrink-0">
+                <Settings className="w-4 h-4 md:w-5 md:h-5 text-white/60" />
               </div>
               <div>
-                <h2 className="text-sm font-mono font-bold text-white uppercase">Configuration</h2>
-                <p className="text-xs font-mono text-white/40">Fine-tune your study parameters</p>
+                <h2 className="text-xs md:text-sm font-mono font-bold text-white uppercase">Configuration</h2>
+                <p className="text-[10px] md:text-xs font-mono text-white/40">Fine-tune your study parameters</p>
               </div>
             </div>
 
-            <div className="bg-white/5 border border-white/10 p-6 space-y-6">
+            <div className="bg-white/5 border border-white/10 p-4 md:p-6 space-y-4 md:space-y-6">
               {/* Persona Count */}
               <div>
-                <label className="block text-[10px] font-mono text-white/40 uppercase mb-2">
+                <label className="block text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">
                   Number of AI Agents
                 </label>
-                <div className="flex items-center gap-4">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 md:gap-4">
                   <input
                     type="number"
                     min="1"
                     max="10000"
                     value={personaCount}
                     onChange={(e) => setPersonaCount(parseInt(e.target.value) || 100)}
-                    className="w-32 px-3 py-2 bg-black border border-white/10 text-xs font-mono text-white focus:outline-none focus:border-white/30"
+                    className="w-full sm:w-32 px-2.5 md:px-3 py-2 bg-black border border-white/10 text-[11px] md:text-xs font-mono text-white focus:outline-none focus:border-white/30"
                   />
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-1.5 md:gap-2">
                     {[100, 500, 1000, 5000].map((count) => (
                       <button
                         key={count}
                         onClick={() => setPersonaCount(count)}
                         className={cn(
-                          'px-3 py-1 text-xs font-mono border',
+                          'px-2 md:px-3 py-1 text-[10px] md:text-xs font-mono border',
                           personaCount === count
                             ? 'bg-white text-black border-white'
                             : 'bg-white/5 text-white/60 border-white/10 hover:border-white/30'
@@ -860,19 +886,21 @@ export default function NewProductPage() {
 
               {/* Confidence Target */}
               <div>
-                <label className="block text-[10px] font-mono text-white/40 uppercase mb-2">
+                <label className="block text-[10px] font-mono text-white/40 uppercase mb-1.5 md:mb-2">
                   Confidence Target
                 </label>
-                <div className="flex items-center gap-4">
-                  <input
-                    type="range"
-                    min="50"
-                    max="99"
-                    value={confidenceTarget * 100}
-                    onChange={(e) => setConfidenceTarget(parseInt(e.target.value) / 100)}
-                    className="flex-1 accent-white"
-                  />
-                  <span className="text-sm font-mono text-white w-16">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 md:gap-4">
+                  <div className="flex-1 w-full sm:w-auto">
+                    <input
+                      type="range"
+                      min="50"
+                      max="99"
+                      value={confidenceTarget * 100}
+                      onChange={(e) => setConfidenceTarget(parseInt(e.target.value) / 100)}
+                      className="w-full accent-white"
+                    />
+                  </div>
+                  <span className="text-xs md:text-sm font-mono text-white w-16">
                     {(confidenceTarget * 100).toFixed(0)}%
                   </span>
                 </div>
@@ -882,12 +910,12 @@ export default function NewProductPage() {
               </div>
 
               {/* Estimated Cost */}
-              <div className="bg-white/5 border border-white/10 p-4">
-                <div className="flex items-start gap-3">
-                  <Info className="w-4 h-4 text-white/60 mt-0.5" />
-                  <div>
-                    <p className="text-xs font-mono font-bold text-white">Estimated Cost</p>
-                    <p className="text-xs font-mono text-white/60 mt-1">
+              <div className="bg-white/5 border border-white/10 p-3 md:p-4">
+                <div className="flex items-start gap-2 md:gap-3">
+                  <Info className="w-3.5 h-3.5 md:w-4 md:h-4 text-white/60 mt-0.5 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-[11px] md:text-xs font-mono font-bold text-white">Estimated Cost</p>
+                    <p className="text-[10px] md:text-xs font-mono text-white/60 mt-1 break-words">
                       ~${((personaCount * 0.02) * (confidenceTarget / 0.9)).toFixed(2)} based on {personaCount} agents at {(confidenceTarget * 100).toFixed(0)}% confidence
                     </p>
                   </div>
@@ -900,38 +928,38 @@ export default function NewProductPage() {
         {/* Step 5: Review */}
         {currentStep === 'review' && typeConfig && (
           <div>
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 bg-green-500/20 flex items-center justify-center">
-                <Check className="w-5 h-5 text-green-400" />
+            <div className="flex items-center gap-2 md:gap-3 mb-4 md:mb-6">
+              <div className="w-8 h-8 md:w-10 md:h-10 bg-green-500/20 flex items-center justify-center flex-shrink-0">
+                <Check className="w-4 h-4 md:w-5 md:h-5 text-green-400" />
               </div>
               <div>
-                <h2 className="text-sm font-mono font-bold text-white uppercase">Review & Create</h2>
-                <p className="text-xs font-mono text-white/40">Confirm your study configuration</p>
+                <h2 className="text-xs md:text-sm font-mono font-bold text-white uppercase">Review & Create</h2>
+                <p className="text-[10px] md:text-xs font-mono text-white/40">Confirm your study configuration</p>
               </div>
             </div>
 
             <div className="bg-white/5 border border-white/10 divide-y divide-white/10">
               {/* Product Type */}
-              <div className="p-4 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-white/10 flex items-center justify-center">
-                    <Icon className="w-5 h-5 text-white/60" />
+              <div className="p-3 md:p-4 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 md:gap-3 min-w-0">
+                  <div className="w-8 h-8 md:w-10 md:h-10 bg-white/10 flex items-center justify-center flex-shrink-0">
+                    <Icon className="w-4 h-4 md:w-5 md:h-5 text-white/60" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-[10px] font-mono text-white/40 uppercase">Product Type</p>
-                    <p className="text-xs font-mono text-white">{typeConfig.name}</p>
+                    <p className="text-[11px] md:text-xs font-mono text-white truncate">{typeConfig.name}</p>
                   </div>
                 </div>
                 <button
                   onClick={() => setCurrentStep('type')}
-                  className="text-[10px] font-mono text-white/40 hover:text-white uppercase"
+                  className="text-[10px] font-mono text-white/40 hover:text-white uppercase flex-shrink-0"
                 >
                   Edit
                 </button>
               </div>
 
               {/* Details */}
-              <div className="p-4">
+              <div className="p-3 md:p-4">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-[10px] font-mono text-white/40 uppercase">Study Details</p>
                   <button
@@ -941,15 +969,15 @@ export default function NewProductPage() {
                     Edit
                   </button>
                 </div>
-                <p className="text-xs font-mono text-white">{name}</p>
-                {description && <p className="text-xs font-mono text-white/60 mt-1">{description}</p>}
-                <p className="text-xs font-mono text-white/40 mt-2">
+                <p className="text-[11px] md:text-xs font-mono text-white break-words">{name}</p>
+                {description && <p className="text-[11px] md:text-xs font-mono text-white/60 mt-1 break-words line-clamp-2">{description}</p>}
+                <p className="text-[10px] md:text-xs font-mono text-white/40 mt-2">
                   Type: {typeConfig.subTypes.find((s) => s.value === subType)?.name || subType}
                 </p>
               </div>
 
               {/* Target Market */}
-              <div className="p-4">
+              <div className="p-3 md:p-4">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-[10px] font-mono text-white/40 uppercase">Target Market</p>
                   <button
@@ -959,14 +987,14 @@ export default function NewProductPage() {
                     Edit
                   </button>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5 md:gap-2">
                   {selectedRegions.map((r) => (
-                    <span key={r} className="px-2 py-1 bg-white/10 text-white/60 text-[10px] font-mono">
+                    <span key={r} className="px-1.5 md:px-2 py-0.5 md:py-1 bg-white/10 text-white/60 text-[10px] font-mono">
                       {regions.find((reg) => reg.value === r)?.name}
                     </span>
                   ))}
                   {selectedCountries.map((c) => (
-                    <span key={c} className="px-2 py-1 bg-white/10 text-white/60 text-[10px] font-mono">
+                    <span key={c} className="px-1.5 md:px-2 py-0.5 md:py-1 bg-white/10 text-white/60 text-[10px] font-mono">
                       {c}
                     </span>
                   ))}
@@ -974,7 +1002,7 @@ export default function NewProductPage() {
               </div>
 
               {/* Configuration */}
-              <div className="p-4">
+              <div className="p-3 md:p-4">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-[10px] font-mono text-white/40 uppercase">Configuration</p>
                   <button
@@ -984,41 +1012,43 @@ export default function NewProductPage() {
                     Edit
                   </button>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3 md:gap-4">
                   <div>
                     <p className="text-[10px] font-mono text-white/40">AI Agents</p>
-                    <p className="text-xs font-mono text-white">{personaCount.toLocaleString()}</p>
+                    <p className="text-[11px] md:text-xs font-mono text-white">{personaCount.toLocaleString()}</p>
                   </div>
                   <div>
                     <p className="text-[10px] font-mono text-white/40">Confidence Target</p>
-                    <p className="text-xs font-mono text-white">{(confidenceTarget * 100).toFixed(0)}%</p>
+                    <p className="text-[11px] md:text-xs font-mono text-white">{(confidenceTarget * 100).toFixed(0)}%</p>
                   </div>
                 </div>
               </div>
 
               {/* Cost Estimate */}
-              <div className="p-4 bg-white/5">
-                <div className="flex items-center justify-between">
+              <div className="p-3 md:p-4 bg-white/5">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 md:gap-4">
                   <div>
                     <p className="text-[10px] font-mono text-white/40 uppercase">Estimated Cost</p>
-                    <p className="text-2xl font-mono font-bold text-white">
+                    <p className="text-xl md:text-2xl font-mono font-bold text-white">
                       ${((personaCount * 0.02) * (confidenceTarget / 0.9)).toFixed(2)}
                     </p>
                   </div>
                   <Button
                     onClick={handleSubmit}
                     disabled={createProduct.isPending}
-                    
+                    className="w-full sm:w-auto font-mono text-[10px] md:text-xs"
                   >
                     {createProduct.isPending ? (
                       <>
-                        <Loader2 className="w-3 h-3 mr-2 animate-spin" />
-                        CREATING...
+                        <Loader2 className="w-3 h-3 mr-1.5 md:mr-2 animate-spin" />
+                        <span className="hidden sm:inline">CREATING...</span>
+                        <span className="sm:hidden">CREATE...</span>
                       </>
                     ) : (
                       <>
-                        <Plus className="w-3 h-3 mr-2" />
-                        CREATE PRODUCT
+                        <Plus className="w-3 h-3 mr-1.5 md:mr-2" />
+                        <span className="hidden sm:inline">CREATE PRODUCT</span>
+                        <span className="sm:hidden">CREATE</span>
                       </>
                     )}
                   </Button>
@@ -1030,35 +1060,37 @@ export default function NewProductPage() {
 
         {/* Navigation */}
         {currentStep !== 'review' && (
-          <div className="flex items-center justify-between mt-8">
+          <div className="flex items-center justify-between mt-6 md:mt-8">
             <Button
               variant="outline"
               onClick={handleBack}
               disabled={currentStep === 'type'}
-              className="font-mono text-xs border-white/20 text-white/60 hover:bg-white/5"
+              className="font-mono text-[10px] md:text-xs border-white/20 text-white/60 hover:bg-white/5"
             >
-              <ArrowLeft className="w-3 h-3 mr-2" />
+              <ArrowLeft className="w-3 h-3 mr-1.5 md:mr-2" />
               BACK
             </Button>
             <Button
               onClick={handleNext}
               disabled={!canProceed()}
-              
+              className="font-mono text-[10px] md:text-xs"
             >
-              CONTINUE
-              <ArrowRight className="w-3 h-3 ml-2" />
+              <span className="hidden sm:inline">CONTINUE</span>
+              <span className="sm:hidden">NEXT</span>
+              <ArrowRight className="w-3 h-3 ml-1.5 md:ml-2" />
             </Button>
           </div>
         )}
       </div>
 
       {/* Footer Status */}
-      <div className="max-w-5xl mx-auto px-8 pb-8">
-        <div className="pt-4 border-t border-white/5">
+      <div className="max-w-5xl mx-auto px-4 md:px-8 pb-4 md:pb-8">
+        <div className="pt-3 md:pt-4 border-t border-white/5">
           <div className="flex items-center justify-between text-[10px] font-mono text-white/30">
             <div className="flex items-center gap-1">
               <Terminal className="w-3 h-3" />
-              <span>PRODUCT CREATE MODULE</span>
+              <span className="hidden sm:inline">PRODUCT CREATE MODULE</span>
+              <span className="sm:hidden">PRODUCT</span>
             </div>
             <span>AGENTVERSE v1.0.0</span>
           </div>

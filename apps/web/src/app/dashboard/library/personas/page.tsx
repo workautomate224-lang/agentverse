@@ -40,10 +40,10 @@ const dummyPersonas = [
 
 export default function PersonasLibraryPage() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       {/* Action Bar */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3 flex-1">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 md:gap-4">
+        <div className="flex items-center gap-2 md:gap-3 flex-1">
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
             <input
@@ -54,19 +54,19 @@ export default function PersonasLibraryPage() {
           </div>
           <button className="flex items-center gap-2 px-3 py-2 text-xs font-mono text-white/60 bg-white/5 border border-white/10 hover:bg-white/10 transition-colors">
             <Filter className="w-3.5 h-3.5" />
-            <span>Filters</span>
+            <span className="hidden sm:inline">Filters</span>
           </button>
         </div>
-        <div className="flex items-center gap-2">
-          <button className="flex items-center gap-2 px-3 py-2 text-xs font-mono text-white/60 bg-white/5 border border-white/10 hover:bg-white/10 transition-colors">
+        <div className="flex items-center gap-2 overflow-x-auto">
+          <button className="flex items-center gap-2 px-3 py-2 text-xs font-mono text-white/60 bg-white/5 border border-white/10 hover:bg-white/10 transition-colors whitespace-nowrap">
             <Upload className="w-3.5 h-3.5" />
-            <span>Import</span>
+            <span className="hidden sm:inline">Import</span>
           </button>
-          <button className="flex items-center gap-2 px-3 py-2 text-xs font-mono text-white/60 bg-white/5 border border-white/10 hover:bg-white/10 transition-colors">
+          <button className="flex items-center gap-2 px-3 py-2 text-xs font-mono text-white/60 bg-white/5 border border-white/10 hover:bg-white/10 transition-colors whitespace-nowrap">
             <Download className="w-3.5 h-3.5" />
-            <span>Export</span>
+            <span className="hidden sm:inline">Export</span>
           </button>
-          <button className="flex items-center gap-2 px-4 py-2 text-xs font-mono text-black bg-cyan-400 hover:bg-cyan-300 transition-colors">
+          <button className="flex items-center gap-2 px-3 md:px-4 py-2 text-xs font-mono text-black bg-cyan-400 hover:bg-cyan-300 transition-colors whitespace-nowrap">
             <Plus className="w-3.5 h-3.5" />
             <span>New Persona</span>
           </button>
@@ -74,67 +74,67 @@ export default function PersonasLibraryPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-4 gap-4">
-        <div className="bg-white/5 border border-white/10 p-4">
-          <div className="text-2xl font-mono font-bold text-white mb-1">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+        <div className="bg-white/5 border border-white/10 p-3 md:p-4">
+          <div className="text-xl md:text-2xl font-mono font-bold text-white mb-1">
             {dummyPersonas.length}
           </div>
-          <div className="text-xs font-mono text-white/40">Total Personas</div>
+          <div className="text-[10px] md:text-xs font-mono text-white/40">Total Personas</div>
         </div>
-        <div className="bg-white/5 border border-white/10 p-4">
-          <div className="text-2xl font-mono font-bold text-cyan-400 mb-1">124</div>
-          <div className="text-xs font-mono text-white/40">Total Simulations</div>
+        <div className="bg-white/5 border border-white/10 p-3 md:p-4">
+          <div className="text-xl md:text-2xl font-mono font-bold text-cyan-400 mb-1">124</div>
+          <div className="text-[10px] md:text-xs font-mono text-white/40">Total Simulations</div>
         </div>
-        <div className="bg-white/5 border border-white/10 p-4">
-          <div className="text-2xl font-mono font-bold text-green-400 mb-1">89%</div>
-          <div className="text-xs font-mono text-white/40">Avg Accuracy</div>
+        <div className="bg-white/5 border border-white/10 p-3 md:p-4">
+          <div className="text-xl md:text-2xl font-mono font-bold text-green-400 mb-1">89%</div>
+          <div className="text-[10px] md:text-xs font-mono text-white/40">Avg Accuracy</div>
         </div>
-        <div className="bg-white/5 border border-white/10 p-4">
-          <div className="text-2xl font-mono font-bold text-purple-400 mb-1">12</div>
-          <div className="text-xs font-mono text-white/40">Active Projects</div>
+        <div className="bg-white/5 border border-white/10 p-3 md:p-4">
+          <div className="text-xl md:text-2xl font-mono font-bold text-purple-400 mb-1">12</div>
+          <div className="text-[10px] md:text-xs font-mono text-white/40">Active Projects</div>
         </div>
       </div>
 
       {/* Personas Grid */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
         {dummyPersonas.map((persona) => (
           <div
             key={persona.id}
-            className="bg-white/5 border border-white/10 p-5 hover:border-cyan-500/30 transition-colors cursor-pointer group"
+            className="bg-white/5 border border-white/10 p-4 md:p-5 hover:border-cyan-500/30 transition-colors cursor-pointer group"
           >
             <div className="flex items-start justify-between mb-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-gradient-to-br from-cyan-500 to-purple-500 flex items-center justify-center">
-                  <Users className="w-5 h-5 text-black" />
+              <div className="flex items-center gap-2 md:gap-3 min-w-0">
+                <div className="w-8 h-8 md:w-10 md:h-10 bg-gradient-to-br from-cyan-500 to-purple-500 flex items-center justify-center flex-shrink-0">
+                  <Users className="w-4 h-4 md:w-5 md:h-5 text-black" />
                 </div>
-                <div>
-                  <h3 className="text-sm font-mono font-bold text-white group-hover:text-cyan-400 transition-colors">
+                <div className="min-w-0">
+                  <h3 className="text-xs md:text-sm font-mono font-bold text-white group-hover:text-cyan-400 transition-colors truncate">
                     {persona.name}
                   </h3>
-                  <p className="text-xs font-mono text-white/40">
-                    Used in {persona.usageCount} simulations
+                  <p className="text-[10px] md:text-xs font-mono text-white/40">
+                    {persona.usageCount} simulations
                   </p>
                 </div>
               </div>
-              <div className="text-[10px] font-mono text-white/30 bg-white/5 px-2 py-1">
-                ID: {persona.id}
+              <div className="text-[10px] font-mono text-white/30 bg-white/5 px-2 py-1 flex-shrink-0">
+                #{persona.id}
               </div>
             </div>
-            <p className="text-xs font-mono text-white/60 mb-4">{persona.description}</p>
-            <div className="flex flex-wrap gap-1.5 mb-4">
+            <p className="text-[11px] md:text-xs font-mono text-white/60 mb-3 md:mb-4 line-clamp-2">{persona.description}</p>
+            <div className="flex flex-wrap gap-1 md:gap-1.5 mb-3 md:mb-4">
               {persona.traits.map((trait) => (
                 <span
                   key={trait}
-                  className="text-[10px] font-mono text-cyan-400 bg-cyan-400/10 px-2 py-0.5"
+                  className="text-[9px] md:text-[10px] font-mono text-cyan-400 bg-cyan-400/10 px-1.5 md:px-2 py-0.5"
                 >
                   {trait}
                 </span>
               ))}
             </div>
-            <div className="flex items-center gap-4 text-[10px] font-mono text-white/30">
+            <div className="flex flex-wrap items-center gap-2 md:gap-4 text-[9px] md:text-[10px] font-mono text-white/30">
               <span>Age: {persona.demographics.age}</span>
               <span>Income: {persona.demographics.income}</span>
-              <span>Education: {persona.demographics.education}</span>
+              <span className="hidden sm:inline">Education: {persona.demographics.education}</span>
             </div>
           </div>
         ))}

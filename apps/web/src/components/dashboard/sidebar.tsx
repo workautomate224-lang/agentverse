@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { memo, useState } from 'react';
+import { memo, useState, useEffect } from 'react';
 import { signOut, useSession } from 'next-auth/react';
 import { cn } from '@/lib/utils';
 import { useSidebarStore } from '@/store/sidebar';
@@ -27,6 +27,7 @@ import {
   LayoutTemplate,
   ScrollText,
   FileSearch,
+  X,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -64,13 +65,27 @@ const secondaryNavigation: NavItem[] = [
   { name: 'Settings', href: '/dashboard/settings', icon: Settings },
 ];
 
-export const Sidebar = memo(function Sidebar() {
+interface SidebarProps {
+  isMobile?: boolean;
+}
+
+export const Sidebar = memo(function Sidebar({ isMobile = false }: SidebarProps) {
   const pathname = usePathname();
   const { data: session } = useSession();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [expandedItems, setExpandedItems] = useState<string[]>(['Library']);
-  const { isCollapsed, toggleCollapse } = useSidebarStore();
+  const { isCollapsed, toggleCollapse, setMobileOpen } = useSidebarStore();
+
+  // On mobile, always show full sidebar (not collapsed)
+  const effectiveCollapsed = isMobile ? false : isCollapsed;
+
+  // Close mobile sidebar when route changes
+  useEffect(() => {
+    if (isMobile) {
+      setMobileOpen(false);
+    }
+  }, [pathname, isMobile, setMobileOpen]);
 
   const handleLogout = async () => {
     setIsLoggingOut(true);
@@ -81,7 +96,6 @@ export const Sidebar = memo(function Sidebar() {
     }
   };
 
-  // Get user initials for avatar
   const getUserInitials = () => {
     if (session?.user?.name) {
       return session.user.name
@@ -104,21 +118,24 @@ export const Sidebar = memo(function Sidebar() {
   };
 
   const isItemActive = (item: NavItem): boolean => {
-    // Dashboard should only be active on exact match
     if (item.href === '/dashboard') {
       return pathname === item.href;
     }
-    // Check if current path matches item or its children
     if (pathname === item.href || pathname.startsWith(item.href + '/')) {
       return true;
     }
-    // Check children
     if (item.children) {
       return item.children.some(
         (child) => pathname === child.href || pathname.startsWith(child.href + '/')
       );
     }
     return false;
+  };
+
+  const handleLinkClick = () => {
+    if (isMobile) {
+      setMobileOpen(false);
+    }
   };
 
   const renderNavItem = (item: NavItem, isChild = false) => {
@@ -142,7 +159,7 @@ export const Sidebar = memo(function Sidebar() {
             )}
           >
             <item.icon className="w-3.5 h-3.5 flex-shrink-0" />
-            {!isCollapsed && (
+            {!effectiveCollapsed && (
               <>
                 <span className="flex-1 text-left">{item.name}</span>
                 <ChevronDown
@@ -154,7 +171,7 @@ export const Sidebar = memo(function Sidebar() {
               </>
             )}
           </button>
-          {!isCollapsed && isExpanded && (
+          {!effectiveCollapsed && isExpanded && (
             <div className="ml-3 border-l border-white/10 pl-2 mt-0.5 space-y-0.5">
               {item.children?.map((child) => renderNavItem(child, true))}
             </div>
@@ -167,7 +184,8 @@ export const Sidebar = memo(function Sidebar() {
       <Link
         key={item.name}
         href={item.href}
-        title={isCollapsed ? item.name : undefined}
+        onClick={handleLinkClick}
+        title={effectiveCollapsed ? item.name : undefined}
         className={cn(
           'flex items-center gap-2 px-2 py-1.5 text-xs font-mono transition-all duration-150',
           isActive
@@ -177,7 +195,7 @@ export const Sidebar = memo(function Sidebar() {
         )}
       >
         <item.icon className="w-3.5 h-3.5 flex-shrink-0" />
-        {!isCollapsed && (
+        {!effectiveCollapsed && (
           <>
             <span>{item.name}</span>
             {isActive && <span className="ml-auto text-[10px]">_</span>}
@@ -191,7 +209,7 @@ export const Sidebar = memo(function Sidebar() {
     <div
       className={cn(
         'flex flex-col h-full bg-black text-white border-r border-white/10 transition-all duration-300',
-        isCollapsed ? 'w-14' : 'w-56'
+        effectiveCollapsed ? 'w-14' : 'w-56 md:w-56'
       )}
     >
       {/* Logo */}
@@ -199,16 +217,25 @@ export const Sidebar = memo(function Sidebar() {
         <div className="w-7 h-7 bg-white flex items-center justify-center flex-shrink-0">
           <Terminal className="w-4 h-4 text-black" />
         </div>
-        {!isCollapsed && (
+        {!effectiveCollapsed && (
           <>
             <span className="text-sm font-mono font-bold tracking-tight">AGENTVERSE</span>
-            <span className="text-[10px] font-mono text-white/40 ml-auto">v1.0</span>
+            {isMobile ? (
+              <button
+                onClick={() => setMobileOpen(false)}
+                className="ml-auto p-1 text-white/40 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            ) : (
+              <span className="text-[10px] font-mono text-white/40 ml-auto">v1.0</span>
+            )}
           </>
         )}
       </div>
 
-      {/* Status indicator */}
-      {!isCollapsed && (
+      {/* Status indicator - hide on mobile for more space */}
+      {!effectiveCollapsed && !isMobile && (
         <div className="px-4 py-2 border-b border-white/10">
           <div className="flex items-center gap-2">
             <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
@@ -219,27 +246,29 @@ export const Sidebar = memo(function Sidebar() {
         </div>
       )}
 
-      {/* Collapse Toggle */}
-      <div className="px-2 py-2 border-b border-white/10">
-        <button
-          onClick={toggleCollapse}
-          className="w-full flex items-center justify-center gap-2 px-2 py-1.5 text-xs font-mono text-white/40 hover:text-white hover:bg-white/5 transition-all duration-150"
-          title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          {isCollapsed ? (
-            <ChevronRight className="w-4 h-4" />
-          ) : (
-            <>
-              <ChevronLeft className="w-4 h-4" />
-              <span>Collapse</span>
-            </>
-          )}
-        </button>
-      </div>
+      {/* Collapse Toggle - desktop only */}
+      {!isMobile && (
+        <div className="px-2 py-2 border-b border-white/10">
+          <button
+            onClick={toggleCollapse}
+            className="w-full flex items-center justify-center gap-2 px-2 py-1.5 text-xs font-mono text-white/40 hover:text-white hover:bg-white/5 transition-all duration-150"
+            title={effectiveCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {effectiveCollapsed ? (
+              <ChevronRight className="w-4 h-4" />
+            ) : (
+              <>
+                <ChevronLeft className="w-4 h-4" />
+                <span>Collapse</span>
+              </>
+            )}
+          </button>
+        </div>
+      )}
 
       {/* Main Navigation */}
       <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
-        {!isCollapsed && (
+        {!effectiveCollapsed && (
           <div className="px-2 py-1.5">
             <span className="text-[10px] font-mono text-white/30 uppercase tracking-wider">
               Navigation
@@ -259,7 +288,7 @@ export const Sidebar = memo(function Sidebar() {
 
       {/* Secondary Navigation */}
       <div className="px-2 py-3 border-t border-white/10">
-        {!isCollapsed && (
+        {!effectiveCollapsed && (
           <div className="px-2 py-1.5">
             <span className="text-[10px] font-mono text-white/30 uppercase tracking-wider">
               System
@@ -272,7 +301,8 @@ export const Sidebar = memo(function Sidebar() {
             <Link
               key={item.name}
               href={item.href}
-              title={isCollapsed ? item.name : undefined}
+              onClick={handleLinkClick}
+              title={effectiveCollapsed ? item.name : undefined}
               className={cn(
                 'flex items-center gap-2 px-2 py-1.5 text-xs font-mono transition-all duration-150',
                 isActive
@@ -281,7 +311,7 @@ export const Sidebar = memo(function Sidebar() {
               )}
             >
               <item.icon className="w-3.5 h-3.5 flex-shrink-0" />
-              {!isCollapsed && <span>{item.name}</span>}
+              {!effectiveCollapsed && <span>{item.name}</span>}
             </Link>
           );
         })}
@@ -291,8 +321,8 @@ export const Sidebar = memo(function Sidebar() {
       <div className="border-t border-white/10">
         <div className="relative">
           {/* User Menu Dropdown */}
-          {showUserMenu && !isCollapsed && (
-            <div className="absolute bottom-full left-0 right-0 mb-1 mx-2 bg-black border border-white/20 shadow-lg animate-slide-up">
+          {showUserMenu && !effectiveCollapsed && (
+            <div className="absolute bottom-full left-0 right-0 mb-1 mx-2 bg-black border border-white/20 shadow-lg animate-slide-up z-50">
               <div className="px-3 py-2 border-b border-white/10">
                 <div className="text-[10px] font-mono text-white/40 uppercase tracking-wider">
                   Agent Profile
@@ -310,7 +340,10 @@ export const Sidebar = memo(function Sidebar() {
                 <Link
                   href="/dashboard/settings"
                   className="flex items-center gap-2 px-3 py-2 text-xs font-mono text-white/60 hover:text-white hover:bg-white/5 transition-colors"
-                  onClick={() => setShowUserMenu(false)}
+                  onClick={() => {
+                    setShowUserMenu(false);
+                    handleLinkClick();
+                  }}
                 >
                   <User className="w-3.5 h-3.5" />
                   <span>Account Settings</span>
@@ -318,7 +351,10 @@ export const Sidebar = memo(function Sidebar() {
                 <Link
                   href="/dashboard/settings"
                   className="flex items-center gap-2 px-3 py-2 text-xs font-mono text-white/60 hover:text-white hover:bg-white/5 transition-colors"
-                  onClick={() => setShowUserMenu(false)}
+                  onClick={() => {
+                    setShowUserMenu(false);
+                    handleLinkClick();
+                  }}
                 >
                   <Shield className="w-3.5 h-3.5" />
                   <span>Security</span>
@@ -343,14 +379,14 @@ export const Sidebar = memo(function Sidebar() {
             className={cn(
               'w-full flex items-center gap-3 px-3 py-3 text-left transition-all duration-150',
               showUserMenu ? 'bg-white/5' : 'hover:bg-white/5',
-              isCollapsed && 'justify-center'
+              effectiveCollapsed && 'justify-center'
             )}
-            title={isCollapsed ? session?.user?.name || 'Agent' : undefined}
+            title={effectiveCollapsed ? session?.user?.name || 'Agent' : undefined}
           >
             <div className="w-8 h-8 bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center flex-shrink-0">
               <span className="text-xs font-mono font-bold text-black">{getUserInitials()}</span>
             </div>
-            {!isCollapsed && (
+            {!effectiveCollapsed && (
               <>
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-mono text-white truncate">
@@ -371,8 +407,8 @@ export const Sidebar = memo(function Sidebar() {
           </button>
         </div>
 
-        {/* Status indicator */}
-        {!isCollapsed && (
+        {/* Status indicator - desktop only */}
+        {!effectiveCollapsed && !isMobile && (
           <div className="px-4 py-2 border-t border-white/5">
             <div className="flex items-center justify-between text-[10px] font-mono text-white/20">
               <div className="flex items-center gap-1.5">

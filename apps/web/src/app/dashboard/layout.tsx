@@ -8,7 +8,7 @@ import { SkipLink } from '@/components/ui/skip-link';
 import { SKIP_LINK_TARGETS } from '@/lib/accessibility';
 import { useSidebarStore } from '@/store/sidebar';
 import { cn } from '@/lib/utils';
-import { Terminal, Loader2 } from 'lucide-react';
+import { Terminal, Loader2, Menu } from 'lucide-react';
 
 // Loading skeleton for dashboard
 function DashboardSkeleton() {
@@ -50,7 +50,7 @@ export default function DashboardLayout({
 }) {
   const { status } = useSession();
   const router = useRouter();
-  const { isCollapsed } = useSidebarStore();
+  const { isCollapsed, isMobileOpen, setMobileOpen } = useSidebarStore();
 
   useEffect(() => {
     // If unauthenticated and not loading, redirect to login
@@ -83,12 +83,52 @@ export default function DashboardLayout({
         className="left-48"
       />
 
-      {/* Navigation landmark */}
+      {/* Mobile Header - Only visible on mobile/tablet */}
+      <div className="fixed top-0 left-0 right-0 z-40 md:hidden bg-black border-b border-white/10">
+        <div className="flex items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 bg-white flex items-center justify-center">
+              <Terminal className="w-4 h-4 text-black" />
+            </div>
+            <span className="text-sm font-mono font-bold tracking-tight text-white">AGENTVERSE</span>
+          </div>
+          <button
+            onClick={() => setMobileOpen(true)}
+            className="p-2 text-white/60 hover:text-white hover:bg-white/5 transition-colors"
+            aria-label="Open navigation menu"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Mobile Sidebar Overlay */}
+      {isMobileOpen && (
+        <div
+          className="fixed inset-0 z-50 md:hidden"
+          aria-hidden="true"
+        >
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            onClick={() => setMobileOpen(false)}
+          />
+          {/* Mobile Sidebar */}
+          <nav
+            className="absolute left-0 top-0 bottom-0 w-72 max-w-[85vw] animate-slide-in-left"
+            aria-label="Mobile navigation"
+          >
+            <Sidebar isMobile />
+          </nav>
+        </div>
+      )}
+
+      {/* Desktop Navigation landmark - Hidden on mobile */}
       <nav
         id={SKIP_LINK_TARGETS.navigation}
         aria-label="Main navigation"
         className={cn(
-          'flex-shrink-0 transition-all duration-300',
+          'hidden md:block flex-shrink-0 transition-all duration-300',
           isCollapsed ? 'w-14' : 'w-56'
         )}
       >
@@ -98,12 +138,27 @@ export default function DashboardLayout({
       {/* Main content landmark */}
       <main
         id={SKIP_LINK_TARGETS.mainContent}
-        className="flex-1 overflow-auto transition-all duration-300"
+        className="flex-1 overflow-auto transition-all duration-300 pt-14 md:pt-0"
         role="main"
         aria-label="Main content"
       >
         {children}
       </main>
+
+      {/* Mobile sidebar animation styles */}
+      <style jsx>{`
+        @keyframes slide-in-left {
+          from {
+            transform: translateX(-100%);
+          }
+          to {
+            transform: translateX(0);
+          }
+        }
+        .animate-slide-in-left {
+          animation: slide-in-left 0.2s ease-out;
+        }
+      `}</style>
     </div>
   );
 }
