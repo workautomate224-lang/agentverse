@@ -735,8 +735,23 @@ function UniverseMapCanvas() {
         id: nodeId,
         label: apiNode.label || `Fork ${index + 1}`,
         probability: apiNode.probability,
-        confidence: ('confidence_level' in apiNode ? (apiNode as unknown as NodeSummary).confidence_level :
-                    'confidence' in apiNode ? (apiNode as unknown as SpecNode).confidence?.level : 'medium') as 'high' | 'medium' | 'low',
+        confidence: (
+          // First check for nested confidence.confidence_level (fork nodes from API)
+          ('confidence' in apiNode && typeof (apiNode as Record<string, unknown>).confidence === 'object' &&
+           (apiNode as Record<string, unknown>).confidence !== null &&
+           'confidence_level' in ((apiNode as Record<string, unknown>).confidence as Record<string, unknown>))
+            ? (((apiNode as Record<string, unknown>).confidence as Record<string, unknown>).confidence_level as string)
+          // Then check for nested confidence.level (spec nodes)
+          : ('confidence' in apiNode && typeof (apiNode as Record<string, unknown>).confidence === 'object' &&
+             (apiNode as Record<string, unknown>).confidence !== null &&
+             'level' in ((apiNode as Record<string, unknown>).confidence as Record<string, unknown>))
+            ? (((apiNode as Record<string, unknown>).confidence as Record<string, unknown>).level as string)
+          // Then check for direct confidence_level property (NodeSummary)
+          : ('confidence_level' in apiNode)
+            ? ((apiNode as unknown as NodeSummary).confidence_level)
+          // Default fallback
+          : 'medium'
+        ) as 'high' | 'medium' | 'low',
         status: ('has_outcome' in apiNode && (apiNode as unknown as NodeSummary).has_outcome) ? 'completed' : 'draft',
         isBaseline: false,
         runCount: 1,
