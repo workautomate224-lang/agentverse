@@ -93,6 +93,9 @@ interface UniverseNode {
   parentId: string | null;
   createdAt: string;
   outcome?: string;
+  depth: number; // Tree depth for hierarchical layout
+  forkType: 'ai' | 'manual' | 'baseline'; // Type of fork
+  childCount: number; // Number of direct children
 }
 
 interface NodePosition {
@@ -113,6 +116,9 @@ interface SciFiNodeData {
   isBaseline: boolean;
   runCount: number;
   outcome?: string;
+  depth: number;
+  forkType: 'ai' | 'manual' | 'baseline';
+  childCount: number;
   onFork: () => void;
   onInspect: () => void;
   selected?: boolean;
@@ -169,8 +175,14 @@ function SciFiNode({ data, selected }: { data: SciFiNodeData; selected?: boolean
           <div className="flex items-center gap-1.5">
             <GitBranch className={cn('w-3 h-3', data.isBaseline ? 'text-cyan-400' : 'text-purple-400')} />
             <span className={cn('text-[9px] font-mono uppercase font-semibold', data.isBaseline ? 'text-cyan-400' : 'text-purple-400')}>
-              {data.isBaseline ? 'BASELINE' : 'FORK'}
+              {data.isBaseline ? 'BASELINE' : data.forkType === 'ai' ? 'AI FORK' : 'MANUAL'}
             </span>
+            {/* Fork type indicator */}
+            {!data.isBaseline && data.forkType === 'ai' && (
+              <div className="px-1 py-0.5 bg-emerald-500/20 text-[7px] font-mono text-emerald-400 uppercase">
+                AUTO
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-1">
             <StatusIcon className={cn('w-3 h-3', stat.color)} />
@@ -208,14 +220,22 @@ function SciFiNode({ data, selected }: { data: SciFiNodeData; selected?: boolean
             </div>
           </div>
 
-          {/* Confidence + Run count */}
+          {/* Confidence + Run/Child count */}
           <div className="flex items-center justify-between">
             <div className={cn('px-1.5 py-0.5 text-[8px] font-mono uppercase font-semibold', conf.bg, conf.text)}>
               {data.confidence.toUpperCase()} CONF
             </div>
-            <div className="flex items-center gap-1 text-[10px] font-mono text-white/50">
-              <Layers className="w-3 h-3" />
-              <span>{data.runCount} runs</span>
+            <div className="flex items-center gap-2 text-[10px] font-mono text-white/50">
+              <div className="flex items-center gap-1">
+                <Layers className="w-3 h-3" />
+                <span>{data.runCount}</span>
+              </div>
+              {data.childCount > 0 && (
+                <div className="flex items-center gap-1 text-purple-400">
+                  <GitFork className="w-3 h-3" />
+                  <span>{data.childCount}</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -584,24 +604,37 @@ function UniverseMapCanvas() {
     }
   }, [projectId]);
 
-  // Build universe nodes from API data
+  // Build universe nodes from API data with hierarchical DAG layout
   const buildUniverseFromData = useCallback(() => {
     const savedPositions = loadPositions();
     const newUniverseNodes = new Map<string, UniverseNode>();
     const flowNodes: Node[] = [];
     const flowEdges: Edge[] = [];
 
-    // Get all runs - they will be associated with nodes via node_id
-    // We'll use nodesList/mapData to determine baseline vs fork hierarchy
+    // Get all runs for status aggregation
     const allRuns: RunSummary[] = runs || [];
-
-    // Create one baseline root node (consolidate all runs into summary)
-    const baselineId = 'baseline-root';
     const calcProgress = (r: RunSummary) => {
       const current = r.timing?.current_tick || 0;
       const total = r.timing?.total_ticks || 100;
       return total > 0 ? (current / total) : 0;
     };
+
+    // === PHASE 1: Build node tree structure ===
+    const baselineId = 'baseline-root';
+    const apiNodes = mapData?.nodes || nodesList || [];
+
+    // Track parent-child relationships for layout
+    const childrenMap = new Map<string, string[]>(); // parentId -> [childIds]
+    childrenMap.set(baselineId, []);
+
+    // First, create all nodes and track relationships
+    const tempNodes = new Map<string, {
+      node: UniverseNode;
+      apiDepth: number;
+      parentId: string;
+    }>();
+
+    // Create baseline root node
     const baselineNode: UniverseNode = {
       id: baselineId,
       label: 'Baseline Universe',
@@ -617,38 +650,18 @@ function UniverseMapCanvas() {
       parentId: null,
       createdAt: allRuns[0]?.created_at || new Date().toISOString(),
       outcome: allRuns.find(r => r.status === 'succeeded')?.status,
+      depth: 0,
+      forkType: 'baseline',
+      childCount: 0,
     };
     newUniverseNodes.set(baselineId, baselineNode);
 
-    // Position for baseline
-    const baselinePos = savedPositions[baselineId] || { x: 400, y: 50 };
-    flowNodes.push({
-      id: baselineId,
-      type: 'sciFiNode',
-      position: baselinePos,
-      data: {
-        ...baselineNode,
-        onFork: () => {
-          setForkingNode(baselineNode);
-          setForkModalOpen(true);
-        },
-        onInspect: () => {
-          setSelectedNodeId(baselineId);
-          setInspectorOpen(true);
-        },
-      },
-    });
-
-    // Process API nodes if available
-    const apiNodes = mapData?.nodes || nodesList || [];
-    let yOffset = 200;
-
+    // Process API nodes - determine which are baseline updates vs forks
     apiNodes.forEach((apiNode, index) => {
-      // Skip if it looks like a baseline (depth 0 or is_baseline)
-      const isBaseline = ('depth' in apiNode && (apiNode as SpecNode).depth === 0) ||
-                        ('is_baseline' in apiNode && (apiNode as NodeSummary).is_baseline);
+      const isBaselineNode = ('depth' in apiNode && (apiNode as SpecNode).depth === 0) ||
+                            ('is_baseline' in apiNode && (apiNode as NodeSummary).is_baseline);
 
-      if (isBaseline) {
+      if (isBaselineNode) {
         // Update baseline with API data
         const existing = newUniverseNodes.get(baselineId)!;
         existing.probability = apiNode.probability;
@@ -664,8 +677,29 @@ function UniverseMapCanvas() {
         return;
       }
 
-      // It's a fork node
+      // It's a fork node - determine fork type based on label/description patterns
       const nodeId = apiNode.node_id;
+      const nodeLabel = apiNode.label || '';
+      const nodeDesc = ('description' in apiNode ? (apiNode as SpecNode).description : '') || '';
+      const apiDepth = ('depth' in apiNode ? (apiNode as SpecNode).depth : 1) || 1;
+
+      // AI forks typically have generated labels like "Scenario: X wins" or outcomes
+      const isAIFork = nodeLabel.includes('Scenario') ||
+                      nodeLabel.includes('Outcome') ||
+                      nodeLabel.includes('Prediction') ||
+                      nodeDesc.includes('AI generated') ||
+                      nodeDesc.includes('auto-generated') ||
+                      !nodeLabel.includes('Manual') && apiDepth > 1;
+
+      const parentId = apiNode.parent_node_id || baselineId;
+
+      // Track child relationships
+      if (!childrenMap.has(parentId)) {
+        childrenMap.set(parentId, []);
+      }
+      childrenMap.get(parentId)!.push(nodeId);
+      childrenMap.set(nodeId, []); // Initialize children array for this node
+
       const forkNode: UniverseNode = {
         id: nodeId,
         label: apiNode.label || `Fork ${index + 1}`,
@@ -674,30 +708,88 @@ function UniverseMapCanvas() {
                     'confidence' in apiNode ? (apiNode as SpecNode).confidence?.level : 'medium') as 'high' | 'medium' | 'low',
         status: ('has_outcome' in apiNode && (apiNode as NodeSummary).has_outcome) ? 'completed' : 'draft',
         isBaseline: false,
-        runCount: ('child_count' in apiNode ? (apiNode as NodeSummary).child_count : 0) || 1,
-        parentId: apiNode.parent_node_id || baselineId,
+        runCount: 1,
+        parentId,
         createdAt: ('created_at' in apiNode ? (apiNode as NodeSummary).created_at : new Date().toISOString()),
         outcome: ('aggregated_outcome' in apiNode ? (apiNode as SpecNode).aggregated_outcome?.primary_outcome : undefined),
+        depth: apiDepth,
+        forkType: isAIFork ? 'ai' : 'manual',
+        childCount: 0,
       };
 
+      tempNodes.set(nodeId, { node: forkNode, apiDepth, parentId });
       newUniverseNodes.set(nodeId, forkNode);
+    });
 
-      // Calculate position
-      const savedPos = savedPositions[nodeId];
-      const xOffset = (index % 3) * 280 + 100;
-      const pos = savedPos || { x: xOffset, y: yOffset };
-      if (!savedPos && index > 0 && index % 3 === 0) {
-        yOffset += 200;
+    // === PHASE 2: Calculate child counts ===
+    childrenMap.forEach((children, parentId) => {
+      const parentNode = newUniverseNodes.get(parentId);
+      if (parentNode) {
+        parentNode.childCount = children.length;
       }
+    });
+
+    // === PHASE 3: Calculate hierarchical positions (Sugiyama-style) ===
+    // Group nodes by depth level
+    const levelMap = new Map<number, string[]>();
+    newUniverseNodes.forEach((node, id) => {
+      if (!levelMap.has(node.depth)) {
+        levelMap.set(node.depth, []);
+      }
+      levelMap.get(node.depth)!.push(id);
+    });
+
+    // Layout constants
+    const LEVEL_HEIGHT = 200; // Vertical spacing between levels
+    const NODE_WIDTH = 280; // Horizontal spacing between nodes
+    const CANVAS_CENTER_X = 500; // Center X position
+
+    // Calculate positions level by level
+    const nodePositions = new Map<string, { x: number; y: number }>();
+
+    // Sort levels
+    const sortedLevels = Array.from(levelMap.keys()).sort((a, b) => a - b);
+
+    sortedLevels.forEach((level) => {
+      const nodesAtLevel = levelMap.get(level)!;
+      const numNodes = nodesAtLevel.length;
+      const totalWidth = (numNodes - 1) * NODE_WIDTH;
+      const startX = CANVAS_CENTER_X - totalWidth / 2;
+
+      // Sort nodes by parent position for better edge layout
+      nodesAtLevel.sort((a, b) => {
+        const nodeA = newUniverseNodes.get(a)!;
+        const nodeB = newUniverseNodes.get(b)!;
+        const parentPosA = nodePositions.get(nodeA.parentId || '') || { x: CANVAS_CENTER_X };
+        const parentPosB = nodePositions.get(nodeB.parentId || '') || { x: CANVAS_CENTER_X };
+        return parentPosA.x - parentPosB.x;
+      });
+
+      nodesAtLevel.forEach((nodeId, index) => {
+        const savedPos = savedPositions[nodeId];
+        if (savedPos) {
+          nodePositions.set(nodeId, savedPos);
+        } else {
+          nodePositions.set(nodeId, {
+            x: startX + index * NODE_WIDTH,
+            y: level * LEVEL_HEIGHT + 50,
+          });
+        }
+      });
+    });
+
+    // === PHASE 4: Create React Flow nodes and edges ===
+    newUniverseNodes.forEach((node, nodeId) => {
+      const pos = nodePositions.get(nodeId) || { x: CANVAS_CENTER_X, y: node.depth * LEVEL_HEIGHT + 50 };
 
       flowNodes.push({
         id: nodeId,
         type: 'sciFiNode',
         position: pos,
         data: {
-          ...forkNode,
+          ...node,
           onFork: () => {
-            setForkingNode(forkNode);
+            setForkingNode(node);
             setForkModalOpen(true);
           },
           onInspect: () => {
@@ -707,17 +799,23 @@ function UniverseMapCanvas() {
         },
       });
 
-      // Create edge to parent
-      const parentId = forkNode.parentId || baselineId;
-      flowEdges.push({
-        id: `${parentId}-${nodeId}`,
-        source: parentId,
-        target: nodeId,
-        type: 'smoothstep',
-        animated: forkNode.status === 'running',
-        style: { stroke: forkNode.isBaseline ? '#06b6d4' : '#a855f7', strokeWidth: 2 },
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#a855f7' },
-      });
+      // Create edge to parent (skip baseline which has no parent)
+      if (node.parentId) {
+        const edgeColor = node.forkType === 'ai' ? '#10b981' : '#a855f7'; // Green for AI, purple for manual
+        flowEdges.push({
+          id: `${node.parentId}-${nodeId}`,
+          source: node.parentId,
+          target: nodeId,
+          type: 'smoothstep',
+          animated: node.status === 'running',
+          style: {
+            stroke: edgeColor,
+            strokeWidth: 2,
+            strokeDasharray: node.forkType === 'ai' ? undefined : '5,5', // Dashed for manual
+          },
+          markerEnd: { type: MarkerType.ArrowClosed, color: edgeColor },
+        });
+      }
     });
 
     setUniverseNodes(newUniverseNodes);
@@ -755,6 +853,11 @@ function UniverseMapCanvas() {
   const handleFork = useCallback((name: string, description: string, variables: string) => {
     if (!forkingNode) return;
 
+    // Get parent's depth from the existing flow nodes
+    const parentFlowNode = nodes.find((n) => n.id === forkingNode.id);
+    const parentData = parentFlowNode?.data as SciFiNodeData | undefined;
+    const parentDepth = parentData?.depth ?? 0;
+
     // Create new fork node locally (Draft status since API may not be available)
     const newId = `fork-${Date.now()}`;
     const newNode: UniverseNode = {
@@ -767,10 +870,12 @@ function UniverseMapCanvas() {
       runCount: 0,
       parentId: forkingNode.id,
       createdAt: new Date().toISOString(),
+      depth: parentDepth + 1,
+      forkType: 'manual', // User-created fork
+      childCount: 0,
     };
 
-    // Calculate position relative to parent
-    const parentFlowNode = nodes.find((n) => n.id === forkingNode.id);
+    // Calculate position relative to parent (parentFlowNode already defined above)
     const childCount = edges.filter((e) => e.source === forkingNode.id).length;
     const xOffset = (childCount % 3 - 1) * 280;
     const yOffset = 200;
@@ -958,22 +1063,25 @@ function UniverseMapCanvas() {
             className="!bg-black/80 !border-white/20"
           />
 
-          {/* Legend panel */}
-          <Panel position="bottom-left" className="m-4">
-            <div className="bg-black/90 border border-white/10 p-3 space-y-2">
-              <div className="text-[10px] font-mono text-white/40 uppercase">Legend</div>
-              <div className="flex items-center gap-4">
+          {/* Legend panel - positioned to avoid blocking Controls */}
+          <Panel position="bottom-center" className="mb-4">
+            <div className="bg-black/90 border border-white/10 px-4 py-2">
+              <div className="flex items-center gap-6">
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 bg-cyan-500" />
-                  <span className="text-xs font-mono text-white/60">Baseline Root</span>
+                  <span className="text-[10px] font-mono text-white/60">Baseline</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-purple-500" />
-                  <span className="text-xs font-mono text-white/60">Fork</span>
+                  <div className="w-3 h-3 bg-emerald-500" />
+                  <span className="text-[10px] font-mono text-white/60">AI Fork</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-purple-500 border border-dashed border-purple-400" />
+                  <span className="text-[10px] font-mono text-white/60">Manual Fork</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Activity className="w-3 h-3 text-cyan-400 animate-pulse" />
-                  <span className="text-xs font-mono text-white/60">Running</span>
+                  <span className="text-[10px] font-mono text-white/60">Running</span>
                 </div>
               </div>
             </div>
@@ -989,13 +1097,23 @@ function UniverseMapCanvas() {
                   <span className="text-white">{universeNodes.size}</span>
                 </div>
                 <div className="flex justify-between gap-4">
-                  <span>Forks</span>
-                  <span className="text-white">{Array.from(universeNodes.values()).filter(n => !n.isBaseline).length}</span>
+                  <span>AI Forks</span>
+                  <span className="text-emerald-400">{Array.from(universeNodes.values()).filter(n => n.forkType === 'ai').length}</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span>Manual Forks</span>
+                  <span className="text-purple-400">{Array.from(universeNodes.values()).filter(n => n.forkType === 'manual').length}</span>
                 </div>
                 <div className="flex justify-between gap-4">
                   <span>Completed</span>
                   <span className="text-green-400">
                     {Array.from(universeNodes.values()).filter(n => n.status === 'completed').length}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span>Max Depth</span>
+                  <span className="text-white">
+                    {Math.max(0, ...Array.from(universeNodes.values()).map(n => n.depth))}
                   </span>
                 </div>
               </div>
