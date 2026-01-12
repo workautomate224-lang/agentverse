@@ -6,8 +6,8 @@
  * Uses React Flow for professional graph editing experience
  */
 
-import { useState, useCallback, useMemo, useEffect } from 'react';
-import { useParams } from 'next/navigation';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   ReactFlow,
@@ -580,8 +580,12 @@ function InspectorPanel({
 
 function UniverseMapCanvas() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const projectId = params.projectId as string;
   const { fitView, zoomIn, zoomOut } = useReactFlow();
+
+  // Track if we've processed URL params to avoid re-processing
+  const urlParamsProcessed = useRef(false);
 
   // State
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
@@ -859,6 +863,37 @@ function UniverseMapCanvas() {
       buildUniverseFromData();
     }
   }, [isLoading, buildUniverseFromData]);
+
+  // Handle URL params for auto-selecting node and opening inspector
+  // This is used when navigating from Event Lab after creating a branch
+  useEffect(() => {
+    if (urlParamsProcessed.current) return;
+    if (isLoading || universeNodes.size === 0) return;
+
+    const selectNodeId = searchParams.get('select');
+    const shouldOpenInspector = searchParams.get('inspect') === 'true';
+
+    if (selectNodeId) {
+      // Find the node to select
+      const nodeExists = universeNodes.has(selectNodeId) || nodes.some(n => n.id === selectNodeId);
+
+      if (nodeExists) {
+        setSelectedNodeId(selectNodeId);
+        if (shouldOpenInspector) {
+          setInspectorOpen(true);
+        }
+        urlParamsProcessed.current = true;
+
+        // Clean up URL params after processing (optional - removes params from URL bar)
+        if (typeof window !== 'undefined') {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('select');
+          url.searchParams.delete('inspect');
+          window.history.replaceState({}, '', url.pathname);
+        }
+      }
+    }
+  }, [isLoading, universeNodes, nodes, searchParams]);
 
   // Save positions on node drag
   const handleNodesChange = useCallback((changes: Parameters<typeof onNodesChange>[0]) => {
