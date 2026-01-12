@@ -67,25 +67,26 @@ const secondaryNavigation: NavItem[] = [
 
 interface SidebarProps {
   isMobile?: boolean;
+  onCloseMobile?: () => void;
 }
 
-export const Sidebar = memo(function Sidebar({ isMobile = false }: SidebarProps) {
+export const Sidebar = memo(function Sidebar({ isMobile = false, onCloseMobile }: SidebarProps) {
   const pathname = usePathname();
   const { data: session } = useSession();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [expandedItems, setExpandedItems] = useState<string[]>(['Library']);
-  const { isCollapsed, toggleCollapse, setMobileOpen } = useSidebarStore();
+  const { isCollapsed, toggleCollapse } = useSidebarStore();
 
   // On mobile, always show full sidebar (not collapsed)
   const effectiveCollapsed = isMobile ? false : isCollapsed;
 
   // Close mobile sidebar when route changes
   useEffect(() => {
-    if (isMobile) {
-      setMobileOpen(false);
+    if (isMobile && onCloseMobile) {
+      onCloseMobile();
     }
-  }, [pathname, isMobile, setMobileOpen]);
+  }, [pathname, isMobile, onCloseMobile]);
 
   const handleLogout = async () => {
     setIsLoggingOut(true);
@@ -133,8 +134,8 @@ export const Sidebar = memo(function Sidebar({ isMobile = false }: SidebarProps)
   };
 
   const handleLinkClick = () => {
-    if (isMobile) {
-      setMobileOpen(false);
+    if (isMobile && onCloseMobile) {
+      onCloseMobile();
     }
   };
 
@@ -220,9 +221,9 @@ export const Sidebar = memo(function Sidebar({ isMobile = false }: SidebarProps)
         {!effectiveCollapsed && (
           <>
             <span className="text-sm font-mono font-bold tracking-tight">AGENTVERSE</span>
-            {isMobile ? (
+            {isMobile && onCloseMobile ? (
               <button
-                onClick={() => setMobileOpen(false)}
+                onClick={onCloseMobile}
                 className="ml-auto p-1 text-white/40 hover:text-white transition-colors"
               >
                 <X className="w-5 h-5" />

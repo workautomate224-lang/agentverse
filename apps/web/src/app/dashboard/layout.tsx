@@ -50,13 +50,9 @@ export default function DashboardLayout({
 }) {
   const { status } = useSession();
   const router = useRouter();
-  const { isCollapsed, isMobileOpen, setMobileOpen } = useSidebarStore();
-  const [mounted, setMounted] = useState(false);
-
-  // Handle hydration - ensure component is mounted before rendering mobile UI
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const { isCollapsed } = useSidebarStore();
+  // Use local state for mobile sidebar to avoid Zustand hydration issues
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     // If unauthenticated and not loading, redirect to login
@@ -100,20 +96,18 @@ export default function DashboardLayout({
           </div>
           <button
             type="button"
-            onClick={() => {
-              setMobileOpen(true);
-            }}
+            onClick={() => setMobileMenuOpen(true)}
             className="p-2 text-white/60 hover:text-white hover:bg-white/5 transition-colors active:bg-white/10"
             aria-label="Open navigation menu"
-            aria-expanded={isMobileOpen}
+            aria-expanded={mobileMenuOpen}
           >
             <Menu className="w-5 h-5" />
           </button>
         </div>
       </div>
 
-      {/* Mobile Sidebar Overlay - Only render after mount to prevent hydration issues */}
-      {mounted && isMobileOpen && (
+      {/* Mobile Sidebar Overlay */}
+      {mobileMenuOpen && (
         <div
           className="fixed inset-0 z-50 md:hidden"
           aria-hidden="true"
@@ -121,14 +115,14 @@ export default function DashboardLayout({
           {/* Backdrop */}
           <div
             className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-            onClick={() => setMobileOpen(false)}
+            onClick={() => setMobileMenuOpen(false)}
           />
           {/* Mobile Sidebar */}
           <nav
             className="absolute left-0 top-0 bottom-0 w-72 max-w-[85vw] animate-slide-in-left"
             aria-label="Mobile navigation"
           >
-            <Sidebar isMobile />
+            <Sidebar isMobile onCloseMobile={() => setMobileMenuOpen(false)} />
           </nav>
         </div>
       )}
