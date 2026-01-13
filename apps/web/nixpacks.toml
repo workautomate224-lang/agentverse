@@ -1,0 +1,12 @@
+# Nixpacks configuration for Next.js in monorepo
+[phases.setup]
+nixPkgs = ["nodejs_20", "npm"]
+
+[phases.install]
+cmds = ["npm install"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "npm start"
