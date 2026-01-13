@@ -40,6 +40,7 @@ import {
   Target,
   Circle,
   ChevronRight,
+  Globe,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -1109,16 +1110,26 @@ export default function RunCenterPage() {
                       {formatDuration(run.timing?.started_at, run.timing?.ended_at)}
                     </p>
                   </div>
-                  {/* Quick Replay button for succeeded runs */}
+                  {/* Quick actions for succeeded runs */}
                   {run.status === 'succeeded' && (
-                    <Link
-                      href={`/p/${projectId}/replay?run=${run.run_id}`}
-                      onClick={(e) => e.stopPropagation()}
-                      className="flex items-center gap-1 px-2 py-1 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-[10px] font-mono hover:bg-cyan-500/20 transition-colors"
-                    >
-                      <Play className="w-3 h-3" />
-                      Replay
-                    </Link>
+                    <div className="flex items-center gap-1">
+                      <Link
+                        href={`/p/${projectId}/replay?run=${run.run_id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex items-center gap-1 px-2 py-1 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-[10px] font-mono hover:bg-cyan-500/20 transition-colors"
+                      >
+                        <Play className="w-3 h-3" />
+                        Replay
+                      </Link>
+                      <Link
+                        href={`/p/${projectId}/world-viewer?run=${run.run_id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex items-center gap-1 px-2 py-1 bg-green-500/10 border border-green-500/30 text-green-400 text-[10px] font-mono hover:bg-green-500/20 transition-colors"
+                      >
+                        <Globe className="w-3 h-3" />
+                        2D
+                      </Link>
+                    </div>
                   )}
                   {/* View Error button for failed runs */}
                   {run.status === 'failed' && (

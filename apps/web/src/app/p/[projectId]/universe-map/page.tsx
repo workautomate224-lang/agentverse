@@ -73,6 +73,7 @@ import {
   Sparkles,
   Zap,
   FileText,
+  Map,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -568,6 +569,12 @@ function InspectorPanel({
               <Button size="sm" variant="outline" className="w-full text-xs font-mono">
                 <Eye className="w-3 h-3 mr-2" />
                 Open in Replay
+              </Button>
+            </Link>
+            <Link href={`/p/${projectId}/world-viewer?node=${node.id}`} className="block">
+              <Button size="sm" variant="outline" className="w-full text-xs font-mono">
+                <Map className="w-3 h-3 mr-2" />
+                View in 2D World
               </Button>
             </Link>
             <Link href={`/p/${projectId}/reports?type=node&node=${node.id}`} className="block">

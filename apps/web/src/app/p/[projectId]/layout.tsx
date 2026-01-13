@@ -53,7 +53,7 @@ const projectNavItems = [
   { name: 'Target Planner', href: 'target', icon: Crosshair },
   { name: 'Reliability', href: 'reliability', icon: ShieldCheck },
   { name: 'Telemetry & Replay', href: 'replay', icon: Activity },
-  { name: '2D World Viewer', href: 'world', icon: Map },
+  { name: '2D World Viewer', href: 'world-viewer', icon: Map },
   { name: 'Reports', href: 'reports', icon: FileBarChart },
 ];
 

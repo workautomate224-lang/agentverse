@@ -29,6 +29,7 @@ import {
   CheckCircle,
   Zap,
   FileText,
+  Map,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -500,6 +501,12 @@ export default function TelemetryReplayPage() {
             </Button>
           </Link>
           <div className="flex items-center gap-2">
+            <Link href={`/p/${projectId}/world-viewer?run=${selectedRunId || ''}&tick=${currentTick}`}>
+              <Button variant="outline" size="sm" className="text-xs font-mono">
+                <Map className="w-3 h-3 mr-2" />
+                View in 2D World
+              </Button>
+            </Link>
             <Link href={`/p/${projectId}/reports?type=run${selectedRunId ? `&run=${selectedRunId}` : ''}`}>
               <Button variant="outline" size="sm" className="text-xs font-mono">
                 <FileText className="w-3 h-3 mr-2" />
