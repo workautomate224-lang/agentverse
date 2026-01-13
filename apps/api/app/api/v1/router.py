@@ -85,7 +85,7 @@ api_router.include_router(project_specs.router, prefix="/project-specs", tags=["
 api_router.include_router(event_scripts.router, tags=["Event Scripts"])
 api_router.include_router(ask.router, prefix="/ask", tags=["Ask - Event Compiler"])
 api_router.include_router(target_mode.router, prefix="/target", tags=["Target Mode"])
-api_router.include_router(target_plans.router, prefix="/plans", tags=["Target Plans"])
+api_router.include_router(target_plans.router, tags=["Target Plans"])
 
 # Calibration & Reliability (project.md §11 Phase 7)
 api_router.include_router(calibration.router, prefix="/calibration", tags=["Calibration & Reliability"])
