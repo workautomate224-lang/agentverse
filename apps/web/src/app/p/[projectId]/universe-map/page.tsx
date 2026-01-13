@@ -6,7 +6,7 @@
  * Uses React Flow for professional graph editing experience
  */
 
-import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef, Suspense } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -73,7 +73,7 @@ import {
   Sparkles,
   Zap,
   FileText,
-  Map,
+  Map as MapIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -573,7 +573,7 @@ function InspectorPanel({
             </Link>
             <Link href={`/p/${projectId}/world-viewer?node=${node.id}`} className="block">
               <Button size="sm" variant="outline" className="w-full text-xs font-mono">
-                <Map className="w-3 h-3 mr-2" />
+                <MapIcon className="w-3 h-3 mr-2" />
                 View in 2D World
               </Button>
             </Link>
@@ -1583,11 +1583,25 @@ function UniverseMapCanvas() {
   );
 }
 
-// Wrap with provider
+// Loading fallback for Suspense
+function UniverseMapLoading() {
+  return (
+    <div className="min-h-screen bg-black flex items-center justify-center">
+      <div className="text-center">
+        <Loader2 className="w-8 h-8 text-cyan-500 animate-spin mx-auto mb-4" />
+        <p className="text-white/60 font-mono text-sm">Loading Universe Map...</p>
+      </div>
+    </div>
+  );
+}
+
+// Wrap with provider and Suspense for useSearchParams
 export default function UniverseMapPage() {
   return (
-    <ReactFlowProvider>
-      <UniverseMapCanvas />
-    </ReactFlowProvider>
+    <Suspense fallback={<UniverseMapLoading />}>
+      <ReactFlowProvider>
+        <UniverseMapCanvas />
+      </ReactFlowProvider>
+    </Suspense>
   );
 }
