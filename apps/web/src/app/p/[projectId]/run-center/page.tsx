@@ -461,9 +461,31 @@ function RunDetailsModal({
                     </div>
                   )}
                 </>
+              ) : fullRun ? (
+                // Run data loaded but no error field - show available info
+                <div className="space-y-2">
+                  <p className="text-xs font-mono text-white/60">
+                    The simulation ended with status &quot;failed&quot;.
+                  </p>
+                  {(fullRun as SpecRun)?.ticks_completed !== undefined && (
+                    <div>
+                      <span className="text-[10px] font-mono text-white/40 uppercase">Ticks Completed</span>
+                      <p className="text-xs font-mono text-white/80">{(fullRun as SpecRun).ticks_completed}</p>
+                    </div>
+                  )}
+                  {(fullRun as SpecRun)?.duration_seconds !== undefined && (
+                    <div>
+                      <span className="text-[10px] font-mono text-white/40 uppercase">Duration</span>
+                      <p className="text-xs font-mono text-white/80">{(fullRun as SpecRun).duration_seconds?.toFixed(2)}s</p>
+                    </div>
+                  )}
+                  <p className="text-[10px] font-mono text-white/40 mt-2">
+                    No detailed error information available from backend.
+                  </p>
+                </div>
               ) : (
                 <p className="text-xs font-mono text-white/60">
-                  Loading error details...
+                  Loading run details...
                 </p>
               )}
             </div>
