@@ -1818,12 +1818,23 @@ class ApiClient {
     });
   }
 
-  // Persona Generation
+  // Persona Generation - Uses Next.js API route with OpenRouter for AI generation
   async generatePersonas(data: GeneratePersonasRequest): Promise<GeneratePersonasResponse> {
-    return this.request<GeneratePersonasResponse>('/api/v1/personas/generate', {
+    // Call Next.js API route directly (bypasses backend, uses OpenRouter)
+    const response = await fetch('/api/personas/generate', {
       method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify(data),
     });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Failed to generate personas: ${response.status}`);
+    }
+
+    return response.json();
   }
 
   async listPersonas(
