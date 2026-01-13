@@ -19,7 +19,6 @@ Key features:
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
-from sqlalchemy.exc import ProgrammingError
 
 
 # revision identifiers, used by Alembic.
@@ -29,15 +28,22 @@ branch_labels = None
 depends_on = None
 
 
+def index_exists(index_name: str) -> bool:
+    """Check if an index exists."""
+    conn = op.get_bind()
+    result = conn.execute(
+        sa.text(
+            "SELECT EXISTS (SELECT FROM pg_indexes WHERE indexname = :index)"
+        ),
+        {"index": index_name}
+    )
+    return result.scalar()
+
+
 def create_index_if_not_exists(index_name: str, table_name: str, columns: list, **kwargs):
     """Create index only if it doesn't already exist."""
-    try:
+    if not index_exists(index_name):
         op.create_index(index_name, table_name, columns, **kwargs)
-    except ProgrammingError as e:
-        if "already exists" in str(e):
-            pass  # Index already exists, skip
-        else:
-            raise
 
 
 def table_exists(table_name: str) -> bool:
@@ -48,18 +54,6 @@ def table_exists(table_name: str) -> bool:
             "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = :table)"
         ),
         {"table": table_name}
-    )
-    return result.scalar()
-
-
-def constraint_exists(constraint_name: str) -> bool:
-    """Check if a constraint exists."""
-    conn = op.get_bind()
-    result = conn.execute(
-        sa.text(
-            "SELECT EXISTS (SELECT FROM information_schema.table_constraints WHERE constraint_name = :name)"
-        ),
-        {"name": constraint_name}
     )
     return result.scalar()
 
