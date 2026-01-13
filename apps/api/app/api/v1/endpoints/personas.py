@@ -1597,7 +1597,7 @@ async def save_project_personas(
         select(ProjectSpec)
         .where(
             ProjectSpec.id == project_id,
-            ProjectSpec.tenant_id == current_user.tenant_id,
+            ProjectSpec.tenant_id == current_user.id,
         )
     )
     project = project_result.scalar_one_or_none()
@@ -1611,7 +1611,7 @@ async def save_project_personas(
         # Extract fields from the AI-generated persona
         persona = Persona(
             id=uuid4(),
-            tenant_id=current_user.tenant_id,
+            tenant_id=current_user.id,
             project_id=project_id,
             label=persona_data.get("name", persona_data.get("label", f"Persona {len(saved_ids) + 1}")),
             source="ai_generated",
@@ -1657,7 +1657,7 @@ async def list_project_personas(
         select(ProjectSpec)
         .where(
             ProjectSpec.id == project_id,
-            ProjectSpec.tenant_id == current_user.tenant_id,
+            ProjectSpec.tenant_id == current_user.id,
         )
     )
     project = project_result.scalar_one_or_none()
@@ -1715,7 +1715,7 @@ async def delete_project_personas(
         select(ProjectSpec)
         .where(
             ProjectSpec.id == project_id,
-            ProjectSpec.tenant_id == current_user.tenant_id,
+            ProjectSpec.tenant_id == current_user.id,
         )
     )
     project = project_result.scalar_one_or_none()
