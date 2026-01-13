@@ -31,7 +31,34 @@ from app.models.user import User
 
 # ============================================================================
 # Response Schemas (project.md §6.8)
+# Phase 5: Added capabilities, telemetry_schema_version, normalized_positions
 # ============================================================================
+
+
+class CapabilitiesResponse(BaseModel):
+    """
+    Telemetry capabilities flags.
+    Phase 5: Enables UI to conditionally render features.
+    """
+    has_spatial: bool = False
+    has_events: bool = False
+    has_metrics: bool = False
+
+
+class NormalizedPositionResponse(BaseModel):
+    """
+    Canonical position format for spatial replay.
+    Phase 5: Standardizes position extraction across different field naming conventions.
+    """
+    agent_id: str
+    x: float
+    y: float
+    z: Optional[float] = None
+    rotation: Optional[float] = None
+    scale: Optional[float] = None
+    grid_cell: Optional[str] = None
+    location_id: Optional[str] = None
+
 
 class AgentStateSnapshot(BaseModel):
     """Snapshot of an agent's state at a tick."""
@@ -51,6 +78,8 @@ class KeyframeResponse(BaseModel):
     environment_state: Optional[dict] = None
     metrics: Optional[dict] = None
     event_count: int = 0
+    # Phase 5: Optional normalized positions for this keyframe
+    normalized_positions: Optional[List[NormalizedPositionResponse]] = None
 
 
 class DeltaResponse(BaseModel):
@@ -73,7 +102,10 @@ class EventResponse(BaseModel):
 
 
 class TelemetrySliceResponse(BaseModel):
-    """A slice of telemetry data for a tick range."""
+    """
+    A slice of telemetry data for a tick range.
+    Phase 5: Added normalized_positions, capabilities, telemetry_schema_version.
+    """
     run_id: str
     start_tick: int
     end_tick: int
@@ -81,20 +113,36 @@ class TelemetrySliceResponse(BaseModel):
     deltas: List[DeltaResponse]
     events: List[EventResponse]
     total_events: int
+    # Phase 5 additions
+    normalized_positions: List[NormalizedPositionResponse] = Field(default_factory=list)
+    capabilities: CapabilitiesResponse = Field(default_factory=CapabilitiesResponse)
+    telemetry_schema_version: str = "1.1.0"
 
 
 class TelemetryIndexResponse(BaseModel):
-    """Telemetry index for fast seeking."""
+    """
+    Telemetry index for fast seeking.
+    Phase 5: Added capabilities, telemetry_schema_version, total_agents, metric_keys.
+    """
     run_id: str
     total_ticks: int
     keyframe_ticks: List[int]
     event_types: List[str]
     agent_ids: List[str]
     storage_ref: dict
+    # Phase 5 additions
+    capabilities: CapabilitiesResponse = Field(default_factory=CapabilitiesResponse)
+    telemetry_schema_version: str = "1.1.0"
+    total_agents: int = 0
+    total_events: int = 0
+    metric_keys: List[str] = Field(default_factory=list)
 
 
 class TelemetrySummaryResponse(BaseModel):
-    """Summary statistics for telemetry."""
+    """
+    Summary statistics for telemetry.
+    Phase 5: Added capabilities, telemetry_schema_version.
+    """
     run_id: str
     total_ticks: int
     total_events: int
@@ -102,6 +150,9 @@ class TelemetrySummaryResponse(BaseModel):
     event_type_counts: dict
     key_metrics: dict
     duration_seconds: float
+    # Phase 5 additions
+    capabilities: CapabilitiesResponse = Field(default_factory=CapabilitiesResponse)
+    telemetry_schema_version: str = "1.1.0"
 
 
 class TelemetryExportRequest(BaseModel):
@@ -164,6 +215,16 @@ async def get_telemetry_index(
         event_types=index.event_types,
         agent_ids=index.agent_ids,
         storage_ref=index.storage_ref,
+        # Phase 5 additions
+        capabilities=CapabilitiesResponse(
+            has_spatial=index.capabilities.has_spatial,
+            has_events=index.capabilities.has_events,
+            has_metrics=index.capabilities.has_metrics,
+        ),
+        telemetry_schema_version=index.telemetry_schema_version,
+        total_agents=index.total_agents,
+        total_events=index.total_events,
+        metric_keys=index.metric_keys,
     )
 
 
@@ -207,6 +268,9 @@ async def get_telemetry_slice(
             detail=f"Telemetry not found for run {run_id}",
         )
 
+    # Phase 5: Import spatial normalization for keyframes
+    from app.services.telemetry import extract_normalized_positions
+
     keyframes = [
         KeyframeResponse(
             tick=kf.tick,
@@ -215,6 +279,11 @@ async def get_telemetry_slice(
             environment_state=kf.environment_state,
             metrics=kf.metrics,
             event_count=len(kf.agent_states),
+            # Phase 5: Include normalized positions per keyframe if spatial data exists
+            normalized_positions=[
+                NormalizedPositionResponse(**pos)
+                for pos in extract_normalized_positions(kf.agent_states)
+            ] if slice_data.capabilities.has_spatial else None,
         )
         for kf in slice_data.keyframes
     ]
@@ -242,6 +311,12 @@ async def get_telemetry_slice(
         for i, e in enumerate(slice_data.events)
     ]
 
+    # Phase 5: Build normalized positions response
+    normalized_positions = [
+        NormalizedPositionResponse(**pos)
+        for pos in slice_data.normalized_positions
+    ]
+
     return TelemetrySliceResponse(
         run_id=run_id,
         start_tick=start_tick,
@@ -250,6 +325,14 @@ async def get_telemetry_slice(
         deltas=deltas,
         events=events,
         total_events=len(events),
+        # Phase 5 additions
+        normalized_positions=normalized_positions,
+        capabilities=CapabilitiesResponse(
+            has_spatial=slice_data.capabilities.has_spatial,
+            has_events=slice_data.capabilities.has_events,
+            has_metrics=slice_data.capabilities.has_metrics,
+        ),
+        telemetry_schema_version=slice_data.telemetry_schema_version,
     )
 
 
@@ -432,6 +515,9 @@ async def get_telemetry_summary(
             detail=f"Telemetry not found for run {run_id}",
         )
 
+    # Phase 5: Extract capabilities from summary
+    capabilities_dict = summary.get("capabilities", {})
+
     return TelemetrySummaryResponse(
         run_id=run_id,
         total_ticks=summary.get("total_ticks", 0),
@@ -440,6 +526,13 @@ async def get_telemetry_summary(
         event_type_counts=summary.get("event_type_counts", {}),
         key_metrics=summary.get("key_metrics", {}),
         duration_seconds=summary.get("duration_seconds", 0.0),
+        # Phase 5 additions
+        capabilities=CapabilitiesResponse(
+            has_spatial=capabilities_dict.get("has_spatial", False),
+            has_events=capabilities_dict.get("has_events", False),
+            has_metrics=capabilities_dict.get("has_metrics", False),
+        ),
+        telemetry_schema_version=summary.get("telemetry_schema_version", "1.1.0"),
     )
 
 

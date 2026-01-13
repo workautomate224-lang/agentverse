@@ -1443,3 +1443,197 @@ async def run_node_ensemble(
         task_ids=result.get("task_ids", []),
         ensemble_size=len(request.seeds),
     )
+
+
+# =============================================================================
+# PHASE 3: Probability Source Compliance Endpoints
+# Reference: project.md Phase 3 - Probability Source Compliance
+# =============================================================================
+
+from app.schemas.probability_source import (
+    AvailableMetricsResponse,
+    ProbabilitySourceRequest,
+    ProbabilitySourceResponse,
+    TargetProbabilityRequest,
+    TargetProbabilityResponse,
+    WeightingMethod,
+    ComparisonOperator,
+)
+from app.services.probability_source_service import (
+    ProbabilitySourceService,
+    get_probability_source_service,
+)
+
+
+@router.get(
+    "/{node_id}/metrics",
+    response_model=AvailableMetricsResponse,
+    summary="Get available metrics for a node (PHASE 3)",
+    tags=["probability-source"],
+)
+async def get_node_metrics(
+    node_id: str,
+    project_id: str = Query(..., description="Project ID"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_ctx: TenantContext = Depends(require_tenant),
+) -> AvailableMetricsResponse:
+    """
+    Get available metric keys for a node.
+
+    PHASE 3: Probability Source Compliance
+
+    Returns the union of all metric keys across completed runs for this node.
+    Use this to discover what metrics can be aggregated into probability
+    distributions.
+
+    Reference: project.md Phase 3 - Probability Source Compliance
+    """
+    try:
+        node_uuid = UUID(node_id)
+        project_uuid = UUID(project_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid UUID format",
+        )
+
+    service = get_probability_source_service(db)
+
+    result = await service.get_available_metrics(
+        project_id=project_uuid,
+        node_id=node_uuid,
+        tenant_id=UUID(tenant_ctx.tenant_id),
+    )
+
+    return result
+
+
+@router.get(
+    "/{node_id}/probability-source",
+    response_model=ProbabilitySourceResponse,
+    summary="Get probability distribution for a metric (PHASE 3)",
+    tags=["probability-source"],
+)
+async def get_probability_source(
+    node_id: str,
+    project_id: str = Query(..., description="Project ID"),
+    metric: str = Query(..., description="Metric key to compute distribution for"),
+    manifest_hash: Optional[str] = Query(None, description="Filter by manifest hash"),
+    time_window_days: int = Query(30, ge=1, le=365, description="Time window in days"),
+    weighting: WeightingMethod = Query(WeightingMethod.UNIFORM, description="Weighting method"),
+    min_runs: int = Query(3, ge=1, le=100, description="Minimum runs required"),
+    max_runs: int = Query(200, ge=1, le=1000, description="Maximum runs to consider"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_ctx: TenantContext = Depends(require_tenant),
+) -> ProbabilitySourceResponse:
+    """
+    Compute probability distribution for a metric on a node.
+
+    PHASE 3: Probability Source Compliance
+
+    This is the core endpoint for Phase 3. It returns:
+    - An empirical probability distribution derived from multiple runs
+    - Full source metadata for auditability (n_runs, filters, time_window, quality)
+    - INSUFFICIENT_DATA status if n_runs < min_runs (NEVER fabricates)
+
+    Key Guarantees:
+    - DETERMINISTIC: Same filters + same data = same results
+    - AUDITABLE: All probabilities include source metadata
+    - EMPIRICAL: Derived from actual run outcomes, never fabricated
+
+    Reference: project.md Phase 3 - Probability Source Compliance
+    """
+    try:
+        node_uuid = UUID(node_id)
+        project_uuid = UUID(project_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid UUID format",
+        )
+
+    service = get_probability_source_service(db)
+
+    result = await service.compute_node_distribution(
+        project_id=project_uuid,
+        node_id=node_uuid,
+        tenant_id=UUID(tenant_ctx.tenant_id),
+        metric_key=metric,
+        manifest_hash=manifest_hash,
+        time_window_days=time_window_days,
+        min_runs=min_runs,
+        max_runs=max_runs,
+        weighting=weighting,
+    )
+
+    return result
+
+
+@router.get(
+    "/{node_id}/target-probability",
+    response_model=TargetProbabilityResponse,
+    summary="Get probability of meeting a threshold (PHASE 3)",
+    tags=["probability-source"],
+)
+async def get_target_probability(
+    node_id: str,
+    project_id: str = Query(..., description="Project ID"),
+    metric: str = Query(..., description="Metric key to evaluate"),
+    op: ComparisonOperator = Query(..., description="Comparison operator (>=, <=, >, <, ==)"),
+    threshold: float = Query(..., description="Threshold value"),
+    manifest_hash: Optional[str] = Query(None, description="Filter by manifest hash"),
+    time_window_days: int = Query(30, ge=1, le=365, description="Time window in days"),
+    weighting: WeightingMethod = Query(WeightingMethod.UNIFORM, description="Weighting method"),
+    min_runs: int = Query(3, ge=1, le=100, description="Minimum runs required"),
+    max_runs: int = Query(200, ge=1, le=1000, description="Maximum runs to consider"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_ctx: TenantContext = Depends(require_tenant),
+) -> TargetProbabilityResponse:
+    """
+    Compute probability of meeting a threshold condition.
+
+    PHASE 3: Probability Source Compliance
+
+    This enables queries like "What's the probability that score >= 0.8?"
+
+    The probability is computed empirically from run outcomes:
+    P(metric op threshold) = count(runs where metric op threshold) / total_runs
+
+    Key Guarantees:
+    - DETERMINISTIC: Same filters + same data = same results
+    - AUDITABLE: Full source metadata included
+    - EMPIRICAL: Derived from actual runs, NEVER fabricated
+
+    Returns INSUFFICIENT_DATA if n_runs < min_runs.
+
+    Reference: project.md Phase 3 - Probability Source Compliance
+    """
+    try:
+        node_uuid = UUID(node_id)
+        project_uuid = UUID(project_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid UUID format",
+        )
+
+    service = get_probability_source_service(db)
+
+    result = await service.compute_target_probability(
+        project_id=project_uuid,
+        node_id=node_uuid,
+        tenant_id=UUID(tenant_ctx.tenant_id),
+        metric_key=metric,
+        op=op,
+        threshold=threshold,
+        manifest_hash=manifest_hash,
+        time_window_days=time_window_days,
+        min_runs=min_runs,
+        max_runs=max_runs,
+        weighting=weighting,
+    )
+
+    return result

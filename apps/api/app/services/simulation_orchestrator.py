@@ -264,6 +264,15 @@ class SimulationOrchestrator:
         self.db.add(run)
         await self.db.flush()
 
+        # PHASE 2: Create immutable manifest for reproducibility
+        await self._create_run_manifest(
+            run=run,
+            node=node,
+            config=config,
+            tenant_id=uuid.UUID(input.tenant_id),
+            user_id=uuid.UUID(input.user_id) if input.user_id else None,
+        )
+
         return run, node
 
     async def queue_run(
@@ -449,6 +458,66 @@ class SimulationOrchestrator:
             reliability=outputs.get("reliability"),
             duration_ms=timing.get("duration_ms"),
             ticks_executed=timing.get("ticks_executed"),
+        )
+
+    # ================================================================
+    # PHASE 2: MANIFEST OPERATIONS
+    # ================================================================
+
+    async def _create_run_manifest(
+        self,
+        run: Run,
+        node: Node,
+        config: RunConfigInput,
+        tenant_id: uuid.UUID,
+        user_id: Optional[uuid.UUID] = None,
+    ) -> None:
+        """
+        Create an immutable manifest for a run.
+
+        PHASE 2: Run Manifest / Seed / Version System
+        This is called at run creation time BEFORE execution starts.
+
+        The manifest captures:
+        - seed: Global deterministic seed
+        - config_json: Normalized configuration snapshot
+        - versions_json: Version info for all components
+        - manifest_hash: SHA256 for integrity verification
+        """
+        from app.services.manifest_service import get_manifest_service
+
+        manifest_service = get_manifest_service(self.db)
+
+        # Build config dict from RunConfigInput
+        config_dict = {
+            "max_ticks": config.max_ticks,
+            "agent_batch_size": config.agent_batch_size,
+            "run_mode": config.run_mode,
+            "horizon": config.horizon,
+            "tick_rate": config.tick_rate,
+        }
+        if config.scenario_patch:
+            config_dict["scenario_patch"] = config.scenario_patch
+        if config.society_mode:
+            config_dict["society_mode"] = config.society_mode
+
+        # Build model info from config
+        model_info = {
+            "model": "default",
+            "engine_version": config.engine_version,
+            "ruleset_version": config.ruleset_version,
+        }
+
+        await manifest_service.create_manifest(
+            tenant_id=tenant_id,
+            project_id=run.project_id,
+            run_id=run.id,
+            node_id=node.id,
+            seed=config.primary_seed or 0,
+            config=config_dict,
+            model_info=model_info,
+            dataset_version=config.dataset_version,
+            created_by_user_id=user_id,
         )
 
     # ================================================================

@@ -167,6 +167,23 @@ from app.models.run_artifacts import (
     OutcomeReport,
     ExecutionStage,
 )
+# PHASE 2: Run Manifest Models (Reproducibility & Auditability)
+from app.models.run_manifest import RunManifest
+# PHASE 3: Run Outcome Models (Probability Source Compliance)
+from app.models.run_outcome import RunOutcome, OutcomeStatus
+# PHASE 4: Calibration Models (Calibration Minimal Closed Loop)
+from app.models.calibration import (
+    GroundTruthDataset,
+    GroundTruthLabel,
+    CalibrationJob,
+    CalibrationIteration,
+    CalibrationJobStatus,
+)
+# PHASE 5: Telemetry Standardization Models
+from app.models.telemetry_index import (
+    TelemetryIndex,
+    TelemetryCapabilities,
+)
 # STEP 10: Production Readiness Models
 from app.models.production import (
     # Enums
@@ -341,6 +358,17 @@ __all__ = [
     "RunTrace",
     "OutcomeReport",
     "ExecutionStage",
+    # PHASE 2: Run Manifest Models
+    "RunManifest",
+    # PHASE 3: Run Outcome Models
+    "RunOutcome",
+    "OutcomeStatus",
+    # PHASE 4: Calibration Models
+    "GroundTruthDataset",
+    "GroundTruthLabel",
+    "CalibrationJob",
+    "CalibrationIteration",
+    "CalibrationJobStatus",
     # STEP 10: Production Readiness Models
     # Enums
     "PlanTier",

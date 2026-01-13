@@ -37,7 +37,242 @@ from app.services.storage import StorageService, StorageRef, get_storage_service
 class TelemetryVersion(str, Enum):
     """Telemetry schema versions for forward compatibility."""
     V1_0_0 = "1.0.0"
-    CURRENT = "1.0.0"
+    V1_1_0 = "1.1.0"  # Phase 5: Added capabilities and spatial normalization
+    CURRENT = "1.1.0"
+
+
+# ============================================================================
+# PHASE 5: Spatial Normalization & Capabilities Detection
+# ============================================================================
+
+@dataclass
+class NormalizedPosition:
+    """Canonical position format for spatial replay."""
+    agent_id: str
+    x: float
+    y: float
+    z: Optional[float] = None
+    rotation: Optional[float] = None
+    scale: Optional[float] = None
+    grid_cell: Optional[str] = None
+    location_id: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        result = {
+            "agent_id": self.agent_id,
+            "x": self.x,
+            "y": self.y,
+        }
+        if self.z is not None:
+            result["z"] = self.z
+        if self.rotation is not None:
+            result["rotation"] = self.rotation
+        if self.scale is not None:
+            result["scale"] = self.scale
+        if self.grid_cell is not None:
+            result["grid_cell"] = self.grid_cell
+        if self.location_id is not None:
+            result["location_id"] = self.location_id
+        return result
+
+
+@dataclass
+class TelemetryCapabilities:
+    """
+    Capabilities flags for telemetry data.
+    Enables UI to conditionally render features.
+    """
+    has_spatial: bool = False
+    has_events: bool = False
+    has_metrics: bool = False
+
+    def to_dict(self) -> dict:
+        return {
+            "has_spatial": self.has_spatial,
+            "has_events": self.has_events,
+            "has_metrics": self.has_metrics,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "TelemetryCapabilities":
+        return cls(
+            has_spatial=data.get("has_spatial", False),
+            has_events=data.get("has_events", False),
+            has_metrics=data.get("has_metrics", False),
+        )
+
+
+# Spatial field aliases for normalization
+SPATIAL_X_ALIASES = ["x", "position_x", "pos_x", "coord_x", "loc_x"]
+SPATIAL_Y_ALIASES = ["y", "position_y", "pos_y", "coord_y", "loc_y"]
+SPATIAL_Z_ALIASES = ["z", "position_z", "pos_z", "coord_z", "loc_z"]
+
+
+def extract_spatial_value(
+    state: Dict[str, Any],
+    aliases: List[str],
+    default: Optional[float] = None,
+) -> Optional[float]:
+    """
+    Extract spatial value from agent state using alias list.
+    Checks both top-level and nested 'variables' dict.
+    """
+    # Check top-level fields first
+    for alias in aliases:
+        if alias in state:
+            val = state[alias]
+            if isinstance(val, (int, float)):
+                return float(val)
+
+    # Check nested variables dict
+    variables = state.get("variables", {})
+    if isinstance(variables, dict):
+        for alias in aliases:
+            if alias in variables:
+                val = variables[alias]
+                if isinstance(val, (int, float)):
+                    return float(val)
+
+    return default
+
+
+def normalize_agent_position(
+    agent_id: str,
+    agent_state: Dict[str, Any],
+) -> Optional[NormalizedPosition]:
+    """
+    Extract normalized position from agent state.
+    Returns None if no spatial data found.
+
+    Supports detection of:
+    - x/y, position_x/position_y, pos_x/pos_y, coord_x/coord_y, loc_x/loc_y
+    - grid_cell, location_id as fallback
+    """
+    x = extract_spatial_value(agent_state, SPATIAL_X_ALIASES)
+    y = extract_spatial_value(agent_state, SPATIAL_Y_ALIASES)
+
+    # Check for grid_cell or location_id fallback
+    variables = agent_state.get("variables", {})
+    if not isinstance(variables, dict):
+        variables = {}
+
+    grid_cell = agent_state.get("grid_cell") or variables.get("grid_cell")
+    location_id = agent_state.get("location_id") or variables.get("location_id")
+
+    # Must have x and y, or grid_cell/location_id
+    if x is not None and y is not None:
+        z = extract_spatial_value(agent_state, SPATIAL_Z_ALIASES)
+        rotation = agent_state.get("rotation") or variables.get("rotation")
+        scale = agent_state.get("scale") or variables.get("scale")
+
+        return NormalizedPosition(
+            agent_id=agent_id,
+            x=x,
+            y=y,
+            z=z,
+            rotation=float(rotation) if isinstance(rotation, (int, float)) else None,
+            scale=float(scale) if isinstance(scale, (int, float)) else None,
+            grid_cell=str(grid_cell) if grid_cell else None,
+            location_id=str(location_id) if location_id else None,
+        )
+    elif grid_cell or location_id:
+        # Fallback: create position with 0,0 if we only have grid/location
+        return NormalizedPosition(
+            agent_id=agent_id,
+            x=0.0,
+            y=0.0,
+            grid_cell=str(grid_cell) if grid_cell else None,
+            location_id=str(location_id) if location_id else None,
+        )
+
+    return None
+
+
+def extract_normalized_positions(
+    agent_states: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """
+    Extract normalized positions from all agent states.
+    Returns list of position dicts for agents with spatial data.
+    """
+    positions = []
+    for agent_id, state in agent_states.items():
+        if isinstance(state, dict):
+            pos = normalize_agent_position(agent_id, state)
+            if pos:
+                positions.append(pos.to_dict())
+    return positions
+
+
+def detect_capabilities(blob_dict: Dict[str, Any]) -> TelemetryCapabilities:
+    """
+    Detect capabilities from telemetry blob.
+
+    Checks for:
+    - has_spatial: Agent states contain position data
+    - has_events: Any events were triggered during simulation
+    - has_metrics: Metrics were recorded
+    """
+    capabilities = TelemetryCapabilities()
+
+    # Check deltas for events and metrics
+    deltas = blob_dict.get("deltas", [])
+    for delta in deltas:
+        if isinstance(delta, dict):
+            events = delta.get("events", [])
+            if events:
+                capabilities.has_events = True
+
+            metrics = delta.get("metrics", {})
+            if metrics and isinstance(metrics, dict) and len(metrics) > 0:
+                capabilities.has_metrics = True
+
+    # Check keyframes for spatial data
+    keyframes = blob_dict.get("keyframes", [])
+    for keyframe in keyframes:
+        if isinstance(keyframe, dict):
+            agent_states = keyframe.get("agent_states", {})
+            for agent_id, agent_state in agent_states.items():
+                if isinstance(agent_state, dict):
+                    if _has_spatial_fields(agent_state):
+                        capabilities.has_spatial = True
+                        break
+            if capabilities.has_spatial:
+                break
+
+    # Also check final states for spatial data
+    if not capabilities.has_spatial:
+        final_states = blob_dict.get("final_states", {})
+        for agent_id, agent_state in final_states.items():
+            if isinstance(agent_state, dict):
+                if _has_spatial_fields(agent_state):
+                    capabilities.has_spatial = True
+                    break
+
+    return capabilities
+
+
+def _has_spatial_fields(agent_state: Dict[str, Any]) -> bool:
+    """Check if agent state contains spatial position fields."""
+    variables = agent_state.get("variables", {})
+    if not isinstance(variables, dict):
+        variables = {}
+
+    # Merge top-level fields with variables for checking
+    fields_to_check = {**agent_state, **variables}
+
+    has_x = any(field in fields_to_check for field in SPATIAL_X_ALIASES)
+    has_y = any(field in fields_to_check for field in SPATIAL_Y_ALIASES)
+
+    # Both x and y must be present
+    if has_x and has_y:
+        return True
+
+    # Fallback: grid_cell or location_id
+    if "grid_cell" in fields_to_check or "location_id" in fields_to_check:
+        return True
+
+    return False
 
 
 @dataclass
@@ -211,20 +446,36 @@ class TelemetrySlice:
 
 @dataclass
 class TelemetryIndexResult:
-    """Result of telemetry index query for API."""
+    """
+    Result of telemetry index query for API.
+    Phase 5: Added capabilities, telemetry_schema_version, total_agents, metric_keys.
+    """
     total_ticks: int
     keyframe_ticks: List[int]
     event_types: List[str]
     agent_ids: List[str]
     storage_ref: Dict[str, Any]
+    # Phase 5 additions
+    capabilities: TelemetryCapabilities = field(default_factory=TelemetryCapabilities)
+    telemetry_schema_version: str = TelemetryVersion.CURRENT.value
+    total_agents: int = 0
+    total_events: int = 0
+    metric_keys: List[str] = field(default_factory=list)
 
 
 @dataclass
 class TelemetrySliceResult:
-    """Result of telemetry slice query for API."""
+    """
+    Result of telemetry slice query for API.
+    Phase 5: Added normalized_positions, capabilities, telemetry_schema_version.
+    """
     keyframes: List[TelemetryKeyframe]
     deltas: List[TelemetryDelta]
     events: List[Dict[str, Any]]
+    # Phase 5 additions
+    normalized_positions: List[Dict[str, Any]] = field(default_factory=list)
+    capabilities: TelemetryCapabilities = field(default_factory=TelemetryCapabilities)
+    telemetry_schema_version: str = TelemetryVersion.CURRENT.value
 
 
 class TelemetryWriter:
@@ -409,6 +660,8 @@ class TelemetryService:
         """
         Get telemetry index for a run by looking up its storage ref.
         Used by API endpoints.
+
+        Phase 5: Now includes capabilities, telemetry_schema_version, total_agents, metric_keys.
         """
         storage_ref = await self._get_telemetry_ref_for_run(run_id, tenant_id)
         if not storage_ref:
@@ -416,14 +669,40 @@ class TelemetryService:
 
         try:
             blob = await self.get_telemetry(storage_ref)
+            blob_dict = blob.to_dict()
+
+            # Phase 5: Detect capabilities from blob
+            capabilities = detect_capabilities(blob_dict)
+
+            # Collect event types
+            event_types = list(set(
+                evt for d in blob.deltas for evt in d.events_triggered
+            ))
+
+            # Collect metric keys
+            metric_keys: List[str] = []
+            if blob.metrics_summary:
+                metric_keys.extend(blob.metrics_summary.keys())
+            for delta in blob.deltas:
+                for key in delta.metrics.keys():
+                    if key not in metric_keys:
+                        metric_keys.append(key)
+
+            # Count total events
+            total_events = sum(len(d.events_triggered) for d in blob.deltas)
+
             return TelemetryIndexResult(
                 total_ticks=blob.ticks_executed,
                 keyframe_ticks=[k.tick for k in blob.keyframes],
-                event_types=list(set(
-                    evt for d in blob.deltas for evt in d.events_triggered
-                )),
+                event_types=event_types,
                 agent_ids=list(blob.final_states.keys()) if blob.final_states else [],
                 storage_ref=storage_ref.to_dict(),
+                # Phase 5 additions
+                capabilities=capabilities,
+                telemetry_schema_version=blob.schema_version,
+                total_agents=blob.agent_count,
+                total_events=total_events,
+                metric_keys=metric_keys,
             )
         except Exception:
             return None
@@ -439,6 +718,8 @@ class TelemetryService:
         """
         Get a slice of telemetry data for a run.
         Used by API endpoints.
+
+        Phase 5: Now includes normalized_positions, capabilities, telemetry_schema_version.
         """
         storage_ref = await self._get_telemetry_ref_for_run(run_id, tenant_id)
         if not storage_ref:
@@ -446,12 +727,26 @@ class TelemetryService:
 
         try:
             blob = await self.get_telemetry(storage_ref)
+            blob_dict = blob.to_dict()
+
+            # Phase 5: Detect capabilities from blob
+            capabilities = detect_capabilities(blob_dict)
 
             # Filter keyframes in range
             keyframes = [k for k in blob.keyframes if start_tick <= k.tick <= end_tick]
 
             # Filter deltas in range
             deltas = [d for d in blob.deltas if start_tick <= d.tick <= end_tick]
+
+            # Phase 5: Extract normalized positions from keyframes
+            normalized_positions: List[Dict[str, Any]] = []
+            if capabilities.has_spatial and keyframes:
+                # Use the last keyframe's agent states for positions
+                last_keyframe = keyframes[-1] if keyframes else None
+                if last_keyframe:
+                    normalized_positions = extract_normalized_positions(
+                        last_keyframe.agent_states
+                    )
 
             # Extract events from deltas
             events = []
@@ -470,6 +765,10 @@ class TelemetryService:
                 keyframes=keyframes,
                 deltas=deltas,
                 events=events,
+                # Phase 5 additions
+                normalized_positions=normalized_positions,
+                capabilities=capabilities,
+                telemetry_schema_version=blob.schema_version,
             )
         except Exception:
             return None
@@ -498,6 +797,8 @@ class TelemetryService:
         """
         Get telemetry summary for a run.
         Used by API endpoints.
+
+        Phase 5: Now includes capabilities and telemetry_schema_version.
         """
         storage_ref = await self._get_telemetry_ref_for_run(run_id, tenant_id)
         if not storage_ref:
@@ -505,6 +806,10 @@ class TelemetryService:
 
         try:
             blob = await self.get_telemetry(storage_ref)
+            blob_dict = blob.to_dict()
+
+            # Phase 5: Detect capabilities
+            capabilities = detect_capabilities(blob_dict)
 
             # Count events by type
             event_type_counts: Dict[str, int] = {}
@@ -521,6 +826,9 @@ class TelemetryService:
                 "event_type_counts": event_type_counts,
                 "key_metrics": blob.metrics_summary,
                 "duration_seconds": 0.0,  # Would need timing data
+                # Phase 5 additions
+                "capabilities": capabilities.to_dict(),
+                "telemetry_schema_version": blob.schema_version,
             }
         except Exception:
             return None

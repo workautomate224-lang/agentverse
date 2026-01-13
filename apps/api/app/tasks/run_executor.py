@@ -68,6 +68,8 @@ from app.models.run_artifacts import (
     RunTrace,
     ExecutionStage,
 )
+# PHASE 3: Import RunOutcome for Probability Source Compliance
+from app.models.run_outcome import RunOutcome, OutcomeStatus
 # STEP 3: Import PersonaSnapshot for immutable persona tracking
 from app.models.persona import PersonaSnapshot
 # Import services
@@ -300,6 +302,23 @@ async def _execute_run(run_id: str, context: JobContext) -> dict:
                 outcomes=outcomes,
                 reliability=reliability,
                 telemetry_ref=telemetry_ref,
+            )
+
+            # Phase 11: PHASE 3 - Create RunOutcome for probability source compliance
+            # This creates a normalized outcome record for empirical distribution computation
+            await _create_run_outcome(
+                db=db,
+                tenant_id=context.tenant_id,
+                project_id=run.get("project_id"),
+                node_id=run.get("node_id"),
+                run_id=run_id,
+                outcomes=outcomes,
+                timing={
+                    "ticks_executed": execution_result.get("ticks_executed", 0),
+                    "duration_ms": elapsed_ms,
+                },
+                reliability=reliability,
+                execution_counters=execution_result.get("execution_counters"),
             )
 
             # Final trace entry
@@ -919,6 +938,81 @@ async def _update_node_outcome(
                 )
             )
             await db.execute(project_stmt)
+
+
+async def _create_run_outcome(
+    db: AsyncSession,
+    tenant_id: str,
+    project_id: str,
+    node_id: str,
+    run_id: str,
+    outcomes: dict,
+    timing: dict,
+    reliability: Optional[dict] = None,
+    execution_counters: Optional[dict] = None,
+) -> Optional[uuid.UUID]:
+    """
+    PHASE 3: Create RunOutcome record for Probability Source Compliance.
+
+    Creates a RunOutcome from completed run data to enable empirical
+    probability distribution computation across multiple runs.
+
+    This function is called automatically after _update_run_complete
+    for SUCCEEDED runs only.
+
+    Args:
+        db: Database session
+        tenant_id: Tenant ID
+        project_id: Project ID
+        node_id: Node ID the run belongs to
+        run_id: Run ID
+        outcomes: AggregatedOutcome dict from run completion
+        timing: Run timing dict with duration, ticks_executed
+        reliability: Optional reliability metrics
+        execution_counters: Optional execution counters from Evidence Pack
+
+    Returns:
+        RunOutcome ID if created successfully, None otherwise
+    """
+    from sqlalchemy import text
+
+    try:
+        # Look up manifest_hash from run_manifests table (Phase 2 integration)
+        manifest_hash = None
+        manifest_query = text("""
+            SELECT manifest_hash
+            FROM run_manifests
+            WHERE run_id = :run_id
+            LIMIT 1
+        """)
+        result = await db.execute(manifest_query, {"run_id": run_id})
+        row = result.fetchone()
+        if row:
+            manifest_hash = row.manifest_hash
+
+        # Create RunOutcome using the from_run_completion factory method
+        run_outcome = RunOutcome.from_run_completion(
+            tenant_id=uuid.UUID(tenant_id),
+            project_id=uuid.UUID(project_id),
+            node_id=uuid.UUID(node_id),
+            run_id=uuid.UUID(run_id),
+            outcomes=outcomes,
+            timing=timing,
+            reliability=reliability,
+            execution_counters=execution_counters,
+            manifest_hash=manifest_hash,
+        )
+
+        # Add to session
+        db.add(run_outcome)
+
+        return run_outcome.id
+
+    except Exception as e:
+        # Log error but don't fail the run - RunOutcome is supplementary
+        import logging
+        logging.warning(f"PHASE 3: Failed to create RunOutcome for run {run_id}: {e}")
+        return None
 
 
 async def _aggregate_ensemble_outcomes(

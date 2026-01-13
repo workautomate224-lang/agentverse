@@ -1,19 +1,25 @@
 """
-STEP 7: Calibration & Reliability Endpoints
+Calibration & Reliability Endpoints
 
-Provides endpoints for:
+PHASE 4: Calibration Minimal Closed Loop
+- Ground truth dataset management
+- Ground truth label bulk upsert
+- Calibration job execution and monitoring
+
+STEP 7: Calibration & Reliability Endpoints
 - Calibration Lab: Create scenarios, run calibration, view metrics, stability tests, drift scans, auto-tune, rollback
 - Reliability Panel: View breakdown, download reports
 
-Reference: Future_Predictive_AI_Platform_Ultra_Checklist.md STEP 7
+Reference: project.md Phase 4, Future_Predictive_AI_Platform_Ultra_Checklist.md STEP 7
 """
 
 import hashlib
 import json
 import logging
-import uuid
+import uuid as uuid_module
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -25,13 +31,520 @@ from app.api.deps import get_current_user, get_db
 from app.middleware.tenant import TenantContext, get_tenant_context
 from app.models.user import User
 from app.models.audit import TenantAuditAction, TenantAuditService
+from app.services.calibration_service import CalibrationService, get_calibration_service
+from app.schemas.calibration import (
+    # Ground Truth
+    GroundTruthDatasetCreate,
+    GroundTruthDatasetResponse,
+    GroundTruthDatasetListResponse,
+    BulkUpsertLabelsRequest,
+    BulkUpsertLabelsResponse,
+    GroundTruthLabelResponse,
+    GroundTruthLabelListResponse,
+    # Calibration Jobs
+    CalibrationStartRequest,
+    CalibrationStartResponse,
+    CalibrationJobResponse,
+    CalibrationIterationResponse,
+    CalibrationIterationsResponse,
+    CalibrationResultResponse,
+    CalibrationCancelResponse,
+    CalibrationConfig,
+    CalibrationJobStatus as CalibrationJobStatusEnum,
+)
+from app.tasks.base import JobContext
+from app.models.calibration import CalibrationJobStatus
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 # =============================================================================
-# Request/Response Schemas
+# PHASE 4: Ground Truth Dataset Endpoints
+# =============================================================================
+
+@router.post(
+    "/ground-truth/datasets",
+    response_model=GroundTruthDatasetResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create Ground Truth Dataset (PHASE 4)",
+)
+async def create_ground_truth_dataset(
+    request: GroundTruthDatasetCreate,
+    project_id: UUID = Query(..., description="Project ID"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant: TenantContext = Depends(get_tenant_context),
+) -> GroundTruthDatasetResponse:
+    """
+    PHASE 4: Create a ground truth dataset for calibration.
+
+    Ground truth datasets contain labeled run outcomes used for
+    calibrating prediction probabilities.
+    """
+    service = get_calibration_service(db)
+    dataset = await service.create_dataset(
+        tenant_id=tenant.tenant_id,
+        project_id=project_id,
+        data=request,
+    )
+    await db.commit()
+
+    label_count = await service.get_dataset_label_count(dataset.id)
+
+    logger.info(f"Created ground truth dataset {dataset.id} for project {project_id}")
+
+    return GroundTruthDatasetResponse(
+        id=dataset.id,
+        tenant_id=dataset.tenant_id,
+        project_id=dataset.project_id,
+        name=dataset.name,
+        description=dataset.description,
+        created_at=dataset.created_at,
+        updated_at=dataset.updated_at,
+        label_count=label_count,
+    )
+
+
+@router.get(
+    "/ground-truth/datasets",
+    response_model=GroundTruthDatasetListResponse,
+    summary="List Ground Truth Datasets (PHASE 4)",
+)
+async def list_ground_truth_datasets(
+    project_id: UUID = Query(..., description="Project ID"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant: TenantContext = Depends(get_tenant_context),
+) -> GroundTruthDatasetListResponse:
+    """
+    PHASE 4: List all ground truth datasets for a project.
+    """
+    service = get_calibration_service(db)
+    datasets, total = await service.list_datasets(
+        tenant_id=tenant.tenant_id,
+        project_id=project_id,
+    )
+
+    # Get label counts for each dataset
+    response_datasets = []
+    for ds in datasets:
+        label_count = await service.get_dataset_label_count(ds.id)
+        response_datasets.append(GroundTruthDatasetResponse(
+            id=ds.id,
+            tenant_id=ds.tenant_id,
+            project_id=ds.project_id,
+            name=ds.name,
+            description=ds.description,
+            created_at=ds.created_at,
+            updated_at=ds.updated_at,
+            label_count=label_count,
+        ))
+
+    return GroundTruthDatasetListResponse(
+        datasets=response_datasets,
+        total=total,
+    )
+
+
+@router.get(
+    "/ground-truth/datasets/{dataset_id}",
+    response_model=GroundTruthDatasetResponse,
+    summary="Get Ground Truth Dataset (PHASE 4)",
+)
+async def get_ground_truth_dataset(
+    dataset_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant: TenantContext = Depends(get_tenant_context),
+) -> GroundTruthDatasetResponse:
+    """
+    PHASE 4: Get a specific ground truth dataset.
+    """
+    service = get_calibration_service(db)
+    dataset = await service.get_dataset(
+        dataset_id=dataset_id,
+        tenant_id=tenant.tenant_id,
+    )
+
+    if not dataset:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Dataset {dataset_id} not found",
+        )
+
+    label_count = await service.get_dataset_label_count(dataset.id)
+
+    return GroundTruthDatasetResponse(
+        id=dataset.id,
+        tenant_id=dataset.tenant_id,
+        project_id=dataset.project_id,
+        name=dataset.name,
+        description=dataset.description,
+        created_at=dataset.created_at,
+        updated_at=dataset.updated_at,
+        label_count=label_count,
+    )
+
+
+# =============================================================================
+# PHASE 4: Ground Truth Label Endpoints
+# =============================================================================
+
+@router.post(
+    "/ground-truth/datasets/{dataset_id}/labels",
+    response_model=BulkUpsertLabelsResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Bulk Upsert Ground Truth Labels (PHASE 4)",
+)
+async def bulk_upsert_labels(
+    dataset_id: UUID,
+    request: BulkUpsertLabelsRequest,
+    project_id: UUID = Query(..., description="Project ID"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant: TenantContext = Depends(get_tenant_context),
+) -> BulkUpsertLabelsResponse:
+    """
+    PHASE 4: Bulk upsert ground truth labels.
+
+    Accepts up to 1000 labels per request. Uses PostgreSQL's
+    ON CONFLICT for idempotent upserts. Existing labels for
+    the same (dataset_id, run_id) will be updated.
+    """
+    # Verify dataset exists
+    service = get_calibration_service(db)
+    dataset = await service.get_dataset(
+        dataset_id=dataset_id,
+        tenant_id=tenant.tenant_id,
+    )
+
+    if not dataset:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Dataset {dataset_id} not found",
+        )
+
+    result = await service.bulk_upsert_labels(
+        tenant_id=tenant.tenant_id,
+        project_id=project_id,
+        dataset_id=dataset_id,
+        request=request,
+    )
+    await db.commit()
+
+    logger.info(f"Bulk upserted {result.created} labels to dataset {dataset_id}")
+
+    return result
+
+
+@router.get(
+    "/ground-truth/datasets/{dataset_id}/labels",
+    response_model=GroundTruthLabelListResponse,
+    summary="List Ground Truth Labels (PHASE 4)",
+)
+async def list_labels(
+    dataset_id: UUID,
+    node_id: Optional[UUID] = Query(None, description="Filter by node ID"),
+    limit: int = Query(100, ge=1, le=1000, description="Max labels to return"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant: TenantContext = Depends(get_tenant_context),
+) -> GroundTruthLabelListResponse:
+    """
+    PHASE 4: List ground truth labels for a dataset.
+    """
+    service = get_calibration_service(db)
+    labels, total = await service.list_labels(
+        tenant_id=tenant.tenant_id,
+        dataset_id=dataset_id,
+        node_id=node_id,
+        limit=limit,
+        offset=offset,
+    )
+
+    return GroundTruthLabelListResponse(
+        labels=[
+            GroundTruthLabelResponse(
+                id=label.id,
+                tenant_id=label.tenant_id,
+                project_id=label.project_id,
+                dataset_id=label.dataset_id,
+                node_id=label.node_id,
+                run_id=label.run_id,
+                label=label.label,
+                notes=label.notes,
+                json_meta=label.json_meta or {},
+                created_at=label.created_at,
+            )
+            for label in labels
+        ],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+# =============================================================================
+# PHASE 4: Calibration Job Endpoints
+# =============================================================================
+
+@router.post(
+    "/jobs",
+    response_model=CalibrationStartResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Start Calibration Job (PHASE 4)",
+)
+async def start_calibration_job(
+    request: CalibrationStartRequest,
+    project_id: UUID = Query(..., description="Project ID"),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant: TenantContext = Depends(get_tenant_context),
+) -> CalibrationStartResponse:
+    """
+    PHASE 4: Start a calibration job.
+
+    Creates a calibration job record and dispatches it to
+    background execution via Celery. The job runs the
+    deterministic calibration algorithm (no LLM in loop).
+    """
+    from app.tasks.calibration import run_calibration_job
+
+    # Build config
+    config = CalibrationConfig(
+        node_id=request.node_id,
+        dataset_id=request.dataset_id,
+        target_accuracy=request.target_accuracy,
+        max_iterations=request.max_iterations,
+        metric_key=request.metric_key,
+        op=request.op,
+        threshold=request.threshold,
+        time_window_days=request.time_window_days,
+        weighting=request.weighting,
+        seed=request.seed,
+    )
+
+    # Create job
+    service = get_calibration_service(db)
+    job = await service.create_job(
+        tenant_id=tenant.tenant_id,
+        project_id=project_id,
+        config=config,
+        user_id=current_user.id,
+    )
+    await db.commit()
+
+    # Dispatch to Celery
+    context = JobContext(
+        tenant_id=str(tenant.tenant_id),
+        project_id=str(project_id),
+        job_id=str(job.id),
+        user_id=str(current_user.id) if current_user else None,
+    )
+
+    run_calibration_job.delay(
+        job_id=str(job.id),
+        context=context.to_dict(),
+    )
+
+    logger.info(f"Started calibration job {job.id} for node {request.node_id}")
+
+    return CalibrationStartResponse(
+        job_id=job.id,
+        status=CalibrationJobStatusEnum.QUEUED,
+        message="Calibration job queued for execution",
+    )
+
+
+@router.get(
+    "/jobs/{job_id}",
+    response_model=CalibrationJobResponse,
+    summary="Get Calibration Job Status (PHASE 4)",
+)
+async def get_calibration_job(
+    job_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant: TenantContext = Depends(get_tenant_context),
+) -> CalibrationJobResponse:
+    """
+    PHASE 4: Get calibration job status and progress.
+    """
+    service = get_calibration_service(db)
+    job = await service.get_job(
+        job_id=job_id,
+        tenant_id=tenant.tenant_id,
+    )
+
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job {job_id} not found",
+        )
+
+    # Get latest metrics if available
+    latest_metrics = None
+    if job.result_json and job.result_json.get("metrics"):
+        latest_metrics = job.result_json["metrics"]
+
+    return CalibrationJobResponse(
+        id=job.id,
+        tenant_id=job.tenant_id,
+        project_id=job.project_id,
+        node_id=job.node_id,
+        dataset_id=job.dataset_id,
+        status=CalibrationJobStatusEnum(job.status),
+        config_json=job.config_json,
+        progress=job.progress,
+        total_iterations=job.total_iterations,
+        created_at=job.created_at,
+        started_at=job.started_at,
+        finished_at=job.finished_at,
+        error_message=job.error_message,
+        latest_metrics=latest_metrics,
+    )
+
+
+@router.get(
+    "/jobs/{job_id}/iterations",
+    response_model=CalibrationIterationsResponse,
+    summary="Get Calibration Job Iterations (PHASE 4)",
+)
+async def get_calibration_iterations(
+    job_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant: TenantContext = Depends(get_tenant_context),
+) -> CalibrationIterationsResponse:
+    """
+    PHASE 4: Get all iterations for a calibration job.
+
+    Each iteration represents a different bin count configuration
+    tested during calibration. All iterations are stored for
+    audit and debugging purposes (C4 compliance).
+    """
+    service = get_calibration_service(db)
+    job = await service.get_job(
+        job_id=job_id,
+        tenant_id=tenant.tenant_id,
+    )
+
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job {job_id} not found",
+        )
+
+    iterations = await service.get_job_iterations(job_id)
+
+    return CalibrationIterationsResponse(
+        job_id=job_id,
+        iterations=[
+            CalibrationIterationResponse(
+                id=it.id,
+                job_id=it.job_id,
+                iter_index=it.iter_index,
+                params_json=it.params_json,
+                metrics_json=it.metrics_json,
+                created_at=it.created_at,
+            )
+            for it in iterations
+        ],
+        total=len(iterations),
+    )
+
+
+@router.get(
+    "/jobs/{job_id}/result",
+    response_model=CalibrationResultResponse,
+    summary="Get Calibration Job Result (PHASE 4)",
+)
+async def get_calibration_result(
+    job_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant: TenantContext = Depends(get_tenant_context),
+) -> CalibrationResultResponse:
+    """
+    PHASE 4: Get the final result of a calibration job.
+
+    Returns the best calibration mapping found, along with
+    metrics (accuracy, Brier score, ECE) and audit information.
+    """
+    service = get_calibration_service(db)
+    job = await service.get_job(
+        job_id=job_id,
+        tenant_id=tenant.tenant_id,
+    )
+
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job {job_id} not found",
+        )
+
+    return await service.get_job_result(job)
+
+
+@router.post(
+    "/jobs/{job_id}/cancel",
+    response_model=CalibrationCancelResponse,
+    summary="Cancel Calibration Job (PHASE 4)",
+)
+async def cancel_calibration_job(
+    job_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant: TenantContext = Depends(get_tenant_context),
+) -> CalibrationCancelResponse:
+    """
+    PHASE 4: Cancel a running or queued calibration job.
+
+    If the job is already in a terminal state (succeeded, failed,
+    or canceled), this is a no-op.
+    """
+    service = get_calibration_service(db)
+    job = await service.get_job(
+        job_id=job_id,
+        tenant_id=tenant.tenant_id,
+    )
+
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job {job_id} not found",
+        )
+
+    # Check if already terminal
+    if job.status in (
+        CalibrationJobStatus.SUCCEEDED.value,
+        CalibrationJobStatus.FAILED.value,
+        CalibrationJobStatus.CANCELED.value,
+    ):
+        return CalibrationCancelResponse(
+            job_id=job_id,
+            status=CalibrationJobStatusEnum(job.status),
+            message=f"Job already in terminal state: {job.status}",
+        )
+
+    # Cancel the job
+    await service.cancel_job(job_id, tenant.tenant_id)
+    await db.commit()
+
+    logger.info(f"Canceled calibration job {job_id}")
+
+    return CalibrationCancelResponse(
+        job_id=job_id,
+        status=CalibrationJobStatusEnum.CANCELED,
+        message="Job canceled successfully",
+    )
+
+
+# =============================================================================
+# STEP 7: Request/Response Schemas (Legacy Reliability Endpoints)
 # =============================================================================
 
 class CalibrationScenarioRequest(BaseModel):
@@ -222,7 +735,7 @@ async def create_calibration_scenario(
     3. Backend creates CalibrationScenario record with data_cutoff
     4. Emits AuditLog entry for scenario creation
     """
-    scenario_id = str(uuid.uuid4())
+    scenario_id = str(uuid_module.uuid4())
 
     scenario = {
         "id": scenario_id,
@@ -300,7 +813,7 @@ async def run_calibration(
             detail="Calibration scenario not found",
         )
 
-    calibration_id = str(uuid.uuid4())
+    calibration_id = str(uuid_module.uuid4())
 
     # STEP 7: Compute Brier score and ECE
     ground_truth = request.ground_truth
@@ -457,7 +970,7 @@ async def run_stability_test(
             detail="STEP 7 requires minimum 2 seeds for stability test",
         )
 
-    test_id = str(uuid.uuid4())
+    test_id = str(uuid_module.uuid4())
 
     # Simulate stability test results
     import random
@@ -551,7 +1064,7 @@ async def run_drift_scan(
     4. Stores DriftReport with reliability impact
     5. Emits AuditLog entry
     """
-    scan_id = str(uuid.uuid4())
+    scan_id = str(uuid_module.uuid4())
 
     # Simulate drift detection
     import random
@@ -647,7 +1160,7 @@ async def auto_tune_parameters(
     4. Stores version with rollback capability
     5. Emits AuditLog entry
     """
-    version_id = str(uuid.uuid4())
+    version_id = str(uuid_module.uuid4())
 
     # Get previous version number
     project_versions = [v for v in parameter_versions.values() if v.get("project_id") == request.project_id]
@@ -754,7 +1267,7 @@ async def rollback_parameters(
                        if v.get("project_id") == request.project_id and v.get("status") == "active"]
     current_active = project_versions[0] if project_versions else None
 
-    rollback_id = str(uuid.uuid4())
+    rollback_id = str(uuid_module.uuid4())
 
     # Mark current as rolled_back
     if current_active:
@@ -768,7 +1281,7 @@ async def rollback_parameters(
     target_version["activated_at"] = datetime.utcnow().isoformat()
 
     # Audit log
-    audit_entry_id = str(uuid.uuid4())
+    audit_entry_id = str(uuid_module.uuid4())
     await TenantAuditService.log_action(
         db=db,
         tenant_id=tenant.tenant_id,
@@ -874,7 +1387,7 @@ async def download_reliability_report(
     3. Returns report in requested format
     4. Emits AuditLog entry
     """
-    report_id = str(uuid.uuid4())
+    report_id = str(uuid_module.uuid4())
 
     # Compile report data
     report_data = {
