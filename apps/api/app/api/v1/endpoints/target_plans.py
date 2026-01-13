@@ -313,7 +313,7 @@ async def create_branch_from_plan(
             detail="Target plan not found"
         )
 
-    # Get the parent node (either specified node or project root)
+    # Get the parent node (either specified node or project root, or create one)
     parent_node_id = plan.node_id
     if not parent_node_id:
         # Get root node from project
@@ -324,11 +324,26 @@ async def create_branch_from_plan(
         if project and project.root_node_id:
             parent_node_id = project.root_node_id
 
+    # If no parent node exists, create a baseline root node
     if not parent_node_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No parent node available. Either set node_id on the plan or ensure project has root node."
+        root_node = Node(
+            tenant_id=tenant.tenant_id,
+            project_id=plan.project_id,
+            parent_node_id=None,
+            depth=0,
+            label="Baseline",
+            description="Auto-created baseline node",
+            is_baseline=True,
+            probability=1.0,
+            cumulative_probability=1.0,
         )
+        db.add(root_node)
+        await db.flush()
+        parent_node_id = root_node.id
+
+        # Update project with root_node_id if we have access
+        if project:
+            project.root_node_id = root_node.id
 
     # Create the new branch node (without intervention fields - those go on Edge)
     branch_name = data.branch_name or f"Branch: {plan.name}"
