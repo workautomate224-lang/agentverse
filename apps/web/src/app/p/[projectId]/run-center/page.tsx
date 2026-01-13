@@ -527,6 +527,15 @@ function RunDetailsModal({
             </Link>
           )}
 
+          {isCompleted && (
+            <Link href={`/p/${projectId}/reports?type=run&run=${run.run_id}`}>
+              <Button size="sm" variant="outline">
+                <FileText className="w-3 h-3 mr-2" />
+                View Report
+              </Button>
+            </Link>
+          )}
+
           <Button variant="ghost" size="sm" onClick={onClose}>
             Close
           </Button>

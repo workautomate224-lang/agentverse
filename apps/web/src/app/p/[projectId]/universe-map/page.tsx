@@ -72,6 +72,7 @@ import {
   Trash2,
   Sparkles,
   Zap,
+  FileText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -567,6 +568,12 @@ function InspectorPanel({
               <Button size="sm" variant="outline" className="w-full text-xs font-mono">
                 <Eye className="w-3 h-3 mr-2" />
                 Open in Replay
+              </Button>
+            </Link>
+            <Link href={`/p/${projectId}/reports?type=node&node=${node.id}`} className="block">
+              <Button size="sm" variant="outline" className="w-full text-xs font-mono">
+                <FileText className="w-3 h-3 mr-2" />
+                View Report
               </Button>
             </Link>
           </>

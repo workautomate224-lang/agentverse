@@ -28,6 +28,7 @@ import {
   ChevronDown,
   CheckCircle,
   Zap,
+  FileText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -150,7 +151,7 @@ export default function TelemetryReplayPage() {
   const { data: currentSlice, isLoading: sliceLoading } = useTelemetrySlice(selectedRunId || undefined, currentTick);
 
   // Total ticks from telemetry data
-  const totalTicks = telemetrySummary?.tick_count || telemetryIndex?.tick_index?.length || 0;
+  const totalTicks = telemetrySummary?.total_ticks || telemetryIndex?.total_ticks || 0;
 
   // Update selected run from URL
   useEffect(() => {
@@ -207,9 +208,11 @@ export default function TelemetryReplayPage() {
   const isLoading = indexLoading || summaryLoading;
 
   // Extract metrics from current slice
-  const activeAgents = currentSlice?.world_keyframe?.agent_counts?.active || 0;
-  const totalAgents = currentSlice?.world_keyframe?.agent_counts?.total || 0;
-  const eventsThisTick = currentSlice?.deltas?.length || 0;
+  const currentDelta = currentSlice?.deltas?.[0];
+  const currentKeyframe = currentSlice?.keyframes?.[0];
+  const activeAgents = currentDelta?.metrics?.active_agents || Object.keys(currentKeyframe?.agent_states || {}).length || 0;
+  const totalAgents = currentDelta?.metrics?.total_agents || Object.keys(currentKeyframe?.agent_states || {}).length || 0;
+  const eventsThisTick = currentSlice?.events?.length || 0;
 
   return (
     <div className="min-h-screen bg-black p-4 md:p-6">
@@ -308,7 +311,7 @@ export default function TelemetryReplayPage() {
                     </span>
                     {telemetrySummary && (
                       <span className="text-xs font-mono text-white/40">
-                        Total: {telemetrySummary.tick_count} ticks
+                        Total: {telemetrySummary.total_ticks} ticks
                       </span>
                     )}
                   </div>
@@ -480,7 +483,7 @@ export default function TelemetryReplayPage() {
             </div>
             {telemetrySummary && (
               <div className="text-[10px] font-mono text-white/40 mt-1">
-                {telemetrySummary.delta_count} total events
+                {telemetrySummary.total_events} total events
               </div>
             )}
           </div>
@@ -496,12 +499,20 @@ export default function TelemetryReplayPage() {
               Back to Universe Map
             </Button>
           </Link>
-          <Link href={`/p/${projectId}/results${selectedRunId ? `?run=${selectedRunId}` : ''}`}>
-            <Button size="sm" className="text-xs font-mono bg-cyan-500 hover:bg-cyan-600">
-              View Results
-              <ArrowRight className="w-3 h-3 ml-2" />
-            </Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href={`/p/${projectId}/reports?type=run${selectedRunId ? `&run=${selectedRunId}` : ''}`}>
+              <Button variant="outline" size="sm" className="text-xs font-mono">
+                <FileText className="w-3 h-3 mr-2" />
+                View Report
+              </Button>
+            </Link>
+            <Link href={`/p/${projectId}/results${selectedRunId ? `?run=${selectedRunId}` : ''}`}>
+              <Button size="sm" className="text-xs font-mono bg-cyan-500 hover:bg-cyan-600">
+                View Results
+                <ArrowRight className="w-3 h-3 ml-2" />
+              </Button>
+            </Link>
+          </div>
         </div>
       </div>
 
