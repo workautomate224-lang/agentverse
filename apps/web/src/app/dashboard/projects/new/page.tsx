@@ -27,8 +27,11 @@ import {
   EyeOff,
   X,
   Sparkles,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useCreateProjectSpec } from '@/hooks/useApi';
 
 // Wizard step definitions - simplified to 3 steps
 const STEPS = [
@@ -116,6 +119,7 @@ function getRecommendedCore(goal: string): CoreType {
 
 export default function CreateProjectWizardPage() {
   const router = useRouter();
+  const createProjectMutation = useCreateProjectSpec();
 
   const [currentStep, setCurrentStep] = useState<StepId>('goal');
   const [formData, setFormData] = useState<WizardFormData>({
@@ -126,6 +130,7 @@ export default function CreateProjectWizardPage() {
     isPublic: true,
   });
   const [tagInput, setTagInput] = useState('');
+  const [createError, setCreateError] = useState<string | null>(null);
 
   // Get current step index
   const currentStepIndex = STEPS.findIndex(s => s.id === currentStep);
@@ -201,13 +206,29 @@ export default function CreateProjectWizardPage() {
     }
   };
 
-  // Handle form submission - creates project and navigates to workspace
-  const handleCreate = () => {
-    // Generate a mock project ID (in real app this would come from backend)
-    const mockProjectId = `proj_${Date.now().toString(36)}`;
+  // Handle form submission - creates project via API and navigates to workspace
+  const handleCreate = async () => {
+    setCreateError(null);
 
-    // Navigate to the project workspace
-    router.push(`/p/${mockProjectId}/overview`);
+    try {
+      // Create project via backend API
+      const project = await createProjectMutation.mutateAsync({
+        name: formData.name,
+        description: formData.goal,
+        domain: formData.coreType, // collective, target, or hybrid
+        settings: {
+          default_horizon: 100,
+          default_tick_rate: 1000,
+          default_agent_count: 100,
+          allow_public_templates: formData.isPublic,
+        },
+      });
+
+      // Navigate to the project workspace using real UUID from backend
+      router.push(`/p/${project.id}/overview`);
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : 'Failed to create project');
+    }
   };
 
   return (
@@ -545,6 +566,17 @@ export default function CreateProjectWizardPage() {
                 </div>
               </div>
             </div>
+
+            {/* Error Display */}
+            {createError && (
+              <div className="bg-red-500/10 border border-red-500/30 p-4 flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-mono text-red-400 font-bold">Failed to create project</p>
+                  <p className="text-xs font-mono text-red-400/70 mt-1">{createError}</p>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -567,12 +599,21 @@ export default function CreateProjectWizardPage() {
             {currentStep === 'setup' ? (
               <Button
                 onClick={handleCreate}
-                disabled={!isStepValid('setup')}
+                disabled={!isStepValid('setup') || createProjectMutation.isPending}
                 size="sm"
                 className="w-full sm:w-auto text-xs"
               >
-                <FolderKanban className="w-3 h-3 mr-2" />
-                CREATE PROJECT
+                {createProjectMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-3 h-3 mr-2 animate-spin" />
+                    CREATING...
+                  </>
+                ) : (
+                  <>
+                    <FolderKanban className="w-3 h-3 mr-2" />
+                    CREATE PROJECT
+                  </>
+                )}
               </Button>
             ) : (
               <Button
