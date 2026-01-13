@@ -124,7 +124,7 @@ async def create_backtest(
     return await service.create_backtest(
         tenant_id=tenant.tenant_id,
         project_id=project_id,
-        data=data,
+        payload=data,
     )
 
 
