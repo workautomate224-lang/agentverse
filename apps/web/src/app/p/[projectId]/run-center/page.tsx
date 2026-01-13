@@ -49,8 +49,7 @@ import {
   useStartRun,
   useCancelRun,
   useRunProgress,
-  useTargetPersonas,
-  usePersonaTemplates,
+  useProjectPersonas,
   useNodes,
 } from '@/hooks/useApi';
 import type { RunSummary, SubmitRunInput, NodeSummary, SpecRun } from '@/lib/api';
@@ -691,14 +690,13 @@ export default function RunCenterPage() {
   // API hooks
   const { data: nodes, isLoading: nodesLoading } = useNodes({ project_id: projectId });
   const { data: runs, isLoading: runsLoading, refetch: refetchRuns } = useRuns({ project_id: projectId, limit: 20 });
-  const { data: personas } = useTargetPersonas({ project_id: projectId });
-  const { data: personaTemplates } = usePersonaTemplates();
+  const { data: projectPersonas } = useProjectPersonas(projectId);
   const createRun = useCreateRun();
   const startRun = useStartRun();
   const { data: activeRunProgress } = useRunProgress(activeRunId || undefined);
 
-  // Count personas (from either target personas or templates)
-  const personaCount = (personas?.length || 0) + (personaTemplates?.length || 0);
+  // Count DB-persisted personas for this project
+  const personaCount = projectPersonas?.length || 0;
 
   // Get selected node data
   const baselineNode = nodes?.find((n) => n.is_baseline);
