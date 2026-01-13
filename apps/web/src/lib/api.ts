@@ -1321,6 +1321,100 @@ export interface HybridRunListItem {
   completed_at?: string | null;
 }
 
+// =============================================================================
+// Target Plan Types (User-defined intervention plans)
+// =============================================================================
+
+export type TargetPlanSource = 'manual' | 'ai';
+
+export interface InterventionStep {
+  id: string;
+  tick: number;
+  action_type: string;
+  target: string;
+  parameters: Record<string, unknown>;
+  description?: string;
+}
+
+export interface PlanConstraints {
+  max_budget?: number;
+  max_interventions?: number;
+  time_constraints?: Record<string, unknown>;
+  custom?: Record<string, unknown>;
+}
+
+export interface TargetPlanItem {
+  id: string;
+  tenant_id: string;
+  project_id: string;
+  node_id: string | null;
+  name: string;
+  description: string | null;
+  target_metric: string;
+  target_value: number;
+  horizon_ticks: number;
+  constraints_json: PlanConstraints | null;
+  steps_json: InterventionStep[] | null;
+  source: TargetPlanSource;
+  ai_prompt: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TargetPlanCreate {
+  name: string;
+  description?: string;
+  node_id?: string;
+  target_metric: string;
+  target_value: number;
+  horizon_ticks?: number;
+  constraints_json?: PlanConstraints;
+  steps_json?: InterventionStep[];
+  source?: TargetPlanSource;
+  ai_prompt?: string;
+}
+
+export interface TargetPlanUpdate {
+  name?: string;
+  description?: string;
+  node_id?: string;
+  target_metric?: string;
+  target_value?: number;
+  horizon_ticks?: number;
+  constraints_json?: PlanConstraints;
+  steps_json?: InterventionStep[];
+}
+
+export interface TargetPlanListResponse {
+  plans: TargetPlanItem[];
+  total: number;
+}
+
+export interface AIGeneratePlanRequest {
+  prompt: string;
+  node_id?: string;
+  target_metric?: string;
+  horizon_ticks?: number;
+  constraints?: PlanConstraints;
+}
+
+export interface AIGeneratePlanResponse {
+  plan: TargetPlanItem;
+  reasoning: string;
+  confidence: number;
+}
+
+export interface CreateBranchFromPlanRequest {
+  plan_id: string;
+  branch_name?: string;
+}
+
+export interface CreateBranchFromPlanResponse {
+  node_id: string;
+  plan_id: string;
+  message: string;
+}
+
 class ApiClient {
   private baseUrl: string;
   private accessToken: string | null = null;
@@ -2433,6 +2527,73 @@ class ApiClient {
     return this.request(`/api/v1/project-specs/${projectId}/create-run${query ? `?${query}` : ''}`, {
       method: 'POST',
     });
+  }
+
+  // =============================================================================
+  // User Target Plan Endpoints (User-defined intervention plans)
+  // Note: Named with "User" prefix to avoid conflicts with existing TargetPlanner API
+  // =============================================================================
+
+  async listUserTargetPlans(projectId: string, params?: {
+    node_id?: string;
+    source?: TargetPlanSource;
+    skip?: number;
+    limit?: number;
+  }): Promise<TargetPlanListResponse> {
+    const searchParams = new URLSearchParams();
+    if (params?.node_id) searchParams.set('node_id', params.node_id);
+    if (params?.source) searchParams.set('source', params.source);
+    if (params?.skip) searchParams.set('skip', String(params.skip));
+    if (params?.limit) searchParams.set('limit', String(params.limit));
+
+    const query = searchParams.toString();
+    return this.request<TargetPlanListResponse>(
+      `/api/v1/plans/project-specs/${projectId}/target-plans${query ? `?${query}` : ''}`
+    );
+  }
+
+  async getUserTargetPlan(planId: string): Promise<TargetPlanItem> {
+    return this.request<TargetPlanItem>(`/api/v1/plans/target-plans/${planId}`);
+  }
+
+  async createUserTargetPlan(projectId: string, data: TargetPlanCreate): Promise<TargetPlanItem> {
+    return this.request<TargetPlanItem>(`/api/v1/plans/project-specs/${projectId}/target-plans`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateUserTargetPlan(planId: string, data: TargetPlanUpdate): Promise<TargetPlanItem> {
+    return this.request<TargetPlanItem>(`/api/v1/plans/target-plans/${planId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteUserTargetPlan(planId: string): Promise<void> {
+    return this.request<void>(`/api/v1/plans/target-plans/${planId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async generateUserTargetPlanWithAI(projectId: string, data: AIGeneratePlanRequest): Promise<AIGeneratePlanResponse> {
+    return this.request<AIGeneratePlanResponse>(
+      `/api/v1/plans/project-specs/${projectId}/target-plans/generate`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+  }
+
+  async createBranchFromUserPlan(planId: string, data: CreateBranchFromPlanRequest): Promise<CreateBranchFromPlanResponse> {
+    return this.request<CreateBranchFromPlanResponse>(
+      `/api/v1/plans/target-plans/${planId}/create-branch`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
   }
 
   // ========== Product Endpoints ==========

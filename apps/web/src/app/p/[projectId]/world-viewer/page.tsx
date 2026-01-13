@@ -874,7 +874,7 @@ export default function WorldViewerPage() {
           </div>
           <div className="flex items-center gap-2 text-xs font-mono text-white/40">
             <Users className="w-4 h-4" />
-            <span>{agentPositions.length} agents</span>
+            <span>{agentPositions.length > 0 ? agentPositions.length : (telemetryIndex?.agent_ids?.length ?? telemetrySummary?.total_agents ?? 0)} agents</span>
           </div>
         </div>
 

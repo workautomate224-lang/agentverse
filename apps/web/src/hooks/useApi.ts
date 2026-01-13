@@ -113,6 +113,18 @@ import api, {
   HybridRunProgress,
   HybridCouplingEffect,
   HybridRunStatus,
+  // Target Plan types (User-defined intervention plans)
+  TargetPlanItem,
+  TargetPlanCreate,
+  TargetPlanUpdate,
+  TargetPlanListResponse,
+  TargetPlanSource,
+  InterventionStep,
+  PlanConstraints,
+  AIGeneratePlanRequest,
+  AIGeneratePlanResponse,
+  CreateBranchFromPlanRequest,
+  CreateBranchFromPlanResponse,
   // LLM Admin types (GAPS.md GAP-P0-001)
   LLMProfile,
   LLMProfileCreate,
@@ -3099,5 +3111,105 @@ export function useAuditResourceTypes() {
     queryFn: () => api.listAuditResourceTypes(),
     enabled: isReady,
     staleTime: CACHE_TIMES.LONG,
+  });
+}
+
+// =============================================================================
+// User Target Plan Hooks (User-defined intervention plans)
+// Note: Named with "User" prefix to avoid conflicts with existing TargetPlanner hooks
+// =============================================================================
+
+export function useUserTargetPlans(projectId: string | undefined, params?: {
+  node_id?: string;
+  source?: TargetPlanSource;
+  skip?: number;
+  limit?: number;
+}) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['userTargetPlans', projectId, params],
+    queryFn: () => api.listUserTargetPlans(projectId!, params),
+    enabled: isReady && !!projectId,
+    staleTime: CACHE_TIMES.MEDIUM,
+  });
+}
+
+export function useUserTargetPlan(planId: string | undefined) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['userTargetPlans', 'detail', planId],
+    queryFn: () => api.getUserTargetPlan(planId!),
+    enabled: isReady && !!planId,
+    staleTime: CACHE_TIMES.MEDIUM,
+  });
+}
+
+export function useCreateUserTargetPlan() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: ({ projectId, data }: { projectId: string; data: TargetPlanCreate }) =>
+      api.createUserTargetPlan(projectId, data),
+    onSuccess: (_, { projectId }) => {
+      queryClient.invalidateQueries({ queryKey: ['userTargetPlans', projectId] });
+    },
+  });
+}
+
+export function useUpdateUserTargetPlan() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: ({ planId, data }: { planId: string; data: TargetPlanUpdate }) =>
+      api.updateUserTargetPlan(planId, data),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['userTargetPlans', result.project_id] });
+      queryClient.invalidateQueries({ queryKey: ['userTargetPlans', 'detail', result.id] });
+    },
+  });
+}
+
+export function useDeleteUserTargetPlan() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: ({ planId, projectId }: { planId: string; projectId: string }) =>
+      api.deleteUserTargetPlan(planId).then(() => projectId),
+    onSuccess: (projectId) => {
+      queryClient.invalidateQueries({ queryKey: ['userTargetPlans', projectId] });
+    },
+  });
+}
+
+export function useGenerateUserTargetPlanWithAI() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: ({ projectId, data }: { projectId: string; data: AIGeneratePlanRequest }) =>
+      api.generateUserTargetPlanWithAI(projectId, data),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['userTargetPlans', result.plan.project_id] });
+    },
+  });
+}
+
+export function useCreateBranchFromUserPlan() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: ({ planId, data }: { planId: string; data: CreateBranchFromPlanRequest }) =>
+      api.createBranchFromUserPlan(planId, data),
+    onSuccess: () => {
+      // Invalidate nodes and universe map
+      queryClient.invalidateQueries({ queryKey: ['nodes'] });
+      queryClient.invalidateQueries({ queryKey: ['universe-map'] });
+    },
   });
 }

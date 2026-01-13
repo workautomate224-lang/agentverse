@@ -81,6 +81,20 @@ from app.schemas.marketplace import (
     MarketplaceStats,
     AuthorStats,
 )
+# Target Plan Schemas (User intervention plans)
+from app.schemas.target_plan import (
+    TargetPlanSource as TargetPlanSourceSchema,
+    InterventionStep,
+    PlanConstraints,
+    TargetPlanCreate,
+    TargetPlanUpdate,
+    TargetPlanResponse,
+    TargetPlanListResponse,
+    AIGeneratePlanRequest,
+    AIGeneratePlanResponse,
+    CreateBranchFromPlanRequest,
+    CreateBranchFromPlanResponse,
+)
 # Event Script Schemas (project.md §6.4, Phase 3)
 from app.schemas.event_script import (
     EventType,
@@ -184,6 +198,18 @@ __all__ = [
     "UseTemplateResponse",
     "MarketplaceStats",
     "AuthorStats",
+    # Target Plan
+    "TargetPlanSourceSchema",
+    "InterventionStep",
+    "PlanConstraints",
+    "TargetPlanCreate",
+    "TargetPlanUpdate",
+    "TargetPlanResponse",
+    "TargetPlanListResponse",
+    "AIGeneratePlanRequest",
+    "AIGeneratePlanResponse",
+    "CreateBranchFromPlanRequest",
+    "CreateBranchFromPlanResponse",
     # Event Script (Phase 3)
     "EventType",
     "IntensityProfileType",

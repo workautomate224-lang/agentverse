@@ -451,6 +451,7 @@ function FocusedTickPanel({
   runId,
   projectId,
   totalTicks,
+  fallbackAgentCount,
   onRefresh,
 }: {
   tick: number;
@@ -459,10 +460,13 @@ function FocusedTickPanel({
   runId: string;
   projectId: string;
   totalTicks: number;
+  fallbackAgentCount: number;
   onRefresh: () => void;
 }) {
   const events = extractSliceEvents(slice);
-  const agentCount = extractAgentCount(slice);
+  // Use slice agent count, but fallback to index/summary count when slice is empty
+  const sliceAgentCount = extractAgentCount(slice);
+  const agentCount = sliceAgentCount > 0 ? sliceAgentCount : fallbackAgentCount;
 
   return (
     <div className="bg-white/5 border border-white/10">
@@ -700,6 +704,7 @@ export default function SocietySimulationPage() {
               runId={selectedRunId!}
               projectId={projectId}
               totalTicks={totalTicks}
+              fallbackAgentCount={telemetryIndex?.agent_ids?.length ?? telemetrySummary?.total_agents ?? 0}
               onRefresh={handleRefreshSlice}
             />
           )}

@@ -141,6 +141,11 @@ from app.models.planning import (
     SearchAlgorithm,
     ScoringWeights,
 )
+# Target Plan Models (User-defined intervention plans)
+from app.models.target_plan import (
+    TargetPlan,
+    TargetPlanSource,
+)
 # STEP 7: Reliability Models
 from app.models.reliability import (
     CalibrationResult,
@@ -316,6 +321,9 @@ __all__ = [
     "PlanCandidateStatus",
     "SearchAlgorithm",
     "ScoringWeights",
+    # Target Plan Models
+    "TargetPlan",
+    "TargetPlanSource",
     # STEP 7: Reliability Models
     "CalibrationResult",
     "StabilityTest",
