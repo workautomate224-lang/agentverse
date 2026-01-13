@@ -336,7 +336,7 @@ async def create_branch_from_plan(
     new_node = Node(
         tenant_id=tenant.tenant_id,
         project_id=plan.project_id,
-        parent_id=parent_node_id,
+        parent_node_id=parent_node_id,
         label=branch_name,
         description=f"Created from target plan: {plan.name}",
         intervention_type=InterventionType.MANUAL_FORK,
