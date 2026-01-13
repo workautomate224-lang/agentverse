@@ -3,7 +3,7 @@
 nixPkgs = ["python312", "postgresql"]
 
 [phases.install]
-cmds = ["pip install -r requirements.txt"]
+cmds = ["pip install -r requirements.txt", "chmod +x start.sh start-worker.sh entrypoint.sh"]
 
 [start]
-cmd = "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+cmd = "./start.sh"
