@@ -42,6 +42,7 @@ class InterventionType(str, Enum):
     VARIABLE_DELTA = "variable_delta"
     NL_QUERY = "nl_query"
     EXPANSION = "expansion"
+    MANUAL_FORK = "manual_fork"  # User-created plan from Target Planner
 
 
 class ExpansionStrategy(str, Enum):
