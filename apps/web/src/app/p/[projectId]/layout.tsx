@@ -32,7 +32,6 @@ import {
   Activity,
   Map,
   FileBarChart,
-  FlaskConical,
 } from 'lucide-react';
 
 // Mock project data - in real app this would come from API
@@ -42,7 +41,7 @@ const getMockProject = (projectId: string) => ({
   coreType: 'collective' as const,
 });
 
-// Project navigation items - full 13-item navigation
+// Project navigation items - full 12-item navigation
 const projectNavItems = [
   { name: 'Overview', href: 'overview', icon: LayoutDashboard },
   { name: 'Data & Personas', href: 'data-personas', icon: Users },
@@ -56,7 +55,6 @@ const projectNavItems = [
   { name: 'Telemetry & Replay', href: 'replay', icon: Activity },
   { name: '2D World Viewer', href: 'world-viewer', icon: Map },
   { name: 'Reports', href: 'reports', icon: FileBarChart },
-  { name: 'Backtests', href: 'backtests', icon: FlaskConical },
 ];
 
 // Secondary navigation
