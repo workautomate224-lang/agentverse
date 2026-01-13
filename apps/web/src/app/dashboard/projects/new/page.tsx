@@ -117,6 +117,29 @@ function getRecommendedCore(goal: string): CoreType {
   return 'collective'; // Default
 }
 
+// Detect domain from goal text (API expects: marketing, political, finance, custom)
+function detectDomain(goal: string): 'marketing' | 'political' | 'finance' | 'custom' {
+  const lowerGoal = goal.toLowerCase();
+
+  // Political keywords
+  const politicalKeywords = ['election', 'vote', 'voting', 'political', 'policy', 'government', 'candidate', 'campaign', 'democrat', 'republican', 'president', 'congress', 'senator'];
+  // Marketing keywords
+  const marketingKeywords = ['marketing', 'brand', 'ad', 'advertisement', 'pr', 'public relations', 'product launch', 'customer', 'consumer', 'market share'];
+  // Finance keywords
+  const financeKeywords = ['finance', 'stock', 'investment', 'trading', 'crypto', 'bitcoin', 'inflation', 'interest rate', 'economy', 'economic', 'gdp', 'market'];
+
+  const politicalScore = politicalKeywords.filter(k => lowerGoal.includes(k)).length;
+  const marketingScore = marketingKeywords.filter(k => lowerGoal.includes(k)).length;
+  const financeScore = financeKeywords.filter(k => lowerGoal.includes(k)).length;
+
+  // Return highest scoring domain
+  if (politicalScore > marketingScore && politicalScore > financeScore) return 'political';
+  if (marketingScore > politicalScore && marketingScore > financeScore) return 'marketing';
+  if (financeScore > politicalScore && financeScore > marketingScore) return 'finance';
+
+  return 'custom'; // Default
+}
+
 export default function CreateProjectWizardPage() {
   const router = useRouter();
   const createProjectMutation = useCreateProjectSpec();
@@ -211,11 +234,14 @@ export default function CreateProjectWizardPage() {
     setCreateError(null);
 
     try {
+      // Detect domain from goal (API expects: marketing, political, finance, custom)
+      const domain = detectDomain(formData.goal);
+
       // Create project via backend API
       const project = await createProjectMutation.mutateAsync({
         name: formData.name,
         description: formData.goal,
-        domain: formData.coreType, // collective, target, or hybrid
+        domain, // auto-detected from goal text
         settings: {
           default_horizon: 100,
           default_tick_rate: 1000,
