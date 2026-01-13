@@ -63,7 +63,8 @@ function RunSelector({
 }) {
   const [isOpen, setIsOpen] = useState(false);
 
-  const completedRuns = runs?.filter((r) => r.status === 'succeeded') || [];
+  // Filter to only runs with status=succeeded AND has_results=true (telemetry available)
+  const completedRuns = runs?.filter((r) => r.status === 'succeeded' && r.has_results) || [];
   const selectedRun = completedRuns.find((r) => r.run_id === selectedRunId);
 
   return (

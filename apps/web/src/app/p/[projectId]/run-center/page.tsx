@@ -44,6 +44,7 @@ import {
 import { cn } from '@/lib/utils';
 import {
   useRuns,
+  useRun,
   useCreateRun,
   useStartRun,
   useCancelRun,
@@ -52,8 +53,9 @@ import {
   usePersonaTemplates,
   useNodes,
 } from '@/hooks/useApi';
-import type { RunSummary, SubmitRunInput, NodeSummary } from '@/lib/api';
+import type { RunSummary, SubmitRunInput, NodeSummary, SpecRun } from '@/lib/api';
 import { useQueryClient } from '@tanstack/react-query';
+import { toast } from '@/hooks/use-toast';
 
 // Run configuration options
 const runOptions = [
@@ -132,6 +134,91 @@ function StatusBadge({ status }: { status: string }) {
       {config.icon}
       {status}
     </span>
+  );
+}
+
+// Pre-flight Validation Modal - shown when personas/rules are missing
+function PreFlightValidationModal({
+  open,
+  onClose,
+  projectId,
+  personaCount,
+}: {
+  open: boolean;
+  onClose: () => void;
+  projectId: string;
+  personaCount: number;
+}) {
+  const hasPersonas = personaCount > 0;
+
+  return (
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <DialogContent className="bg-black border border-red-500/30 max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-white font-mono flex items-center gap-2">
+            <AlertCircle className="w-5 h-5 text-red-400" />
+            Cannot Start Simulation
+          </DialogTitle>
+          <DialogDescription className="text-white/50 font-mono text-xs">
+            Your project is missing required configuration
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="py-4 space-y-4">
+          <div className="p-4 bg-red-500/10 border border-red-500/30">
+            <p className="text-sm font-mono text-red-400 mb-3">
+              You need Personas and Rules configured before running a simulation.
+            </p>
+            <ul className="space-y-2 text-sm font-mono">
+              <li className={cn(
+                'flex items-center gap-2',
+                hasPersonas ? 'text-green-400' : 'text-red-400'
+              )}>
+                {hasPersonas ? (
+                  <CheckCircle className="w-4 h-4" />
+                ) : (
+                  <X className="w-4 h-4" />
+                )}
+                <span>Personas: {personaCount} configured</span>
+              </li>
+              <li className="flex items-center gap-2 text-yellow-400">
+                <AlertCircle className="w-4 h-4" />
+                <span>Rules: Configure in Rules page</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <DialogFooter className="flex flex-col sm:flex-row gap-2">
+          <Link href={`/p/${projectId}/data-personas`} className="w-full sm:w-auto">
+            <Button
+              size="sm"
+              className={cn(
+                'w-full text-xs font-mono',
+                hasPersonas
+                  ? 'bg-white/10 text-white/60'
+                  : 'bg-cyan-500 hover:bg-cyan-600 text-black'
+              )}
+            >
+              <Users className="w-3 h-3 mr-2" />
+              {hasPersonas ? 'View Personas' : 'Add Personas'}
+            </Button>
+          </Link>
+          <Link href={`/p/${projectId}/rules`} className="w-full sm:w-auto">
+            <Button
+              size="sm"
+              className="w-full text-xs font-mono bg-purple-500 hover:bg-purple-600"
+            >
+              <FileText className="w-3 h-3 mr-2" />
+              Configure Rules
+            </Button>
+          </Link>
+          <Button variant="ghost" size="sm" onClick={onClose} className="w-full sm:w-auto">
+            Cancel
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -260,19 +347,32 @@ function RunDetailsModal({
   const { data: progress } = useRunProgress(
     run && ['running', 'starting', 'queued'].includes(run.status) ? run.run_id : undefined
   );
+  // Fetch full run details to get error info for failed runs
+  const { data: fullRun } = useRun(
+    run?.status === 'failed' ? run.run_id : undefined
+  );
   const cancelRun = useCancelRun();
 
   if (!run) return null;
 
   const isRunning = ['running', 'starting', 'queued'].includes(run.status);
   const isCompleted = run.status === 'succeeded';
+  const isFailed = run.status === 'failed';
+  const runError = (fullRun as SpecRun | undefined)?.error;
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <DialogContent className="bg-black border border-white/10 max-w-lg">
+      <DialogContent className={cn(
+        "bg-black max-w-lg",
+        isFailed ? "border border-red-500/30" : "border border-white/10"
+      )}>
         <DialogHeader>
           <DialogTitle className="text-white font-mono flex items-center gap-2">
-            <History className="w-5 h-5 text-cyan-400" />
+            {isFailed ? (
+              <AlertCircle className="w-5 h-5 text-red-400" />
+            ) : (
+              <History className="w-5 h-5 text-cyan-400" />
+            )}
             Run Details
           </DialogTitle>
         </DialogHeader>
@@ -311,7 +411,10 @@ function RunDetailsModal({
               </div>
               <div className="h-1 bg-white/10 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-cyan-500 transition-all"
+                  className={cn(
+                    "h-full transition-all",
+                    isFailed ? "bg-red-500" : "bg-cyan-500"
+                  )}
                   style={{
                     width: `${
                       run.timing?.total_ticks
@@ -323,6 +426,46 @@ function RunDetailsModal({
                   }}
                 />
               </div>
+            </div>
+          )}
+
+          {/* Error Details Section for Failed Runs */}
+          {isFailed && (
+            <div className="bg-red-500/10 border border-red-500/30 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-red-400" />
+                <span className="text-sm font-mono font-bold text-red-400">Run Failed</span>
+              </div>
+              {runError ? (
+                <>
+                  <div>
+                    <span className="text-[10px] font-mono text-white/40 uppercase">Error Code</span>
+                    <p className="text-xs font-mono text-red-400">{runError.error_code}</p>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-mono text-white/40 uppercase">Error Message</span>
+                    <p className="text-xs font-mono text-white/80">{runError.error_message}</p>
+                  </div>
+                  {runError.tick_at_failure !== undefined && (
+                    <div>
+                      <span className="text-[10px] font-mono text-white/40 uppercase">Failed At Tick</span>
+                      <p className="text-xs font-mono text-white/80">{runError.tick_at_failure}</p>
+                    </div>
+                  )}
+                  {runError.stack_trace && (
+                    <div>
+                      <span className="text-[10px] font-mono text-white/40 uppercase">Stack Trace</span>
+                      <pre className="text-[10px] font-mono text-white/60 bg-black/50 p-2 mt-1 overflow-x-auto max-h-32">
+                        {runError.stack_trace}
+                      </pre>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-xs font-mono text-white/60">
+                  Loading error details...
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -518,6 +661,7 @@ export default function RunCenterPage() {
   const [customRunModalOpen, setCustomRunModalOpen] = useState(false);
   const [selectedRun, setSelectedRun] = useState<RunSummary | null>(null);
   const [runDetailsModalOpen, setRunDetailsModalOpen] = useState(false);
+  const [preFlightModalOpen, setPreFlightModalOpen] = useState(false);
 
   // Track active run for progress polling
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
@@ -570,8 +714,14 @@ export default function RunCenterPage() {
     }
   }, [activeRunProgress, refetchRuns]);
 
-  // Handle starting a run
+  // Handle starting a run with pre-flight validation
   const handleStartRun = async (runType: string, config?: SubmitRunInput['config']) => {
+    // Pre-flight validation: check if personas exist
+    if (personaCount === 0) {
+      setPreFlightModalOpen(true);
+      return;
+    }
+
     const runConfig = runOptions.find((o) => o.id === runType)?.config || config || {};
 
     // Build label with node context
@@ -592,14 +742,34 @@ export default function RunCenterPage() {
     try {
       const newRun = await createRun.mutateAsync(runInput);
       setActiveRunId(newRun.run_id);
+
+      // Show success toast
+      toast({
+        title: 'Simulation Started',
+        description: `${runLabel} is now running.`,
+      });
+
       refetchRuns();
 
       // If not auto-started, start it manually
       if (newRun.status === 'queued') {
         await startRun.mutateAsync(newRun.run_id);
       }
-    } catch {
-      // Error handled by mutation
+    } catch (error) {
+      // Extract error message from the error
+      const errorMessage = error instanceof Error
+        ? error.message
+        : 'An unknown error occurred';
+
+      // Show error toast with real error message
+      toast({
+        title: 'Failed to Start Run',
+        description: errorMessage,
+        variant: 'destructive',
+      });
+
+      // Refetch to show any partially created run
+      refetchRuns();
     }
   };
 
@@ -805,13 +975,29 @@ export default function RunCenterPage() {
             <p className="text-lg font-mono font-bold text-white">100</p>
             <p className="text-[10px] font-mono text-white/40">ticks</p>
           </div>
-          <div className="bg-white/5 border border-white/10 p-4">
-            <div className="flex items-center gap-2 text-white/40 mb-2">
+          <div className={cn(
+            "p-4 border",
+            personaCount === 0
+              ? "bg-red-500/10 border-red-500/30"
+              : "bg-white/5 border-white/10"
+          )}>
+            <div className={cn(
+              "flex items-center gap-2 mb-2",
+              personaCount === 0 ? "text-red-400" : "text-white/40"
+            )}>
               <Users className="w-3.5 h-3.5" />
               <span className="text-[10px] font-mono uppercase">Personas</span>
             </div>
-            <p className="text-lg font-mono font-bold text-white">{personaCount}</p>
-            <p className="text-[10px] font-mono text-white/40">configured</p>
+            <p className={cn(
+              "text-lg font-mono font-bold",
+              personaCount === 0 ? "text-red-400" : "text-white"
+            )}>{personaCount}</p>
+            <p className={cn(
+              "text-[10px] font-mono",
+              personaCount === 0 ? "text-red-400/60" : "text-white/40"
+            )}>
+              {personaCount === 0 ? "required" : "configured"}
+            </p>
           </div>
           <div className="bg-white/5 border border-white/10 p-4">
             <div className="flex items-center gap-2 text-white/40 mb-2">
@@ -908,6 +1094,13 @@ export default function RunCenterPage() {
                       Replay
                     </Link>
                   )}
+                  {/* View Error button for failed runs */}
+                  {run.status === 'failed' && (
+                    <span className="flex items-center gap-1 px-2 py-1 bg-red-500/10 border border-red-500/30 text-red-400 text-[10px] font-mono">
+                      <AlertCircle className="w-3 h-3" />
+                      View Error
+                    </span>
+                  )}
                   <ChevronRight className="w-4 h-4 text-white/40" />
                 </div>
               </button>
@@ -996,6 +1189,13 @@ export default function RunCenterPage() {
         nodes={nodes}
         isLoading={nodesLoading}
         currentNodeId={selectedNodeId}
+      />
+
+      <PreFlightValidationModal
+        open={preFlightModalOpen}
+        onClose={() => setPreFlightModalOpen(false)}
+        projectId={projectId}
+        personaCount={personaCount}
       />
     </div>
   );
