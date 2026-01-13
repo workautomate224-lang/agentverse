@@ -434,12 +434,13 @@ interface RunReportProps {
 }
 
 function RunReport({ projectId, runId, runs, onExportJSON, onExportMarkdown, onCopyLink, linkCopied }: RunReportProps) {
-  const { data: run, isLoading: runLoading } = useRun(runId);
-  const { data: telemetryIndex, isLoading: indexLoading } = useTelemetryIndex(runId);
-  const { data: telemetrySummary, isLoading: summaryLoading } = useTelemetrySummary(runId);
+  const { data: run, isLoading: runLoading, isError: runError } = useRun(runId);
+  const { data: telemetryIndex, isLoading: indexLoading, isError: indexError } = useTelemetryIndex(runId);
+  const { data: telemetrySummary, isLoading: summaryLoading, isError: summaryError } = useTelemetrySummary(runId);
   const { data: node } = useNode(run?.node_id);
 
-  const isLoading = runLoading || indexLoading || summaryLoading;
+  const isLoading = runLoading;
+  const hasTelemetryError = indexError || summaryError;
 
   const metrics = useMemo((): ReliabilityMetrics => {
     const coverageScore = computeCoverageScore(telemetryIndex);
@@ -464,7 +465,7 @@ function RunReport({ projectId, runId, runs, onExportJSON, onExportMarkdown, onC
     );
   }
 
-  if (!run) {
+  if (runError || !run) {
     return (
       <div className="border border-red-500/20 bg-red-500/5 p-8 text-center">
         <XCircle className="w-12 h-12 mx-auto text-red-400/40 mb-4" />
@@ -506,6 +507,17 @@ function RunReport({ projectId, runId, runs, onExportJSON, onExportMarkdown, onC
           </div>
         </div>
       </div>
+
+      {/* Telemetry Error Warning */}
+      {hasTelemetryError && (
+        <div className="border border-yellow-500/30 bg-yellow-500/5 p-4 flex items-center gap-3">
+          <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0" />
+          <div>
+            <p className="text-sm font-mono text-yellow-400">Telemetry data unavailable</p>
+            <p className="text-xs font-mono text-white/50">Some metrics could not be loaded. The report may be incomplete.</p>
+          </div>
+        </div>
+      )}
 
       {/* Section 2: Executive Summary */}
       <div className="border border-white/10 bg-white/5 p-4">
