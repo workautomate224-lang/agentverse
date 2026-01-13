@@ -145,6 +145,9 @@ import api, {
   Phase6ReliabilitySummaryResponse,
   Phase6ReliabilityDetailResponse,
   Phase6ReliabilityQueryParams,
+  // PHASE 7: Aggregated Report types
+  ReportResponse,
+  ReportQueryParams,
 } from '@/lib/api';
 
 // Extended session user type for type safety
@@ -1683,6 +1686,46 @@ export function usePhase6ReliabilityDetail(
     queryFn: () => api.getPhase6ReliabilityDetail(nodeId!, params!),
     enabled: isReady && !!nodeId && !!params?.metric_key,
     staleTime: CACHE_TIMES.MEDIUM,
+  });
+}
+
+// =============================================================================
+// PHASE 7: Aggregated Report Hooks (Reports Page)
+// =============================================================================
+
+/**
+ * Hook for Phase 7 aggregated report.
+ * Merges prediction, reliability, calibration, and provenance.
+ * NEVER returns HTTP 500 - returns insufficient_data=true instead.
+ */
+export function useNodeReport(
+  nodeId: string | undefined,
+  params: ReportQueryParams | undefined
+) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['reports', nodeId, params],
+    queryFn: () => api.getNodeReport(nodeId!, params!),
+    // Enabled only when we have nodeId and all required params
+    enabled: isReady && !!nodeId && !!params?.metric_key && !!params?.op && params?.threshold !== undefined,
+    staleTime: CACHE_TIMES.MEDIUM,
+    // Important: Keep previous data while refetching for smooth UI transitions
+    placeholderData: (prev) => prev,
+  });
+}
+
+/**
+ * Hook for exporting Phase 7 report as JSON.
+ * Same as useNodeReport but triggers download.
+ */
+export function useExportNodeReport() {
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: ({ nodeId, params }: { nodeId: string; params: ReportQueryParams }) =>
+      api.exportNodeReport(nodeId, params),
+    // No cache invalidation needed - export is read-only
   });
 }
 

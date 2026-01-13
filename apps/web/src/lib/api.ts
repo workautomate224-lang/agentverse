@@ -3211,6 +3211,61 @@ class ApiClient {
     );
   }
 
+  // ========== PHASE 7: Aggregated Report Endpoints ==========
+
+  /**
+   * Get aggregated report for a node (PHASE 7).
+   * Merges prediction, reliability, calibration, and provenance into single response.
+   * NEVER returns HTTP 500 for missing data - returns 200 with insufficient_data=true.
+   */
+  async getNodeReport(
+    nodeId: string,
+    params: ReportQueryParams
+  ): Promise<ReportResponse> {
+    const searchParams = new URLSearchParams();
+    // Required params
+    searchParams.set('metric_key', params.metric_key);
+    searchParams.set('op', params.op);
+    searchParams.set('threshold', String(params.threshold));
+    // Optional params
+    if (params.manifest_hash) searchParams.set('manifest_hash', params.manifest_hash);
+    if (params.min_runs !== undefined) searchParams.set('min_runs', String(params.min_runs));
+    if (params.window_days !== undefined) searchParams.set('window_days', String(params.window_days));
+    if (params.n_sensitivity_grid !== undefined) searchParams.set('n_sensitivity_grid', String(params.n_sensitivity_grid));
+    if (params.n_bootstrap !== undefined) searchParams.set('n_bootstrap', String(params.n_bootstrap));
+    if (params.n_bins !== undefined) searchParams.set('n_bins', String(params.n_bins));
+
+    const query = searchParams.toString();
+    return this.request<ReportResponse>(
+      `/api/v1/reports/nodes/${nodeId}?${query}`
+    );
+  }
+
+  /**
+   * Export report as JSON file (PHASE 7).
+   * Same as getNodeReport but intended for download functionality.
+   */
+  async exportNodeReport(
+    nodeId: string,
+    params: ReportQueryParams
+  ): Promise<ReportResponse> {
+    const searchParams = new URLSearchParams();
+    searchParams.set('metric_key', params.metric_key);
+    searchParams.set('op', params.op);
+    searchParams.set('threshold', String(params.threshold));
+    if (params.manifest_hash) searchParams.set('manifest_hash', params.manifest_hash);
+    if (params.min_runs !== undefined) searchParams.set('min_runs', String(params.min_runs));
+    if (params.window_days !== undefined) searchParams.set('window_days', String(params.window_days));
+    if (params.n_sensitivity_grid !== undefined) searchParams.set('n_sensitivity_grid', String(params.n_sensitivity_grid));
+    if (params.n_bootstrap !== undefined) searchParams.set('n_bootstrap', String(params.n_bootstrap));
+    if (params.n_bins !== undefined) searchParams.set('n_bins', String(params.n_bins));
+
+    const query = searchParams.toString();
+    return this.request<ReportResponse>(
+      `/api/v1/reports/nodes/${nodeId}/export?${query}`
+    );
+  }
+
   // MARL Training
   async startMarlTraining(data: MarlTrainingRequest): Promise<{ message: string; training_id: string }> {
     return this.request<{ message: string; training_id: string }>('/api/v1/predictions/train', {
@@ -5280,6 +5335,207 @@ export interface Phase6ReliabilityQueryParams {
   window_days?: number;
   /** Minimum runs required */
   min_runs?: number;
+}
+
+// =============================================================================
+// PHASE 7: Aggregated Report Types (Reports Page - Prediction + Reliability)
+// Reference: app/schemas/report.py
+// =============================================================================
+
+/**
+ * Comparison operators for target probability.
+ */
+export type ReportOperator = 'ge' | 'gt' | 'le' | 'lt' | 'eq';
+
+/**
+ * Drift detection status.
+ */
+export type ReportDriftStatus = 'stable' | 'warning' | 'drifting';
+
+/**
+ * Target specification for report computation.
+ */
+export interface ReportTargetSpec {
+  /** Comparison operator */
+  op: ReportOperator;
+  /** Threshold value */
+  threshold: number;
+}
+
+/**
+ * Filters applied to the report computation.
+ */
+export interface ReportFilters {
+  /** Manifest hash filter if applied */
+  manifest_hash?: string | null;
+  /** Time window in days */
+  window_days: number;
+  /** Minimum runs required */
+  min_runs: number;
+}
+
+/**
+ * Provenance information for auditability.
+ */
+export interface ReportProvenance {
+  /** Manifest hash used (if filtered) */
+  manifest_hash?: string | null;
+  /** Filters applied */
+  filters: ReportFilters;
+  /** Number of runs used in computation */
+  n_runs: number;
+  /** Timestamp of most recent run in dataset */
+  updated_at: string;
+}
+
+/**
+ * Histogram data for prediction distribution.
+ */
+export interface ReportDistributionData {
+  /** Bin edges (N+1 values for N bins) */
+  bins: number[];
+  /** Counts per bin (N values) */
+  counts: number[];
+  /** Minimum value in data */
+  min: number;
+  /** Maximum value in data */
+  max: number;
+}
+
+/**
+ * Prediction section of the report.
+ */
+export interface ReportPredictionResult {
+  /** Empirical distribution histogram */
+  distribution: ReportDistributionData;
+  /** P(metric op threshold) - probability of meeting target */
+  target_probability: number;
+}
+
+/**
+ * Reliability diagram curve data.
+ */
+export interface ReportCalibrationCurve {
+  /** Predicted probabilities (bin centers) */
+  p_pred: number[];
+  /** Observed frequencies */
+  p_true: number[];
+  /** Sample counts per bin */
+  counts: number[];
+}
+
+/**
+ * Calibration section of the report.
+ */
+export interface ReportCalibrationResult {
+  /** Whether calibration data is available */
+  available: boolean;
+  /** UUID of latest calibration job */
+  latest_job_id?: string | null;
+  /** Brier score (lower is better) */
+  brier?: number | null;
+  /** Expected Calibration Error */
+  ece?: number | null;
+  /** Calibration curve for visualization */
+  curve?: ReportCalibrationCurve | null;
+}
+
+/**
+ * Sensitivity analysis data: P(metric op threshold) across threshold grid.
+ */
+export interface ReportSensitivityData {
+  /** Threshold grid values */
+  thresholds: number[];
+  /** Probabilities at each threshold */
+  probabilities: number[];
+}
+
+/**
+ * Stability analysis via bootstrap resampling.
+ */
+export interface ReportStabilityData {
+  /** Bootstrap mean estimate */
+  mean: number;
+  /** 95% CI lower bound */
+  ci_low: number;
+  /** 95% CI upper bound */
+  ci_high: number;
+  /** Number of bootstrap samples used */
+  bootstrap_samples: number;
+}
+
+/**
+ * Drift detection results.
+ */
+export interface ReportDriftData {
+  /** Drift status: stable, warning, or drifting */
+  status: ReportDriftStatus;
+  /** Kolmogorov-Smirnov statistic */
+  ks?: number | null;
+  /** Population Stability Index */
+  psi?: number | null;
+}
+
+/**
+ * Reliability section of the report.
+ */
+export interface ReportReliabilityResult {
+  /** Sensitivity analysis */
+  sensitivity: ReportSensitivityData;
+  /** Stability analysis with CI */
+  stability: ReportStabilityData;
+  /** Drift detection results */
+  drift: ReportDriftData;
+}
+
+/**
+ * Complete report response - aggregates all prediction and reliability data.
+ * Returns HTTP 200 with insufficient_data=true when data is insufficient,
+ * never returns HTTP 500 for missing data.
+ */
+export interface ReportResponse {
+  /** UUID of the node */
+  node_id: string;
+  /** Metric key analyzed */
+  metric_key: string;
+  /** Target specification (op + threshold) */
+  target: ReportTargetSpec;
+  /** Audit trail and data source info */
+  provenance: ReportProvenance;
+  /** Prediction distribution and target probability */
+  prediction: ReportPredictionResult;
+  /** Calibration metrics from latest job */
+  calibration: ReportCalibrationResult;
+  /** Sensitivity, stability, and drift */
+  reliability: ReportReliabilityResult;
+  /** True if n_runs < min_runs required */
+  insufficient_data: boolean;
+  /** Error messages explaining what is missing */
+  errors: string[];
+}
+
+/**
+ * Query parameters for report endpoint.
+ */
+export interface ReportQueryParams {
+  /** Metric key (required) */
+  metric_key: string;
+  /** Comparison operator (required) */
+  op: ReportOperator;
+  /** Threshold value (required) */
+  threshold: number;
+  /** Optional manifest hash filter */
+  manifest_hash?: string;
+  /** Minimum runs required (default: 3) */
+  min_runs?: number;
+  /** Time window in days (default: 30) */
+  window_days?: number;
+  /** Number of sensitivity grid points (default: 20) */
+  n_sensitivity_grid?: number;
+  /** Number of bootstrap samples (default: 200) */
+  n_bootstrap?: number;
+  /** Number of histogram bins (default: 20) */
+  n_bins?: number;
 }
 
 // =============================================================================

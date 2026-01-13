@@ -52,6 +52,8 @@ import {
   useTelemetryIndex,
   useTelemetrySummary,
   useProject,
+  // Phase 7: Aggregated Report hook
+  useNodeReport,
 } from '@/hooks/useApi';
 import type {
   NodeSummary,
@@ -59,13 +61,18 @@ import type {
   TelemetryIndex,
   TelemetrySummary,
   SpecRunStatus,
+  // Phase 7: Aggregated Report types
+  ReportResponse,
+  ReportQueryParams,
+  ReportOperator,
+  ReportDriftStatus,
 } from '@/lib/api';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-type ReportType = 'project' | 'node' | 'run';
+type ReportType = 'project' | 'node' | 'run' | 'prediction';
 
 interface ReliabilityMetrics {
   coverageScore: number;
@@ -325,6 +332,7 @@ function ReportTypeSelector({ value, onChange }: ReportTypeSelectorProps) {
     { value: 'project', label: 'Project Overview', icon: Layers, color: 'cyan' },
     { value: 'node', label: 'Node Summary', icon: GitBranch, color: 'purple' },
     { value: 'run', label: 'Run Report', icon: Play, color: 'green' },
+    { value: 'prediction', label: 'Prediction Report', icon: Target, color: 'orange' },
   ];
   return (
     <div className="flex gap-2">
@@ -1038,6 +1046,590 @@ function ProjectOverviewReport({ projectId, onExportJSON, onExportMarkdown, onCo
 }
 
 // ============================================================================
+// Phase 7: Prediction Report Component
+// ============================================================================
+
+interface PredictionReportParamsProps {
+  metricKey: string;
+  setMetricKey: (v: string) => void;
+  op: ReportOperator;
+  setOp: (v: ReportOperator) => void;
+  threshold: number;
+  setThreshold: (v: number) => void;
+  windowDays: number;
+  setWindowDays: (v: number) => void;
+  minRuns: number;
+  setMinRuns: (v: number) => void;
+}
+
+function PredictionReportParams({
+  metricKey, setMetricKey, op, setOp, threshold, setThreshold,
+  windowDays, setWindowDays, minRuns, setMinRuns,
+}: PredictionReportParamsProps) {
+  const operators: { value: ReportOperator; label: string }[] = [
+    { value: 'ge', label: '>=' },
+    { value: 'gt', label: '>' },
+    { value: 'le', label: '<=' },
+    { value: 'lt', label: '<' },
+    { value: 'eq', label: '=' },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div>
+        <label className="text-[10px] font-mono text-white/40 uppercase mb-1 block">Metric Key</label>
+        <input
+          type="text"
+          value={metricKey}
+          onChange={(e) => setMetricKey(e.target.value)}
+          placeholder="e.g., revenue"
+          className="w-full px-3 py-2 bg-white/5 border border-white/10 text-sm font-mono text-white placeholder:text-white/30 focus:border-cyan-500/50 focus:outline-none"
+        />
+      </div>
+      <div>
+        <label className="text-[10px] font-mono text-white/40 uppercase mb-1 block">Operator</label>
+        <select
+          value={op}
+          onChange={(e) => setOp(e.target.value as ReportOperator)}
+          className="w-full px-3 py-2 bg-white/5 border border-white/10 text-sm font-mono text-white focus:border-cyan-500/50 focus:outline-none"
+        >
+          {operators.map(o => (
+            <option key={o.value} value={o.value} className="bg-black">{o.label}</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className="text-[10px] font-mono text-white/40 uppercase mb-1 block">Threshold</label>
+        <input
+          type="number"
+          value={threshold}
+          onChange={(e) => setThreshold(parseFloat(e.target.value) || 0)}
+          step="0.01"
+          className="w-full px-3 py-2 bg-white/5 border border-white/10 text-sm font-mono text-white focus:border-cyan-500/50 focus:outline-none"
+        />
+      </div>
+      <div>
+        <label className="text-[10px] font-mono text-white/40 uppercase mb-1 block">Window (days)</label>
+        <input
+          type="number"
+          value={windowDays}
+          onChange={(e) => setWindowDays(parseInt(e.target.value) || 30)}
+          min={1}
+          className="w-full px-3 py-2 bg-white/5 border border-white/10 text-sm font-mono text-white focus:border-cyan-500/50 focus:outline-none"
+        />
+      </div>
+      <div>
+        <label className="text-[10px] font-mono text-white/40 uppercase mb-1 block">Min Runs</label>
+        <input
+          type="number"
+          value={minRuns}
+          onChange={(e) => setMinRuns(parseInt(e.target.value) || 3)}
+          min={1}
+          className="w-full px-3 py-2 bg-white/5 border border-white/10 text-sm font-mono text-white focus:border-cyan-500/50 focus:outline-none"
+        />
+      </div>
+    </div>
+  );
+}
+
+interface DistributionHistogramProps {
+  bins: number[];
+  counts: number[];
+  threshold: number;
+  op: ReportOperator;
+}
+
+function DistributionHistogram({ bins, counts, threshold, op }: DistributionHistogramProps) {
+  const maxCount = Math.max(...counts, 1);
+  const barWidth = 100 / bins.length;
+
+  // Determine which bars meet the target condition
+  const meetsTarget = (binValue: number): boolean => {
+    switch (op) {
+      case 'ge': return binValue >= threshold;
+      case 'gt': return binValue > threshold;
+      case 'le': return binValue <= threshold;
+      case 'lt': return binValue < threshold;
+      case 'eq': return Math.abs(binValue - threshold) < 0.001;
+      default: return false;
+    }
+  };
+
+  return (
+    <div className="h-40 flex items-end gap-[2px] px-2">
+      {bins.map((bin, i) => {
+        const height = (counts[i] / maxCount) * 100;
+        const isTarget = meetsTarget(bin);
+        return (
+          <div
+            key={i}
+            className="relative group"
+            style={{ width: `${barWidth}%`, height: '100%' }}
+          >
+            <div
+              className={cn(
+                'absolute bottom-0 w-full transition-all',
+                isTarget ? 'bg-cyan-400' : 'bg-white/20'
+              )}
+              style={{ height: `${height}%` }}
+            />
+            <div className="absolute -top-8 left-1/2 -translate-x-1/2 hidden group-hover:block bg-black/90 border border-white/20 px-2 py-1 text-[10px] font-mono text-white whitespace-nowrap z-10">
+              {bin.toFixed(2)}: {counts[i]}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+interface CalibrationCurveChartProps {
+  pPred: number[];
+  pTrue: number[];
+  counts: number[];
+}
+
+function CalibrationCurveChart({ pPred, pTrue, counts }: CalibrationCurveChartProps) {
+  // Simple SVG-based calibration curve
+  const width = 200;
+  const height = 200;
+  const padding = 30;
+  const plotWidth = width - 2 * padding;
+  const plotHeight = height - 2 * padding;
+
+  const points = pPred.map((pred, i) => ({
+    x: padding + pred * plotWidth,
+    y: height - padding - pTrue[i] * plotHeight,
+    count: counts[i],
+  }));
+
+  return (
+    <svg width={width} height={height} className="mx-auto">
+      {/* Grid */}
+      <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="rgba(255,255,255,0.1)" />
+      <line x1={padding} y1={padding} x2={padding} y2={height - padding} stroke="rgba(255,255,255,0.1)" />
+
+      {/* Perfect calibration line */}
+      <line
+        x1={padding}
+        y1={height - padding}
+        x2={width - padding}
+        y2={padding}
+        stroke="rgba(255,255,255,0.3)"
+        strokeDasharray="4 4"
+      />
+
+      {/* Calibration curve */}
+      {points.length > 1 && (
+        <polyline
+          points={points.map(p => `${p.x},${p.y}`).join(' ')}
+          fill="none"
+          stroke="#00FFFF"
+          strokeWidth={2}
+        />
+      )}
+
+      {/* Points */}
+      {points.map((p, i) => (
+        <circle key={i} cx={p.x} cy={p.y} r={4} fill="#00FFFF" />
+      ))}
+
+      {/* Labels */}
+      <text x={width / 2} y={height - 5} textAnchor="middle" className="text-[10px] fill-white/40 font-mono">Predicted</text>
+      <text x={10} y={height / 2} textAnchor="middle" transform={`rotate(-90, 10, ${height / 2})`} className="text-[10px] fill-white/40 font-mono">Actual</text>
+    </svg>
+  );
+}
+
+interface SensitivityCurveChartProps {
+  thresholds: number[];
+  probabilities: number[];
+  currentThreshold: number;
+}
+
+function SensitivityCurveChart({ thresholds, probabilities, currentThreshold }: SensitivityCurveChartProps) {
+  const width = 200;
+  const height = 150;
+  const padding = 30;
+  const plotWidth = width - 2 * padding;
+  const plotHeight = height - 2 * padding;
+
+  const minT = Math.min(...thresholds);
+  const maxT = Math.max(...thresholds);
+  const range = maxT - minT || 1;
+
+  const points = thresholds.map((t, i) => ({
+    x: padding + ((t - minT) / range) * plotWidth,
+    y: height - padding - probabilities[i] * plotHeight,
+  }));
+
+  const currentX = padding + ((currentThreshold - minT) / range) * plotWidth;
+
+  return (
+    <svg width={width} height={height} className="mx-auto">
+      {/* Grid */}
+      <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="rgba(255,255,255,0.1)" />
+      <line x1={padding} y1={padding} x2={padding} y2={height - padding} stroke="rgba(255,255,255,0.1)" />
+
+      {/* Sensitivity curve */}
+      {points.length > 1 && (
+        <polyline
+          points={points.map(p => `${p.x},${p.y}`).join(' ')}
+          fill="none"
+          stroke="#A855F7"
+          strokeWidth={2}
+        />
+      )}
+
+      {/* Current threshold line */}
+      <line
+        x1={currentX}
+        y1={padding}
+        x2={currentX}
+        y2={height - padding}
+        stroke="#00FFFF"
+        strokeWidth={1}
+        strokeDasharray="4 4"
+      />
+
+      {/* Labels */}
+      <text x={width / 2} y={height - 5} textAnchor="middle" className="text-[10px] fill-white/40 font-mono">Threshold</text>
+      <text x={10} y={height / 2} textAnchor="middle" transform={`rotate(-90, 10, ${height / 2})`} className="text-[10px] fill-white/40 font-mono">P(target)</text>
+    </svg>
+  );
+}
+
+function getDriftStatusColor(status: ReportDriftStatus): string {
+  switch (status) {
+    case 'stable': return 'text-green-400';
+    case 'warning': return 'text-yellow-400';
+    case 'drifting': return 'text-red-400';
+    default: return 'text-white/40';
+  }
+}
+
+function getDriftStatusBg(status: ReportDriftStatus): string {
+  switch (status) {
+    case 'stable': return 'border-green-500/20 bg-green-500/5';
+    case 'warning': return 'border-yellow-500/20 bg-yellow-500/5';
+    case 'drifting': return 'border-red-500/20 bg-red-500/5';
+    default: return 'border-white/10 bg-white/5';
+  }
+}
+
+interface PredictionReportProps {
+  projectId: string;
+  nodeId: string;
+  params: ReportQueryParams;
+  onExportJSON: () => void;
+  onCopyLink: () => void;
+  linkCopied: boolean;
+}
+
+function PredictionReport({
+  projectId,
+  nodeId,
+  params,
+  onExportJSON,
+  onCopyLink,
+  linkCopied,
+}: PredictionReportProps) {
+  const { data: report, isLoading, isError, error } = useNodeReport(nodeId, params);
+  const { data: node } = useNode(nodeId);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center p-12">
+        <Loader2 className="w-8 h-8 animate-spin text-cyan-400" />
+        <span className="ml-3 text-sm font-mono text-white/60">Generating report...</span>
+      </div>
+    );
+  }
+
+  if (isError || !report) {
+    return (
+      <div className="border border-red-500/20 bg-red-500/5 p-8 text-center">
+        <XCircle className="w-12 h-12 mx-auto text-red-400/40 mb-4" />
+        <h2 className="text-lg font-mono font-bold text-white mb-2">Report Generation Failed</h2>
+        <p className="text-sm font-mono text-white/50">
+          {error instanceof Error ? error.message : 'Unable to generate prediction report.'}
+        </p>
+      </div>
+    );
+  }
+
+  // Check for insufficient data
+  if (report.insufficient_data) {
+    return (
+      <div className="space-y-6">
+        <div className="border border-yellow-500/20 bg-yellow-500/5 p-6">
+          <div className="flex items-start gap-4">
+            <AlertTriangle className="w-8 h-8 text-yellow-400 flex-shrink-0" />
+            <div>
+              <h3 className="text-lg font-mono font-bold text-white mb-2">Insufficient Data</h3>
+              <p className="text-sm font-mono text-white/60 mb-4">
+                Not enough simulation runs to generate a reliable prediction report.
+                Current: {report.provenance.n_runs} runs, Required: {report.provenance.filters.min_runs} minimum.
+              </p>
+              <Link href={`/p/${projectId}/run-center?node=${nodeId}`}>
+                <Button variant="outline" size="sm" className="text-xs">
+                  <Play className="w-3 h-3 mr-1" /> Run More Simulations
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </div>
+        {report.errors.length > 0 && (
+          <div className="border border-red-500/20 bg-red-500/5 p-4">
+            <h4 className="text-sm font-mono font-bold text-red-400 mb-2">Errors</h4>
+            <ul className="text-xs font-mono text-white/60 space-y-1">
+              {report.errors.map((err, i) => (
+                <li key={i}>• {err}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const opSymbol = { ge: '≥', gt: '>', le: '≤', lt: '<', eq: '=' }[report.target.op] || report.target.op;
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="border border-white/10 bg-white/5 p-4">
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <Target className="w-5 h-5 text-orange-400" />
+              <h2 className="text-lg font-mono font-bold text-white">Prediction Report</h2>
+            </div>
+            <div className="text-sm font-mono text-white/60">
+              <span className="text-cyan-400">{report.metric_key}</span>
+              <span className="mx-2">{opSymbol}</span>
+              <span className="text-orange-400">{report.target.threshold}</span>
+              <span className="mx-2">•</span>
+              <span>Node: {node?.label || nodeId.slice(0, 8)}</span>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={onCopyLink} className="text-xs">
+              {linkCopied ? <Check className="w-3 h-3 mr-1" /> : <Copy className="w-3 h-3 mr-1" />}
+              {linkCopied ? 'Copied!' : 'Copy Link'}
+            </Button>
+            <Button variant="outline" size="sm" onClick={onExportJSON} className="text-xs">
+              <Download className="w-3 h-3 mr-1" /> Export JSON
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Target Probability - Hero Metric */}
+      <div className="border border-cyan-500/30 bg-cyan-500/5 p-6">
+        <h3 className="text-sm font-mono font-bold text-white/60 uppercase mb-4">Target Probability</h3>
+        <div className="flex items-center gap-8">
+          <div className="text-center">
+            <div className="text-5xl font-mono font-bold text-cyan-400">
+              {(report.prediction.target_probability * 100).toFixed(1)}%
+            </div>
+            <div className="text-xs font-mono text-white/40 mt-2">
+              P({report.metric_key} {opSymbol} {report.target.threshold})
+            </div>
+          </div>
+          <div className="flex-1 border-l border-white/10 pl-6">
+            <div className="text-xs font-mono text-white/40 uppercase mb-2">Distribution</div>
+            <DistributionHistogram
+              bins={report.prediction.distribution.bins}
+              counts={report.prediction.distribution.counts}
+              threshold={report.target.threshold}
+              op={report.target.op}
+            />
+            <div className="flex justify-between text-[10px] font-mono text-white/30 mt-1 px-2">
+              <span>{report.prediction.distribution.min.toFixed(2)}</span>
+              <span>{report.prediction.distribution.max.toFixed(2)}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Reliability Section */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Sensitivity */}
+        <div className="border border-purple-500/20 bg-purple-500/5 p-4">
+          <h3 className="text-sm font-mono font-bold text-purple-400 uppercase mb-3 flex items-center gap-2">
+            <Activity className="w-4 h-4" /> Sensitivity
+          </h3>
+          <SensitivityCurveChart
+            thresholds={report.reliability.sensitivity.thresholds}
+            probabilities={report.reliability.sensitivity.probabilities}
+            currentThreshold={report.target.threshold}
+          />
+          <div className="text-[10px] font-mono text-white/40 mt-2 text-center">
+            How probability changes with threshold
+          </div>
+        </div>
+
+        {/* Stability */}
+        <div className="border border-white/10 bg-white/5 p-4">
+          <h3 className="text-sm font-mono font-bold text-white/60 uppercase mb-3 flex items-center gap-2">
+            <BarChart3 className="w-4 h-4" /> Stability
+          </h3>
+          <div className="space-y-3">
+            <div className="text-center">
+              <div className="text-3xl font-mono font-bold text-white">
+                {(report.reliability.stability.mean * 100).toFixed(1)}%
+              </div>
+              <div className="text-xs font-mono text-white/40">Mean Probability</div>
+            </div>
+            <div className="flex justify-center items-center gap-2">
+              <div className="text-sm font-mono text-white/60">
+                [{(report.reliability.stability.ci_low * 100).toFixed(1)}% - {(report.reliability.stability.ci_high * 100).toFixed(1)}%]
+              </div>
+            </div>
+            <div className="text-[10px] font-mono text-white/30 text-center">
+              95% CI from {report.reliability.stability.bootstrap_samples} bootstrap samples
+            </div>
+          </div>
+        </div>
+
+        {/* Drift */}
+        <div className={cn('border p-4', getDriftStatusBg(report.reliability.drift.status))}>
+          <h3 className="text-sm font-mono font-bold text-white/60 uppercase mb-3 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4" /> Drift Status
+          </h3>
+          <div className="text-center">
+            <div className={cn('text-2xl font-mono font-bold uppercase', getDriftStatusColor(report.reliability.drift.status))}>
+              {report.reliability.drift.status}
+            </div>
+            <div className="mt-3 space-y-1">
+              {report.reliability.drift.ks != null && (
+                <div className="text-xs font-mono text-white/60">
+                  KS Statistic: <span className="text-white">{report.reliability.drift.ks.toFixed(4)}</span>
+                </div>
+              )}
+              {report.reliability.drift.psi != null && (
+                <div className="text-xs font-mono text-white/60">
+                  PSI: <span className="text-white">{report.reliability.drift.psi.toFixed(4)}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Calibration Section */}
+      <div className="border border-white/10 bg-white/5 p-4">
+        <h3 className="text-sm font-mono font-bold text-white/60 uppercase mb-4 flex items-center gap-2">
+          <Target className="w-4 h-4" /> Calibration
+        </h3>
+        {report.calibration.available ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="flex flex-col items-center">
+              <CalibrationCurveChart
+                pPred={report.calibration.curve?.p_pred || []}
+                pTrue={report.calibration.curve?.p_true || []}
+                counts={report.calibration.curve?.counts || []}
+              />
+              <div className="text-[10px] font-mono text-white/40 mt-2">Calibration Curve</div>
+            </div>
+            <div className="flex flex-col items-center justify-center p-4 border border-white/10 bg-white/5">
+              <div className="text-xs font-mono text-white/40 uppercase">Brier Score</div>
+              <div className="text-3xl font-mono font-bold text-cyan-400">
+                {report.calibration.brier?.toFixed(4) ?? 'N/A'}
+              </div>
+              <div className="text-[10px] font-mono text-white/30 mt-1">Lower is better (0-1)</div>
+            </div>
+            <div className="flex flex-col items-center justify-center p-4 border border-white/10 bg-white/5">
+              <div className="text-xs font-mono text-white/40 uppercase">ECE</div>
+              <div className="text-3xl font-mono font-bold text-cyan-400">
+                {report.calibration.ece?.toFixed(4) ?? 'N/A'}
+              </div>
+              <div className="text-[10px] font-mono text-white/30 mt-1">Expected Calibration Error</div>
+            </div>
+          </div>
+        ) : (
+          <div className="text-center p-6 border border-white/10 bg-white/5">
+            <Info className="w-8 h-8 mx-auto text-white/30 mb-2" />
+            <p className="text-sm font-mono text-white/50">Calibration data not available</p>
+            <p className="text-[10px] font-mono text-white/30 mt-1">Run calibration job to compute Brier/ECE metrics</p>
+            <Link href={`/p/${projectId}/calibration?node=${nodeId}`}>
+              <Button variant="outline" size="sm" className="mt-3 text-xs">
+                Go to Calibration
+              </Button>
+            </Link>
+          </div>
+        )}
+      </div>
+
+      {/* Provenance Panel */}
+      <div className="border border-white/10 bg-white/5 p-4">
+        <h3 className="text-sm font-mono font-bold text-white/60 uppercase mb-4 flex items-center gap-2">
+          <Database className="w-4 h-4" /> Provenance
+        </h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div>
+            <div className="text-[10px] font-mono text-white/40 uppercase">Runs Analyzed</div>
+            <div className="text-lg font-mono font-bold text-white">{report.provenance.n_runs}</div>
+          </div>
+          <div>
+            <div className="text-[10px] font-mono text-white/40 uppercase">Window</div>
+            <div className="text-lg font-mono font-bold text-white">{report.provenance.filters.window_days} days</div>
+          </div>
+          <div>
+            <div className="text-[10px] font-mono text-white/40 uppercase">Min Runs</div>
+            <div className="text-lg font-mono font-bold text-white">{report.provenance.filters.min_runs}</div>
+          </div>
+          <div>
+            <div className="text-[10px] font-mono text-white/40 uppercase">Updated</div>
+            <div className="text-sm font-mono text-white">{new Date(report.provenance.updated_at).toLocaleString()}</div>
+          </div>
+        </div>
+        {report.provenance.manifest_hash && (
+          <div className="mt-3 pt-3 border-t border-white/10">
+            <div className="text-[10px] font-mono text-white/40 uppercase">Manifest Hash</div>
+            <div className="text-xs font-mono text-cyan-400 truncate">{report.provenance.manifest_hash}</div>
+          </div>
+        )}
+      </div>
+
+      {/* Errors (if any) */}
+      {report.errors.length > 0 && (
+        <div className="border border-yellow-500/20 bg-yellow-500/5 p-4">
+          <h4 className="text-sm font-mono font-bold text-yellow-400 mb-2 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4" /> Warnings
+          </h4>
+          <ul className="text-xs font-mono text-white/60 space-y-1">
+            {report.errors.map((err, i) => (
+              <li key={i}>• {err}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Quick Navigation */}
+      <div className="border border-white/10 bg-white/5 p-4">
+        <h3 className="text-sm font-mono font-bold text-white/60 uppercase mb-4">Quick Navigation</h3>
+        <div className="flex flex-wrap gap-2">
+          <Link href={`/p/${projectId}/universe-map?node=${nodeId}`}>
+            <Button variant="outline" size="sm" className="text-xs"><GitBranch className="w-3 h-3 mr-1" /> Universe Map</Button>
+          </Link>
+          <Link href={`/p/${projectId}/reliability?node=${nodeId}`}>
+            <Button variant="outline" size="sm" className="text-xs"><Activity className="w-3 h-3 mr-1" /> Reliability</Button>
+          </Link>
+          <Link href={`/p/${projectId}/calibration?node=${nodeId}`}>
+            <Button variant="outline" size="sm" className="text-xs"><Target className="w-3 h-3 mr-1" /> Calibration</Button>
+          </Link>
+          <Link href={`/p/${projectId}/run-center?node=${nodeId}`}>
+            <Button variant="outline" size="sm" className="text-xs"><Zap className="w-3 h-3 mr-1" /> Run Center</Button>
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
 // Main Page Component
 // ============================================================================
 
@@ -1053,6 +1645,8 @@ export default function ReportsPage() {
 
   // Determine initial report type based on URL params
   const getInitialType = (): ReportType => {
+    const typeParam = searchParams.get('type');
+    if (typeParam === 'prediction') return 'prediction';
     if (initialRunId) return 'run';
     if (initialNodeId) return 'node';
     return 'project';
@@ -1063,6 +1657,25 @@ export default function ReportsPage() {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(initialRunId);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(initialNodeId);
   const [linkCopied, setLinkCopied] = useState(false);
+
+  // Phase 7: Prediction Report parameters
+  const [predMetricKey, setPredMetricKey] = useState<string>(searchParams.get('metric') || 'revenue');
+  const [predOp, setPredOp] = useState<ReportOperator>((searchParams.get('op') as ReportOperator) || 'ge');
+  const [predThreshold, setPredThreshold] = useState<number>(parseFloat(searchParams.get('threshold') || '100'));
+  const [predWindowDays, setPredWindowDays] = useState<number>(parseInt(searchParams.get('window') || '30'));
+  const [predMinRuns, setPredMinRuns] = useState<number>(parseInt(searchParams.get('min_runs') || '3'));
+
+  // Build prediction report query params
+  const predictionParams: ReportQueryParams | undefined = useMemo(() => {
+    if (!predMetricKey || !predOp || predThreshold === undefined) return undefined;
+    return {
+      metric_key: predMetricKey,
+      op: predOp,
+      threshold: predThreshold,
+      window_days: predWindowDays,
+      min_runs: predMinRuns,
+    };
+  }, [predMetricKey, predOp, predThreshold, predWindowDays, predMinRuns]);
 
   // Fetch data for pickers
   const { data: nodes, isLoading: nodesLoading } = useNodes({ project_id: projectId });
@@ -1089,8 +1702,33 @@ export default function ReportsPage() {
     setSelectedRunId(null);
     if (reportType === 'node') {
       router.push(`/p/${projectId}/reports?node=${nodeId}`);
+    } else if (reportType === 'prediction') {
+      // Deep-link for prediction reports
+      const params = new URLSearchParams();
+      params.set('type', 'prediction');
+      params.set('node', nodeId);
+      params.set('metric', predMetricKey);
+      params.set('op', predOp);
+      params.set('threshold', String(predThreshold));
+      params.set('window', String(predWindowDays));
+      params.set('min_runs', String(predMinRuns));
+      router.push(`/p/${projectId}/reports?${params.toString()}`);
     }
   };
+
+  // Update URL when prediction params change
+  const updatePredictionUrl = useCallback(() => {
+    if (reportType !== 'prediction' || !selectedNodeId) return;
+    const params = new URLSearchParams();
+    params.set('type', 'prediction');
+    params.set('node', selectedNodeId);
+    params.set('metric', predMetricKey);
+    params.set('op', predOp);
+    params.set('threshold', String(predThreshold));
+    params.set('window', String(predWindowDays));
+    params.set('min_runs', String(predMinRuns));
+    router.replace(`/p/${projectId}/reports?${params.toString()}`);
+  }, [reportType, selectedNodeId, predMetricKey, predOp, predThreshold, predWindowDays, predMinRuns, projectId, router]);
 
   // Handle run selection
   const handleRunSelect = (runId: string) => {
@@ -1155,7 +1793,7 @@ export default function ReportsPage() {
         </div>
         <h1 className="text-lg md:text-xl font-mono font-bold text-white">Reports</h1>
         <p className="text-xs md:text-sm font-mono text-white/50 mt-1">
-          Generate comprehensive reports for runs, nodes, and projects
+          Generate comprehensive reports for runs, nodes, projects, and predictions
         </p>
       </div>
 
@@ -1165,8 +1803,8 @@ export default function ReportsPage() {
         <ReportTypeSelector value={reportType} onChange={handleReportTypeChange} />
       </div>
 
-      {/* Context Selectors (for node and run reports) */}
-      {(reportType === 'node' || reportType === 'run') && (
+      {/* Context Selectors (for node, run, and prediction reports) */}
+      {(reportType === 'node' || reportType === 'run' || reportType === 'prediction') && (
         <div className="max-w-6xl mb-6">
           <div className="flex flex-wrap items-end gap-4">
             <div>
@@ -1180,6 +1818,34 @@ export default function ReportsPage() {
               </div>
             )}
           </div>
+          {/* Prediction Report Parameters */}
+          {reportType === 'prediction' && selectedNodeId && (
+            <div className="mt-4 p-4 border border-orange-500/20 bg-orange-500/5">
+              <div className="text-[10px] font-mono text-orange-400 uppercase mb-3">Target Configuration</div>
+              <PredictionReportParams
+                metricKey={predMetricKey}
+                setMetricKey={setPredMetricKey}
+                op={predOp}
+                setOp={setPredOp}
+                threshold={predThreshold}
+                setThreshold={setPredThreshold}
+                windowDays={predWindowDays}
+                setWindowDays={setPredWindowDays}
+                minRuns={predMinRuns}
+                setMinRuns={setPredMinRuns}
+              />
+              <div className="mt-3 flex justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={updatePredictionUrl}
+                  className="text-xs border-orange-500/30 hover:bg-orange-500/10"
+                >
+                  <Target className="w-3 h-3 mr-1" /> Update Report
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1243,6 +1909,26 @@ export default function ReportsPage() {
             runs={runs}
             onExportJSON={handleExportJSON}
             onExportMarkdown={handleExportMarkdown}
+            onCopyLink={handleCopyLink}
+            linkCopied={linkCopied}
+          />
+        )}
+
+        {/* Phase 7: Prediction Report */}
+        {reportType === 'prediction' && !selectedNodeId && (
+          <div className="border border-yellow-500/20 bg-yellow-500/5 p-8 text-center">
+            <Target className="w-12 h-12 mx-auto text-yellow-400/40 mb-4" />
+            <h2 className="text-lg font-mono font-bold text-white mb-2">Select a Node</h2>
+            <p className="text-sm font-mono text-white/50">Choose a node from the picker above to generate a prediction report.</p>
+          </div>
+        )}
+
+        {reportType === 'prediction' && selectedNodeId && predictionParams && (
+          <PredictionReport
+            projectId={projectId}
+            nodeId={selectedNodeId}
+            params={predictionParams}
+            onExportJSON={handleExportJSON}
             onCopyLink={handleCopyLink}
             linkCopied={linkCopied}
           />
