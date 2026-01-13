@@ -2,10 +2,23 @@
  * API Client for AgentVerse Backend
  */
 
-// Use empty string for relative URLs (production), fallback to localhost only if undefined
-const API_URL = process.env.NEXT_PUBLIC_API_URL !== undefined
-  ? process.env.NEXT_PUBLIC_API_URL
-  : 'http://localhost:8000';
+// Determine API URL:
+// - Empty string or '""' (literal quotes) means use relative URLs (goes through Next.js proxy)
+// - URL starting with http means use that URL directly
+// - Undefined in dev means localhost
+const rawApiUrl = process.env.NEXT_PUBLIC_API_URL;
+const API_URL = (() => {
+  // If empty, '""', or just whitespace, use relative URLs (empty string)
+  if (!rawApiUrl || rawApiUrl === '""' || rawApiUrl.trim() === '' || rawApiUrl.trim() === '""') {
+    return '';
+  }
+  // If it's a valid URL, use it
+  if (rawApiUrl.startsWith('http://') || rawApiUrl.startsWith('https://')) {
+    return rawApiUrl;
+  }
+  // Fallback for local development
+  return 'http://localhost:8000';
+})();
 
 export interface ApiError {
   detail: string;
