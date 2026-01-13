@@ -543,17 +543,17 @@ function InspectorPanel({
           Fork This Universe
         </Button>
 
-        {node.status === 'draft' && (
+        {/* Run on this Node - always available */}
+        <Link href={`/p/${projectId}/run-center?node=${node.id}`} className="block">
           <Button
             size="sm"
             variant="outline"
-            className="w-full text-xs font-mono"
-            disabled
+            className="w-full text-xs font-mono border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10"
           >
             <Play className="w-3 h-3 mr-2" />
-            Run Simulation (Coming Soon)
+            Run on this Node
           </Button>
-        )}
+        </Link>
 
         {node.status === 'completed' && (
           <>

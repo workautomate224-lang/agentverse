@@ -2,11 +2,11 @@
 
 /**
  * Run Center Page
- * Configure and execute simulation runs
+ * Configure and execute simulation runs with node-aware targeting
  */
 
 import { useState, useEffect } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import {
@@ -36,6 +36,10 @@ import {
   FileText,
   RefreshCw,
   StopCircle,
+  GitBranch,
+  Target,
+  Circle,
+  ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -46,8 +50,10 @@ import {
   useRunProgress,
   useTargetPersonas,
   usePersonaTemplates,
+  useNodes,
 } from '@/hooks/useApi';
-import type { RunSummary, SubmitRunInput } from '@/lib/api';
+import type { RunSummary, SubmitRunInput, NodeSummary } from '@/lib/api';
+import { useQueryClient } from '@tanstack/react-query';
 
 // Run configuration options
 const runOptions = [
@@ -366,9 +372,147 @@ function RunDetailsModal({
   );
 }
 
+// Node Selector Modal
+function NodeSelectorModal({
+  open,
+  onClose,
+  onSelect,
+  nodes,
+  isLoading,
+  currentNodeId,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSelect: (node: NodeSummary | null) => void;
+  nodes: NodeSummary[] | undefined;
+  isLoading: boolean;
+  currentNodeId: string | null;
+}) {
+  // Separate baseline and fork nodes
+  const baselineNode = nodes?.find((n) => n.is_baseline);
+  const forkNodes = nodes?.filter((n) => !n.is_baseline) || [];
+
+  return (
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <DialogContent className="bg-black border border-white/10 max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-white font-mono flex items-center gap-2">
+            <GitBranch className="w-5 h-5 text-cyan-400" />
+            Select Target Node
+          </DialogTitle>
+          <DialogDescription className="text-white/50 font-mono text-xs">
+            Choose which node to run the simulation on
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="py-4 space-y-2 max-h-[400px] overflow-y-auto">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 text-white/40 animate-spin" />
+            </div>
+          ) : (
+            <>
+              {/* Baseline Node */}
+              <button
+                onClick={() => onSelect(baselineNode || null)}
+                className={cn(
+                  'w-full p-3 flex items-center gap-3 border transition-colors text-left',
+                  currentNodeId === null || currentNodeId === baselineNode?.node_id
+                    ? 'bg-cyan-500/10 border-cyan-500/50'
+                    : 'bg-white/5 border-white/10 hover:border-white/30'
+                )}
+              >
+                <div className="w-8 h-8 bg-green-500/20 flex items-center justify-center">
+                  <Circle className="w-4 h-4 text-green-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-mono text-white">Baseline (Root Node)</p>
+                  <p className="text-[10px] font-mono text-white/40">Original simulation starting point</p>
+                </div>
+                {(currentNodeId === null || currentNodeId === baselineNode?.node_id) && (
+                  <CheckCircle className="w-4 h-4 text-cyan-400 flex-shrink-0" />
+                )}
+              </button>
+
+              {/* Fork Nodes */}
+              {forkNodes.length > 0 && (
+                <div className="mt-4">
+                  <p className="text-[10px] font-mono text-white/40 uppercase tracking-wider mb-2 px-1">
+                    Fork Nodes ({forkNodes.length})
+                  </p>
+                  <div className="space-y-1">
+                    {forkNodes.map((node) => (
+                      <button
+                        key={node.node_id}
+                        onClick={() => onSelect(node)}
+                        className={cn(
+                          'w-full p-3 flex items-center gap-3 border transition-colors text-left',
+                          currentNodeId === node.node_id
+                            ? 'bg-cyan-500/10 border-cyan-500/50'
+                            : 'bg-white/5 border-white/10 hover:border-white/30'
+                        )}
+                      >
+                        <div className="w-8 h-8 bg-purple-500/20 flex items-center justify-center">
+                          <GitBranch className="w-4 h-4 text-purple-400" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-mono text-white truncate">
+                            {node.label || `Fork ${node.node_id.slice(0, 8)}`}
+                          </p>
+                          <div className="flex items-center gap-2 text-[10px] font-mono text-white/40">
+                            <span>{Math.round(node.probability * 100)}% probability</span>
+                            <span>•</span>
+                            <span className={cn(
+                              node.confidence_level === 'high' ? 'text-green-400' :
+                              node.confidence_level === 'medium' ? 'text-yellow-400' : 'text-red-400'
+                            )}>
+                              {node.confidence_level} confidence
+                            </span>
+                          </div>
+                        </div>
+                        {currentNodeId === node.node_id && (
+                          <CheckCircle className="w-4 h-4 text-cyan-400 flex-shrink-0" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {forkNodes.length === 0 && (
+                <div className="py-4 text-center">
+                  <p className="text-xs font-mono text-white/40">
+                    No fork nodes yet. Create forks in the Event Lab.
+                  </p>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function RunCenterPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const projectId = params.projectId as string;
+  const queryClient = useQueryClient();
+
+  // Node selection state - read initial value from URL
+  const initialNodeId = searchParams.get('node');
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(initialNodeId);
+  const [showNodeSelector, setShowNodeSelector] = useState(false);
+
+  // Node filter for run history
+  const [nodeFilter, setNodeFilter] = useState<'all' | 'baseline' | 'selected'>('all');
 
   // Modal states
   const [customRunModalOpen, setCustomRunModalOpen] = useState(false);
@@ -379,6 +523,7 @@ export default function RunCenterPage() {
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
 
   // API hooks
+  const { data: nodes, isLoading: nodesLoading } = useNodes({ project_id: projectId });
   const { data: runs, isLoading: runsLoading, refetch: refetchRuns } = useRuns({ project_id: projectId, limit: 20 });
   const { data: personas } = useTargetPersonas({ project_id: projectId });
   const { data: personaTemplates } = usePersonaTemplates();
@@ -388,6 +533,21 @@ export default function RunCenterPage() {
 
   // Count personas (from either target personas or templates)
   const personaCount = (personas?.length || 0) + (personaTemplates?.length || 0);
+
+  // Get selected node data
+  const baselineNode = nodes?.find((n) => n.is_baseline);
+  const selectedNode = selectedNodeId
+    ? nodes?.find((n) => n.node_id === selectedNodeId)
+    : baselineNode;
+  const isBaseline = !selectedNodeId || selectedNodeId === baselineNode?.node_id;
+
+  // Filter runs based on node filter
+  const filteredRuns = runs?.filter((run) => {
+    if (nodeFilter === 'all') return true;
+    if (nodeFilter === 'baseline') return !run.node_id || run.node_id === baselineNode?.node_id;
+    if (nodeFilter === 'selected' && selectedNodeId) return run.node_id === selectedNodeId;
+    return true;
+  });
 
   // Count completed runs
   const completedRuns = runs?.filter((r) => r.status === 'succeeded').length || 0;
@@ -414,11 +574,19 @@ export default function RunCenterPage() {
   const handleStartRun = async (runType: string, config?: SubmitRunInput['config']) => {
     const runConfig = runOptions.find((o) => o.id === runType)?.config || config || {};
 
+    // Build label with node context
+    const nodeLabel = isBaseline
+      ? 'Baseline'
+      : selectedNode?.label || `Fork ${selectedNodeId?.slice(0, 8)}`;
+    const runLabel = `${runType.charAt(0).toUpperCase() + runType.slice(1)} Run - ${nodeLabel}`;
+
     const runInput: SubmitRunInput = {
       project_id: projectId,
-      label: `${runType.charAt(0).toUpperCase() + runType.slice(1)} Run`,
+      label: runLabel,
       config: runConfig,
       auto_start: true,
+      // Pass the selected node_id (null for baseline uses project default)
+      node_id: isBaseline ? undefined : selectedNodeId || undefined,
     };
 
     try {
@@ -434,6 +602,21 @@ export default function RunCenterPage() {
       // Error handled by mutation
     }
   };
+
+  // Handle node selection
+  const handleNodeSelect = (node: NodeSummary | null) => {
+    setSelectedNodeId(node?.is_baseline ? null : node?.node_id || null);
+    setShowNodeSelector(false);
+  };
+
+  // Invalidate related queries when run completes
+  useEffect(() => {
+    if (activeRunProgress && ['succeeded', 'failed', 'cancelled'].includes(activeRunProgress.status)) {
+      // Invalidate universe map and nodes to reflect new status
+      queryClient.invalidateQueries({ queryKey: ['nodes'] });
+      queryClient.invalidateQueries({ queryKey: ['universe-map'] });
+    }
+  }, [activeRunProgress, queryClient]);
 
   // Check if run endpoints are available
   const isRunEndpointAvailable =
@@ -461,6 +644,67 @@ export default function RunCenterPage() {
         <p className="text-xs md:text-sm font-mono text-white/50 mt-1">
           Configure and execute simulation runs for your project
         </p>
+      </div>
+
+      {/* Run Context - Node Selection */}
+      <div className="max-w-3xl mb-6">
+        <div className="bg-white/5 border border-white/10 p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Target className="w-4 h-4 text-cyan-400" />
+                <span className="text-xs font-mono text-white/60 uppercase tracking-wider">
+                  Run Target
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                {isBaseline ? (
+                  <>
+                    <div className="w-8 h-8 bg-green-500/20 flex items-center justify-center">
+                      <Circle className="w-4 h-4 text-green-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-mono text-white font-bold">Baseline (Root Node)</p>
+                      <p className="text-[10px] font-mono text-white/40">Original simulation</p>
+                    </div>
+                  </>
+                ) : selectedNode ? (
+                  <>
+                    <div className="w-8 h-8 bg-purple-500/20 flex items-center justify-center">
+                      <GitBranch className="w-4 h-4 text-purple-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-mono text-white font-bold truncate max-w-[200px]">
+                        {selectedNode.label || `Fork ${selectedNode.node_id.slice(0, 8)}`}
+                      </p>
+                      <div className="flex items-center gap-2 text-[10px] font-mono text-white/40">
+                        <span>{Math.round(selectedNode.probability * 100)}% probability</span>
+                        <span>•</span>
+                        <span className={cn(
+                          selectedNode.confidence_level === 'high' ? 'text-green-400' :
+                          selectedNode.confidence_level === 'medium' ? 'text-yellow-400' : 'text-red-400'
+                        )}>
+                          {selectedNode.confidence_level}
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <span className="text-sm font-mono text-white/40">Loading...</span>
+                )}
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowNodeSelector(true)}
+              className="text-xs font-mono"
+            >
+              <GitBranch className="w-3 h-3 mr-2" />
+              Change Target
+            </Button>
+          </div>
+        </div>
       </div>
 
       {/* Run Options */}
@@ -591,7 +835,19 @@ export default function RunCenterPage() {
       {/* Run History */}
       <div className="max-w-3xl mb-8">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xs font-mono text-white/40 uppercase tracking-wider">Run History</h2>
+          <div className="flex items-center gap-4">
+            <h2 className="text-xs font-mono text-white/40 uppercase tracking-wider">Run History</h2>
+            {/* Node Filter */}
+            <select
+              value={nodeFilter}
+              onChange={(e) => setNodeFilter(e.target.value as 'all' | 'baseline' | 'selected')}
+              className="bg-white/5 border border-white/10 text-xs font-mono text-white/80 px-2 py-1 focus:outline-none focus:border-cyan-500/50"
+            >
+              <option value="all">All Nodes</option>
+              <option value="baseline">Baseline Only</option>
+              {selectedNodeId && <option value="selected">Selected Node</option>}
+            </select>
+          </div>
           <Button variant="ghost" size="sm" onClick={() => refetchRuns()} disabled={runsLoading}>
             <RefreshCw className={cn('w-3 h-3 mr-1', runsLoading && 'animate-spin')} />
             Refresh
@@ -603,9 +859,9 @@ export default function RunCenterPage() {
             <Loader2 className="w-8 h-8 text-white/40 animate-spin mx-auto mb-4" />
             <p className="text-xs font-mono text-white/40">Loading run history...</p>
           </div>
-        ) : runs && runs.length > 0 ? (
+        ) : filteredRuns && filteredRuns.length > 0 ? (
           <div className="bg-white/5 border border-white/10 divide-y divide-white/5">
-            {runs.map((run) => (
+            {filteredRuns.map((run) => (
               <button
                 key={run.run_id}
                 onClick={() => {
@@ -617,9 +873,18 @@ export default function RunCenterPage() {
                 <div className="flex items-center gap-4">
                   <StatusBadge status={run.status} />
                   <div>
-                    <p className="text-sm font-mono text-white">
-                      {run.run_id.slice(0, 8)}...
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-mono text-white">
+                        {run.run_id.slice(0, 8)}...
+                      </p>
+                      {/* Node indicator */}
+                      {run.node_id && run.node_id !== baselineNode?.node_id && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-purple-500/20 text-[9px] font-mono text-purple-400">
+                          <GitBranch className="w-2.5 h-2.5" />
+                          Fork
+                        </span>
+                      )}
+                    </div>
                     <p className="text-[10px] font-mono text-white/40">{formatDate(run.created_at)}</p>
                   </div>
                 </div>
@@ -632,7 +897,18 @@ export default function RunCenterPage() {
                       {formatDuration(run.timing?.started_at, run.timing?.ended_at)}
                     </p>
                   </div>
-                  <ExternalLink className="w-4 h-4 text-white/40" />
+                  {/* Quick Replay button for succeeded runs */}
+                  {run.status === 'succeeded' && (
+                    <Link
+                      href={`/p/${projectId}/replay?run=${run.run_id}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex items-center gap-1 px-2 py-1 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-[10px] font-mono hover:bg-cyan-500/20 transition-colors"
+                    >
+                      <Play className="w-3 h-3" />
+                      Replay
+                    </Link>
+                  )}
+                  <ChevronRight className="w-4 h-4 text-white/40" />
                 </div>
               </button>
             ))}
@@ -711,6 +987,15 @@ export default function RunCenterPage() {
           setSelectedRun(null);
         }}
         projectId={projectId}
+      />
+
+      <NodeSelectorModal
+        open={showNodeSelector}
+        onClose={() => setShowNodeSelector(false)}
+        onSelect={handleNodeSelect}
+        nodes={nodes}
+        isLoading={nodesLoading}
+        currentNodeId={selectedNodeId}
       />
     </div>
   );
