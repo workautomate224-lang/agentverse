@@ -148,6 +148,15 @@ import api, {
   // PHASE 7: Aggregated Report types
   ReportResponse,
   ReportQueryParams,
+  // PHASE 8: Backtest types
+  BacktestStatus,
+  BacktestCreate,
+  BacktestResponse,
+  BacktestListResponse,
+  BacktestRunsResponse,
+  BacktestReportsResponse,
+  BacktestResetResponse,
+  BacktestStartResponse,
 } from '@/lib/api';
 
 // Extended session user type for type safety
@@ -3297,6 +3306,186 @@ export function useCreateBranchFromUserPlan() {
       // Invalidate nodes and universe map
       queryClient.invalidateQueries({ queryKey: ['nodes'] });
       queryClient.invalidateQueries({ queryKey: ['universe-map'] });
+    },
+  });
+}
+
+// =============================================================================
+// PHASE 8: Backtest Hooks (End-to-End Backtest Loop)
+// =============================================================================
+
+/**
+ * List backtests for a project.
+ */
+export function useBacktests(
+  projectId: string | undefined,
+  params?: {
+    status?: BacktestStatus;
+    page?: number;
+    page_size?: number;
+  }
+) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['backtests', projectId, params],
+    queryFn: () => api.listBacktests(projectId!, params),
+    enabled: isReady && !!projectId,
+    staleTime: CACHE_TIMES.SHORT,
+    refetchInterval: (query) => {
+      // Auto-refresh every 5s if any backtest is running
+      const data = query.state.data;
+      if (data?.items?.some(b => b.status === 'running')) {
+        return 5000;
+      }
+      return false;
+    },
+  });
+}
+
+/**
+ * Get backtest detail.
+ */
+export function useBacktest(
+  projectId: string | undefined,
+  backtestId: string | undefined
+) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['backtests', projectId, backtestId],
+    queryFn: () => api.getBacktest(projectId!, backtestId!),
+    enabled: isReady && !!projectId && !!backtestId,
+    staleTime: CACHE_TIMES.SHORT,
+    refetchInterval: (query) => {
+      // Auto-refresh every 3s if backtest is running
+      const data = query.state.data;
+      if (data?.status === 'running') {
+        return 3000;
+      }
+      return false;
+    },
+  });
+}
+
+/**
+ * Get backtest runs.
+ */
+export function useBacktestRuns(
+  projectId: string | undefined,
+  backtestId: string | undefined
+) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['backtests', projectId, backtestId, 'runs'],
+    queryFn: () => api.getBacktestRuns(projectId!, backtestId!),
+    enabled: isReady && !!projectId && !!backtestId,
+    staleTime: CACHE_TIMES.SHORT,
+  });
+}
+
+/**
+ * Get backtest report snapshots.
+ */
+export function useBacktestReports(
+  projectId: string | undefined,
+  backtestId: string | undefined
+) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['backtests', projectId, backtestId, 'reports'],
+    queryFn: () => api.getBacktestReports(projectId!, backtestId!),
+    enabled: isReady && !!projectId && !!backtestId,
+    staleTime: CACHE_TIMES.MEDIUM,
+  });
+}
+
+/**
+ * Create a new backtest.
+ */
+export function useCreateBacktest() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: ({ projectId, data }: { projectId: string; data: BacktestCreate }) =>
+      api.createBacktest(projectId, data),
+    onSuccess: (_, { projectId }) => {
+      queryClient.invalidateQueries({ queryKey: ['backtests', projectId] });
+    },
+  });
+}
+
+/**
+ * SCOPED-SAFE reset backtest data.
+ * Only deletes BacktestRun and BacktestReportSnapshot for this backtest.
+ */
+export function useResetBacktest() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: ({ projectId, backtestId }: { projectId: string; backtestId: string }) =>
+      api.resetBacktest(projectId, backtestId, { confirm: true }),
+    onSuccess: (_, { projectId, backtestId }) => {
+      queryClient.invalidateQueries({ queryKey: ['backtests', projectId, backtestId] });
+      queryClient.invalidateQueries({ queryKey: ['backtests', projectId, backtestId, 'runs'] });
+      queryClient.invalidateQueries({ queryKey: ['backtests', projectId, backtestId, 'reports'] });
+    },
+  });
+}
+
+/**
+ * Start backtest execution.
+ */
+export function useStartBacktest() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: ({
+      projectId,
+      backtestId,
+      sequential = true,
+    }: {
+      projectId: string;
+      backtestId: string;
+      sequential?: boolean;
+    }) => api.startBacktest(projectId, backtestId, { sequential }),
+    onSuccess: (_, { projectId, backtestId }) => {
+      queryClient.invalidateQueries({ queryKey: ['backtests', projectId, backtestId] });
+      queryClient.invalidateQueries({ queryKey: ['backtests', projectId, backtestId, 'runs'] });
+      // Also invalidate runs list as new runs will be created
+      queryClient.invalidateQueries({ queryKey: ['runs'] });
+    },
+  });
+}
+
+/**
+ * Snapshot reports for a backtest.
+ */
+export function useSnapshotBacktestReports() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: ({
+      projectId,
+      backtestId,
+      metric_key,
+      op,
+      threshold,
+    }: {
+      projectId: string;
+      backtestId: string;
+      metric_key: string;
+      op: string;
+      threshold: number;
+    }) => api.snapshotBacktestReports(projectId, backtestId, { metric_key, op, threshold }),
+    onSuccess: (_, { projectId, backtestId }) => {
+      queryClient.invalidateQueries({ queryKey: ['backtests', projectId, backtestId, 'reports'] });
     },
   });
 }

@@ -184,6 +184,14 @@ from app.models.telemetry_index import (
     TelemetryIndex,
     TelemetryCapabilities,
 )
+# PHASE 8: Backtest Models (End-to-End Backtest Loop)
+from app.models.backtest import (
+    Backtest,
+    BacktestRun,
+    BacktestReportSnapshot,
+    BacktestStatus,
+    BacktestRunStatus,
+)
 # STEP 10: Production Readiness Models
 from app.models.production import (
     # Enums
@@ -398,4 +406,13 @@ __all__ = [
     "ExportBundle",
     # Constants
     "TIER_DEFAULTS",
+    # PHASE 5: Telemetry Standardization
+    "TelemetryIndex",
+    "TelemetryCapabilities",
+    # PHASE 8: Backtest Models
+    "Backtest",
+    "BacktestRun",
+    "BacktestReportSnapshot",
+    "BacktestStatus",
+    "BacktestRunStatus",
 ]

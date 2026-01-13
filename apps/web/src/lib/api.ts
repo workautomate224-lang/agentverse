@@ -3266,6 +3266,141 @@ class ApiClient {
     );
   }
 
+  // =============================================================================
+  // PHASE 8: Backtest API Methods (End-to-End Backtest Loop)
+  // =============================================================================
+
+  /**
+   * List backtests for a project.
+   */
+  async listBacktests(
+    projectId: string,
+    params?: {
+      status?: BacktestStatus;
+      page?: number;
+      page_size?: number;
+    }
+  ): Promise<BacktestListResponse> {
+    const searchParams = new URLSearchParams();
+    if (params?.status) searchParams.set('status', params.status);
+    if (params?.page) searchParams.set('page', String(params.page));
+    if (params?.page_size) searchParams.set('page_size', String(params.page_size));
+    const query = searchParams.toString();
+    const url = `/api/v1/project-specs/${projectId}/backtests${query ? `?${query}` : ''}`;
+    return this.request<BacktestListResponse>(url);
+  }
+
+  /**
+   * Create a new backtest.
+   */
+  async createBacktest(
+    projectId: string,
+    data: BacktestCreate
+  ): Promise<BacktestResponse> {
+    return this.request<BacktestResponse>(
+      `/api/v1/project-specs/${projectId}/backtests`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+  }
+
+  /**
+   * Get backtest detail.
+   */
+  async getBacktest(
+    projectId: string,
+    backtestId: string
+  ): Promise<BacktestResponse> {
+    return this.request<BacktestResponse>(
+      `/api/v1/project-specs/${projectId}/backtests/${backtestId}`
+    );
+  }
+
+  /**
+   * SCOPED-SAFE reset backtest data.
+   * Only deletes BacktestRun and BacktestReportSnapshot for this backtest.
+   * NEVER deletes global data.
+   */
+  async resetBacktest(
+    projectId: string,
+    backtestId: string,
+    data: BacktestReset
+  ): Promise<BacktestResetResponse> {
+    return this.request<BacktestResetResponse>(
+      `/api/v1/project-specs/${projectId}/backtests/${backtestId}/reset`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+  }
+
+  /**
+   * Start backtest execution.
+   */
+  async startBacktest(
+    projectId: string,
+    backtestId: string,
+    data: BacktestStart
+  ): Promise<BacktestStartResponse> {
+    return this.request<BacktestStartResponse>(
+      `/api/v1/project-specs/${projectId}/backtests/${backtestId}/start`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+  }
+
+  /**
+   * Get backtest runs.
+   */
+  async getBacktestRuns(
+    projectId: string,
+    backtestId: string
+  ): Promise<BacktestRunsResponse> {
+    return this.request<BacktestRunsResponse>(
+      `/api/v1/project-specs/${projectId}/backtests/${backtestId}/runs`
+    );
+  }
+
+  /**
+   * Get backtest report snapshots.
+   */
+  async getBacktestReports(
+    projectId: string,
+    backtestId: string
+  ): Promise<BacktestReportsResponse> {
+    return this.request<BacktestReportsResponse>(
+      `/api/v1/project-specs/${projectId}/backtests/${backtestId}/reports`
+    );
+  }
+
+  /**
+   * Generate and cache report snapshots.
+   */
+  async snapshotBacktestReports(
+    projectId: string,
+    backtestId: string,
+    params: {
+      metric_key: string;
+      op: string;
+      threshold: number;
+    }
+  ): Promise<BacktestReportsResponse> {
+    const searchParams = new URLSearchParams();
+    searchParams.set('metric_key', params.metric_key);
+    searchParams.set('op', params.op);
+    searchParams.set('threshold', String(params.threshold));
+    const query = searchParams.toString();
+    return this.request<BacktestReportsResponse>(
+      `/api/v1/project-specs/${projectId}/backtests/${backtestId}/snapshot-reports?${query}`,
+      { method: 'POST' }
+    );
+  }
+
   // MARL Training
   async startMarlTraining(data: MarlTrainingRequest): Promise<{ message: string; training_id: string }> {
     return this.request<{ message: string; training_id: string }>('/api/v1/predictions/train', {
@@ -5943,6 +6078,146 @@ export interface AuditLogExportResponse {
   total_records: number;
   download_url: string | null;
   data: Array<Record<string, unknown>> | null;
+}
+
+// =============================================================================
+// PHASE 8: Backtest Types (End-to-End Backtest Loop)
+// =============================================================================
+
+/** Status states for backtest lifecycle */
+export type BacktestStatus = 'created' | 'running' | 'succeeded' | 'failed' | 'canceled';
+
+/** Status states for individual backtest runs */
+export type BacktestRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped';
+
+/** Agent configuration for backtest runs */
+export interface BacktestAgentConfig {
+  max_agents: number;
+  sampling_policy: string;
+  sampling_ratio: number;
+}
+
+/** Scenario configuration for backtest runs */
+export interface BacktestScenarioConfig {
+  max_ticks: number;
+  tick_rate: number;
+  scenario_patch?: Record<string, unknown>;
+}
+
+/** Full backtest configuration */
+export interface BacktestConfig {
+  runs_per_node: number;
+  node_ids: string[];
+  agent_config: BacktestAgentConfig;
+  scenario_config: BacktestScenarioConfig;
+}
+
+/** Request schema for creating a new backtest */
+export interface BacktestCreate {
+  name: string;
+  topic: string;
+  seed?: number;
+  config?: Partial<BacktestConfig>;
+  notes?: string;
+}
+
+/** Request schema for resetting backtest data */
+export interface BacktestReset {
+  confirm: boolean;
+}
+
+/** Request schema for starting a backtest */
+export interface BacktestStart {
+  sequential?: boolean;
+}
+
+/** Response schema for a single backtest run */
+export interface BacktestRunResponse {
+  id: string;
+  backtest_id: string;
+  run_id: string | null;
+  node_id: string;
+  run_index: number;
+  derived_seed: number;
+  status: BacktestRunStatus;
+  manifest_hash: string | null;
+  error: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+/** Response schema for a backtest report snapshot */
+export interface BacktestReportSnapshotResponse {
+  id: string;
+  backtest_id: string;
+  node_id: string;
+  metric_key: string;
+  op: string;
+  threshold: number;
+  params: Record<string, unknown>;
+  report_json: Record<string, unknown>;
+  created_at: string;
+}
+
+/** Response schema for backtest detail */
+export interface BacktestResponse {
+  id: string;
+  tenant_id: string;
+  project_id: string;
+  name: string;
+  topic: string;
+  status: BacktestStatus;
+  seed: number;
+  config: Record<string, unknown>;
+  notes: string | null;
+  total_planned_runs: number;
+  completed_runs: number;
+  failed_runs: number;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  updated_at: string;
+  progress_percent: number;
+}
+
+/** Response schema for listing backtests */
+export interface BacktestListResponse {
+  items: BacktestResponse[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+/** Response schema for backtest runs listing */
+export interface BacktestRunsResponse {
+  backtest_id: string;
+  items: BacktestRunResponse[];
+  total: number;
+  by_status: Record<BacktestRunStatus, number>;
+}
+
+/** Response schema for backtest report snapshots */
+export interface BacktestReportsResponse {
+  backtest_id: string;
+  items: BacktestReportSnapshotResponse[];
+  total: number;
+}
+
+/** Response schema for backtest reset operation */
+export interface BacktestResetResponse {
+  backtest_id: string;
+  runs_deleted: number;
+  snapshots_deleted: number;
+  message: string;
+}
+
+/** Response schema for backtest start operation */
+export interface BacktestStartResponse {
+  backtest_id: string;
+  status: BacktestStatus;
+  runs_queued: number;
+  message: string;
 }
 
 export const api = new ApiClient(API_URL);

@@ -38,6 +38,8 @@ from app.api.v1.endpoints import (
     reliability,
     # PHASE 7: Aggregated Reports
     reports,
+    # PHASE 8: Backtest Orchestration
+    backtests,
     # 2D Replay (project.md §11 Phase 8)
     replay,
     # Export Controls (project.md §11 Phase 9)
@@ -101,6 +103,9 @@ api_router.include_router(reliability.router, prefix="/reliability", tags=["Reli
 
 # PHASE 7: Aggregated Reports (Prediction + Reliability Output Page)
 api_router.include_router(reports.router, prefix="/reports", tags=["Reports"])
+
+# PHASE 8: Backtest Orchestration (End-to-End Backtest Loop)
+api_router.include_router(backtests.router, tags=["Backtests"])
 
 # 2D Replay (project.md §11 Phase 8) - READ-ONLY per C3
 api_router.include_router(replay.router, prefix="/replay", tags=["2D Replay"])
