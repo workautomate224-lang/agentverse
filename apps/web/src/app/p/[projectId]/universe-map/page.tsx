@@ -7,7 +7,7 @@
  */
 
 import { useState, useCallback, useMemo, useEffect, useRef, Suspense } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   ReactFlow,
@@ -56,6 +56,7 @@ import {
   AlertCircle,
   GitBranch,
   GitFork,
+  GitMerge,
   Play,
   Pause,
   CheckCircle,
@@ -73,6 +74,7 @@ import {
   Sparkles,
   Zap,
   FileText,
+  Star,
   Map as MapIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -110,6 +112,9 @@ interface NodePosition {
 
 // Storage key for node positions
 const getStorageKey = (projectId: string) => `universe-map-positions-${projectId}`;
+
+// Storage key for root run selections (per node)
+const getRootRunStorageKey = (projectId: string) => `universe-map-root-runs-${projectId}`;
 
 // ============ Custom Node Component ============
 
@@ -405,6 +410,123 @@ function ForkModal({
   );
 }
 
+// ============ Compare Runs Modal ============
+
+function CompareRunsModal({
+  open,
+  onClose,
+  runs,
+  projectId,
+  nodeId,
+}: {
+  open: boolean;
+  onClose: () => void;
+  runs: RunSummary[];
+  projectId: string;
+  nodeId: string;
+}) {
+  const router = useRouter();
+  const [runA, setRunA] = useState<string | null>(null);
+  const [runB, setRunB] = useState<string | null>(null);
+
+  const succeededRuns = runs.filter(r => r.status === 'succeeded');
+
+  const handleCompare = () => {
+    if (!runA || !runB) return;
+    // Navigate to results page with compare params
+    router.push(`/p/${projectId}/results?node=${nodeId}&compareA=${runA}&compareB=${runB}`);
+    onClose();
+  };
+
+  // Reset selection when modal opens
+  useEffect(() => {
+    if (open && succeededRuns.length >= 2) {
+      setRunA(succeededRuns[0]?.run_id || null);
+      setRunB(succeededRuns[1]?.run_id || null);
+    }
+  }, [open, succeededRuns]);
+
+  return (
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <DialogContent className="bg-black border border-orange-500/30 max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-white font-mono flex items-center gap-2">
+            <GitMerge className="w-5 h-5 text-orange-400" />
+            Compare Runs
+          </DialogTitle>
+          <DialogDescription className="text-white/50 font-mono text-xs">
+            Select two runs to compare their outcomes
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-4">
+          {/* Run A selection */}
+          <div>
+            <label className="block text-xs font-mono text-white/60 mb-2">Run A</label>
+            <select
+              value={runA || ''}
+              onChange={(e) => setRunA(e.target.value || null)}
+              className="w-full px-3 py-2 bg-black border border-white/20 text-white font-mono text-sm focus:border-orange-500/50 focus:outline-none"
+            >
+              <option value="">Select a run...</option>
+              {succeededRuns.map((run) => (
+                <option key={run.run_id} value={run.run_id} disabled={run.run_id === runB}>
+                  {run.run_id.slice(0, 8)}... - {new Date(run.created_at || '').toLocaleDateString()}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Run B selection */}
+          <div>
+            <label className="block text-xs font-mono text-white/60 mb-2">Run B</label>
+            <select
+              value={runB || ''}
+              onChange={(e) => setRunB(e.target.value || null)}
+              className="w-full px-3 py-2 bg-black border border-white/20 text-white font-mono text-sm focus:border-orange-500/50 focus:outline-none"
+            >
+              <option value="">Select a run...</option>
+              {succeededRuns.map((run) => (
+                <option key={run.run_id} value={run.run_id} disabled={run.run_id === runA}>
+                  {run.run_id.slice(0, 8)}... - {new Date(run.created_at || '').toLocaleDateString()}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Preview */}
+          {runA && runB && (
+            <div className="p-3 bg-orange-500/10 border border-orange-500/30 text-orange-400 text-xs font-mono">
+              <div className="flex items-center gap-2 mb-1">
+                <GitMerge className="w-3 h-3" />
+                <span className="font-semibold">Comparison Preview</span>
+              </div>
+              <div className="text-white/60">
+                {runA.slice(0, 8)} vs {runB.slice(0, 8)}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleCompare}
+            disabled={!runA || !runB}
+            className="bg-orange-500 hover:bg-orange-600 text-white"
+          >
+            <GitMerge className="w-3 h-3 mr-2" />
+            Compare
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ============ Inspector Panel ============
 
 function InspectorPanel({
@@ -412,11 +534,21 @@ function InspectorPanel({
   onClose,
   projectId,
   onFork,
+  runs,
+  rootRunId,
+  onSetRootRun,
+  onCompareRuns,
+  onBranchFromRun,
 }: {
   node: UniverseNode | null;
   onClose: () => void;
   projectId: string;
   onFork: (node: UniverseNode) => void;
+  runs?: RunSummary[];
+  rootRunId?: string | null;
+  onSetRootRun?: (runId: string) => void;
+  onCompareRuns?: () => void;
+  onBranchFromRun?: (runId: string) => void;
 }) {
   if (!node) return null;
 
@@ -429,6 +561,12 @@ function InspectorPanel({
   };
 
   const stat = statusConfig[node.status];
+
+  // Filter runs for this node (or all runs for baseline)
+  const nodeRuns = runs?.filter(r =>
+    node.isBaseline || r.node_id === node.id || (!r.node_id && node.isBaseline)
+  ) || [];
+  const succeededRuns = nodeRuns.filter(r => r.status === 'succeeded');
 
   return (
     <div className="absolute right-0 top-0 bottom-0 w-80 bg-black/95 border-l border-white/10 z-50 overflow-y-auto">
@@ -532,6 +670,57 @@ function InspectorPanel({
             </div>
           </div>
         )}
+
+        {/* Runs Section - Select Root Run */}
+        {succeededRuns.length > 0 && (
+          <div className="border-t border-white/10 pt-4">
+            <div className="text-[10px] font-mono text-white/40 uppercase mb-2">
+              Node Runs ({succeededRuns.length} succeeded)
+            </div>
+            <div className="space-y-1 max-h-32 overflow-y-auto">
+              {succeededRuns.slice(0, 5).map((run) => (
+                <div
+                  key={run.run_id}
+                  className={cn(
+                    'flex items-center justify-between p-2 border transition-colors',
+                    rootRunId === run.run_id
+                      ? 'bg-yellow-500/10 border-yellow-500/30'
+                      : 'bg-white/5 border-white/10 hover:border-white/20'
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    {rootRunId === run.run_id && (
+                      <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
+                    )}
+                    <span className="text-[10px] font-mono text-white/80">
+                      {run.run_id.slice(0, 8)}...
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {rootRunId !== run.run_id && onSetRootRun && (
+                      <button
+                        onClick={() => onSetRootRun(run.run_id)}
+                        className="p-1 text-white/40 hover:text-yellow-400 transition-colors"
+                        title="Set as root run"
+                      >
+                        <Star className="w-3 h-3" />
+                      </button>
+                    )}
+                    {onBranchFromRun && (
+                      <button
+                        onClick={() => onBranchFromRun(run.run_id)}
+                        className="p-1 text-white/40 hover:text-purple-400 transition-colors"
+                        title="Branch from this run"
+                      >
+                        <GitFork className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Actions */}
@@ -544,6 +733,19 @@ function InspectorPanel({
           <GitFork className="w-3 h-3 mr-2" />
           Fork This Universe
         </Button>
+
+        {/* Compare Runs - only when 2+ succeeded runs exist */}
+        {succeededRuns.length >= 2 && onCompareRuns && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onCompareRuns}
+            className="w-full text-xs font-mono border-orange-500/30 text-orange-400 hover:bg-orange-500/10"
+          >
+            <GitMerge className="w-3 h-3 mr-2" />
+            Compare Runs
+          </Button>
+        )}
 
         {/* Run on this Node - always available */}
         <Link href={`/p/${projectId}/run-center?node=${node.id}`} className="block">
@@ -622,6 +824,15 @@ function UniverseMapCanvas() {
   const [aiForkCount, setAiForkCount] = useState(3);
   const [aiForkGenerating, setAiForkGenerating] = useState(false);
 
+  // Compare Runs modal state
+  const [compareModalOpen, setCompareModalOpen] = useState(false);
+
+  // Root run per node (persisted in localStorage)
+  const [rootRunMap, setRootRunMap] = useState<Record<string, string>>({});
+
+  // URL router for navigation
+  const router = useRouter();
+
   // API hooks - using useUniverseMap (not useUniverseMapFull which calls a non-existent endpoint)
   const { data: mapData, isLoading: mapLoading, error: mapError, refetch: refetchMap } = useUniverseMap(projectId);
   const { data: nodesList, isLoading: nodesLoading, refetch: refetchNodes } = useNodes({ project_id: projectId, limit: 100 });
@@ -647,6 +858,129 @@ function UniverseMapCanvas() {
       // Ignore storage errors
     }
   }, [projectId]);
+
+  // Load root run map from localStorage
+  const loadRootRunMap = useCallback((): Record<string, string> => {
+    try {
+      const saved = localStorage.getItem(getRootRunStorageKey(projectId));
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  }, [projectId]);
+
+  // Save root run map to localStorage
+  const saveRootRunMap = useCallback((map: Record<string, string>) => {
+    try {
+      localStorage.setItem(getRootRunStorageKey(projectId), JSON.stringify(map));
+    } catch {
+      // Ignore storage errors
+    }
+  }, [projectId]);
+
+  // Load root run map on mount
+  useEffect(() => {
+    setRootRunMap(loadRootRunMap());
+  }, [loadRootRunMap]);
+
+  // Handle setting root run for a node
+  const handleSetRootRun = useCallback((runId: string) => {
+    if (!selectedNodeId) return;
+    const newMap = { ...rootRunMap, [selectedNodeId]: runId };
+    setRootRunMap(newMap);
+    saveRootRunMap(newMap);
+  }, [selectedNodeId, rootRunMap, saveRootRunMap]);
+
+  // Handle Compare Runs - open modal
+  const handleCompareRuns = useCallback(() => {
+    setCompareModalOpen(true);
+  }, []);
+
+  // Handle Branch from Run - create new node branching from a specific run
+  const handleBranchFromRun = useCallback((runId: string) => {
+    if (!selectedNodeId) return;
+    const parentNode = universeNodes.get(selectedNodeId);
+    if (!parentNode) return;
+
+    // Get parent's depth
+    const parentFlowNode = nodes.find((n) => n.id === selectedNodeId);
+    const parentData = parentFlowNode?.data as SciFiNodeData | undefined;
+    const parentDepth = parentData?.depth ?? 0;
+
+    // Create new fork node locally with reference to the source run
+    const newId = `branch-${Date.now()}`;
+    const newNode: UniverseNode = {
+      id: newId,
+      label: `Branch from Run ${runId.slice(0, 8)}`,
+      probability: parentNode.probability,
+      confidence: parentNode.confidence,
+      status: 'draft',
+      isBaseline: false,
+      runCount: 0,
+      parentId: parentNode.id,
+      createdAt: new Date().toISOString(),
+      depth: parentDepth + 1,
+      forkType: 'manual',
+      childCount: 0,
+    };
+
+    // Calculate position relative to parent
+    const childCount = edges.filter((e) => e.source === parentNode.id).length;
+    const xOffset = (childCount % 3 - 1) * 280;
+    const yOffset = 200;
+
+    const newFlowNode: Node = {
+      id: newId,
+      type: 'sciFiNode',
+      position: {
+        x: (parentFlowNode?.position.x || 400) + xOffset,
+        y: (parentFlowNode?.position.y || 50) + yOffset,
+      },
+      data: {
+        ...newNode,
+        onFork: () => {
+          setForkingNode(newNode);
+          setForkModalOpen(true);
+        },
+        onAiFork: () => {
+          setAiForkingNode(newNode);
+          setAiForkModalOpen(true);
+        },
+        onDelete: () => {
+          setDeletingNode(newNode);
+          setDeleteModalOpen(true);
+        },
+      },
+    };
+
+    const newEdge: Edge = {
+      id: `${parentNode.id}-${newId}`,
+      source: parentNode.id,
+      target: newId,
+      type: 'smoothstep',
+      animated: false,
+      style: { stroke: '#a855f7', strokeWidth: 2 },
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#a855f7' },
+    };
+
+    setNodes((nds) => [...nds, newFlowNode]);
+    setEdges((eds) => [...eds, newEdge]);
+    setUniverseNodes((prev) => new Map(prev).set(newId, newNode));
+
+    // Save new position
+    const positions = loadPositions();
+    positions[newId] = newFlowNode.position;
+    savePositions(positions);
+
+    // Update URL to point to new node
+    const url = new URL(window.location.href);
+    url.searchParams.set('select', newId);
+    url.searchParams.set('inspect', 'true');
+    router.replace(url.pathname + url.search, { scroll: false });
+
+    // Select new node and keep inspector open
+    setSelectedNodeId(newId);
+  }, [selectedNodeId, universeNodes, nodes, edges, setNodes, setEdges, loadPositions, savePositions, router]);
 
   // Build universe nodes from API data with hierarchical DAG layout
   const buildUniverseFromData = useCallback(() => {
@@ -1384,6 +1718,11 @@ function UniverseMapCanvas() {
               setForkingNode(node);
               setForkModalOpen(true);
             }}
+            runs={runs || []}
+            rootRunId={selectedNodeId ? rootRunMap[selectedNodeId] : null}
+            onSetRootRun={handleSetRootRun}
+            onCompareRuns={handleCompareRuns}
+            onBranchFromRun={handleBranchFromRun}
           />
         )}
       </div>
@@ -1579,6 +1918,19 @@ function UniverseMapCanvas() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Compare Runs Modal */}
+      {selectedNode && (
+        <CompareRunsModal
+          open={compareModalOpen}
+          onClose={() => setCompareModalOpen(false)}
+          runs={(runs || []).filter(r =>
+            selectedNode.isBaseline || r.node_id === selectedNode.id || (!r.node_id && selectedNode.isBaseline)
+          )}
+          projectId={projectId}
+          nodeId={selectedNode.id}
+        />
+      )}
     </div>
   );
 }

@@ -5,8 +5,8 @@
  * Configure and execute simulation runs with node-aware targeting
  */
 
-import { useState, useEffect } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useState, useEffect, useCallback } from 'react';
+import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import {
@@ -338,11 +338,15 @@ function RunDetailsModal({
   open,
   onClose,
   projectId,
+  onRetry,
+  isRetrying,
 }: {
   run: RunSummary | null;
   open: boolean;
   onClose: () => void;
   projectId: string;
+  onRetry?: (run: RunSummary) => void;
+  isRetrying?: boolean;
 }) {
   const { data: progress } = useRunProgress(
     run && ['running', 'starting', 'queued'].includes(run.status) ? run.run_id : undefined
@@ -467,16 +471,18 @@ function RunDetailsModal({
                   <p className="text-xs font-mono text-white/60">
                     The simulation ended with status &quot;failed&quot;.
                   </p>
-                  {(fullRun as SpecRun)?.ticks_completed !== undefined && (
+                  {(fullRun as SpecRun)?.timing?.current_tick !== undefined && (
                     <div>
                       <span className="text-[10px] font-mono text-white/40 uppercase">Ticks Completed</span>
-                      <p className="text-xs font-mono text-white/80">{(fullRun as SpecRun).ticks_completed}</p>
+                      <p className="text-xs font-mono text-white/80">{(fullRun as SpecRun).timing.current_tick}</p>
                     </div>
                   )}
-                  {(fullRun as SpecRun)?.duration_seconds !== undefined && (
+                  {(fullRun as SpecRun)?.timing?.started_at && (fullRun as SpecRun)?.timing?.ended_at && (
                     <div>
                       <span className="text-[10px] font-mono text-white/40 uppercase">Duration</span>
-                      <p className="text-xs font-mono text-white/80">{(fullRun as SpecRun).duration_seconds?.toFixed(2)}s</p>
+                      <p className="text-xs font-mono text-white/80">
+                        {formatDuration((fullRun as SpecRun).timing.started_at, (fullRun as SpecRun).timing.ended_at)}
+                      </p>
                     </div>
                   )}
                   <p className="text-[10px] font-mono text-white/40 mt-2">
@@ -507,6 +513,23 @@ function RunDetailsModal({
                 <StopCircle className="w-3 h-3 mr-2" />
               )}
               Cancel Run
+            </Button>
+          )}
+
+          {/* Retry button for failed runs */}
+          {isFailed && onRetry && (
+            <Button
+              size="sm"
+              onClick={() => onRetry(run)}
+              disabled={isRetrying}
+              className="bg-yellow-500 hover:bg-yellow-600 text-black"
+            >
+              {isRetrying ? (
+                <Loader2 className="w-3 h-3 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="w-3 h-3 mr-2" />
+              )}
+              Retry Run
             </Button>
           )}
 
@@ -677,11 +700,15 @@ function NodeSelectorModal({
 export default function RunCenterPage() {
   const params = useParams();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const projectId = params.projectId as string;
   const queryClient = useQueryClient();
 
-  // Node selection state - read initial value from URL
+  // Deep-link parameters from URL
   const initialNodeId = searchParams.get('node');
+  const initialRunId = searchParams.get('run');
+
+  // Node selection state - read initial value from URL
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(initialNodeId);
   const [showNodeSelector, setShowNodeSelector] = useState(false);
 
@@ -693,6 +720,7 @@ export default function RunCenterPage() {
   const [selectedRun, setSelectedRun] = useState<RunSummary | null>(null);
   const [runDetailsModalOpen, setRunDetailsModalOpen] = useState(false);
   const [preFlightModalOpen, setPreFlightModalOpen] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
 
   // Track active run for progress polling
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
@@ -725,6 +753,40 @@ export default function RunCenterPage() {
 
   // Count completed runs
   const completedRuns = runs?.filter((r) => r.status === 'succeeded').length || 0;
+
+  // URL update helper - maintains deep-link state
+  const updateUrl = useCallback((params: { node?: string | null; run?: string | null }) => {
+    const url = new URL(window.location.href);
+
+    if (params.node !== undefined) {
+      if (params.node) {
+        url.searchParams.set('node', params.node);
+      } else {
+        url.searchParams.delete('node');
+      }
+    }
+
+    if (params.run !== undefined) {
+      if (params.run) {
+        url.searchParams.set('run', params.run);
+      } else {
+        url.searchParams.delete('run');
+      }
+    }
+
+    router.replace(url.pathname + url.search, { scroll: false });
+  }, [router]);
+
+  // Deep-link: Auto-open run details if run ID in URL
+  useEffect(() => {
+    if (initialRunId && runs && !runsLoading) {
+      const runFromUrl = runs.find((r) => r.run_id === initialRunId);
+      if (runFromUrl && !runDetailsModalOpen) {
+        setSelectedRun(runFromUrl);
+        setRunDetailsModalOpen(true);
+      }
+    }
+  }, [initialRunId, runs, runsLoading, runDetailsModalOpen]);
 
   // Find any running runs and track them
   useEffect(() => {
@@ -800,10 +862,57 @@ export default function RunCenterPage() {
     }
   };
 
-  // Handle node selection
+  // Handle retry run - creates a new run with same config as failed run
+  const handleRetryRun = async (failedRun: RunSummary) => {
+    setIsRetrying(true);
+    try {
+      // Create a new run with same node target
+      const runLabel = `Retry - ${failedRun.run_id.slice(0, 8)}`;
+
+      const runInput: SubmitRunInput = {
+        project_id: projectId,
+        label: runLabel,
+        config: {
+          run_mode: 'baseline',
+          max_ticks: 100,
+          agent_batch_size: 10,
+        },
+        auto_start: true,
+        node_id: failedRun.node_id || undefined,
+      };
+
+      const newRun = await createRun.mutateAsync(runInput);
+      setActiveRunId(newRun.run_id);
+
+      // Close the modal and clear selection
+      setRunDetailsModalOpen(false);
+      setSelectedRun(null);
+      updateUrl({ run: null });
+
+      toast({
+        title: 'Retry Started',
+        description: `New run ${newRun.run_id.slice(0, 8)} started.`,
+      });
+
+      refetchRuns();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+      toast({
+        title: 'Retry Failed',
+        description: errorMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsRetrying(false);
+    }
+  };
+
+  // Handle node selection - updates state and URL
   const handleNodeSelect = (node: NodeSummary | null) => {
-    setSelectedNodeId(node?.is_baseline ? null : node?.node_id || null);
+    const newNodeId = node?.is_baseline ? null : node?.node_id || null;
+    setSelectedNodeId(newNodeId);
     setShowNodeSelector(false);
+    updateUrl({ node: newNodeId });
   };
 
   // Invalidate related queries when run completes
@@ -1080,6 +1189,7 @@ export default function RunCenterPage() {
                 onClick={() => {
                   setSelectedRun(run);
                   setRunDetailsModalOpen(true);
+                  updateUrl({ run: run.run_id });
                 }}
                 className="w-full p-4 flex items-center justify-between hover:bg-white/5 transition-colors text-left"
               >
@@ -1215,8 +1325,11 @@ export default function RunCenterPage() {
         onClose={() => {
           setRunDetailsModalOpen(false);
           setSelectedRun(null);
+          updateUrl({ run: null });
         }}
         projectId={projectId}
+        onRetry={handleRetryRun}
+        isRetrying={isRetrying}
       />
 
       <NodeSelectorModal
