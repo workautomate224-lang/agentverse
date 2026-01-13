@@ -75,9 +75,15 @@ async def list_backtests(
     """List all backtests for a project."""
     service = get_backtest_service(db)
     # Note: status_filter not yet implemented in service
-    return await service.list_backtests(
+    items, total = await service.list_backtests(
         tenant_id=tenant.tenant_id,
         project_id=project_id,
+        page=page,
+        page_size=page_size,
+    )
+    return BacktestListResponse(
+        items=items,
+        total=total,
         page=page,
         page_size=page_size,
     )
