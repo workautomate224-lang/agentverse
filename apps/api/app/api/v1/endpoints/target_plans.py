@@ -330,7 +330,7 @@ async def create_branch_from_plan(
             detail="No parent node available. Either set node_id on the plan or ensure project has root node."
         )
 
-    # Create the new branch node
+    # Create the new branch node (without intervention fields - those go on Edge)
     branch_name = data.branch_name or f"Branch: {plan.name}"
 
     new_node = Node(
@@ -339,8 +339,20 @@ async def create_branch_from_plan(
         parent_node_id=parent_node_id,
         label=branch_name,
         description=f"Created from target plan: {plan.name}",
-        intervention_type=InterventionType.MANUAL_FORK,
-        intervention_payload={
+    )
+
+    db.add(new_node)
+    await db.flush()  # Get the new_node.id before creating Edge
+
+    # Create Edge from parent to new node with intervention details
+    from app.models.node import Edge
+    edge = Edge(
+        tenant_id=tenant.tenant_id,
+        project_id=plan.project_id,
+        from_node_id=parent_node_id,
+        to_node_id=new_node.id,
+        intervention={
+            "intervention_type": InterventionType.MANUAL_FORK.value,
             "source_plan_id": str(plan.id),
             "target_metric": plan.target_metric,
             "target_value": plan.target_value,
@@ -348,9 +360,13 @@ async def create_branch_from_plan(
             "steps": plan.steps_json or [],
             "constraints": plan.constraints_json or {},
         },
+        explanation={
+            "short_label": f"Target Plan: {plan.name}",
+            "description": f"Created from target plan targeting {plan.target_metric}",
+        },
     )
 
-    db.add(new_node)
+    db.add(edge)
     await db.commit()
     await db.refresh(new_node)
 
