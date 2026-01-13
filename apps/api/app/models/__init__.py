@@ -17,6 +17,7 @@ from app.models.data_source import (
     ValidationResult,
 )
 from app.models.persona import (
+    Persona,
     PersonaTemplate,
     PersonaRecord,
     PersonaUpload,
@@ -209,6 +210,7 @@ __all__ = [
     "RegionalProfile",
     "ValidationResult",
     # Persona
+    "Persona",
     "PersonaTemplate",
     "PersonaRecord",
     "PersonaUpload",

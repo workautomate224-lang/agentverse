@@ -1947,6 +1947,46 @@ class ApiClient {
     return this.request<AIResearchJob[]>(`/api/v1/personas/research${query ? `?${query}` : ''}`);
   }
 
+  // Project Personas - Save AI-generated personas to database
+  async saveProjectPersonas(
+    projectId: string,
+    personas: Record<string, unknown>[]
+  ): Promise<{ saved_count: number; project_id: string; persona_ids: string[] }> {
+    return this.request<{ saved_count: number; project_id: string; persona_ids: string[] }>(
+      `/api/v1/personas/project/${projectId}/save`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          project_id: projectId,
+          personas,
+        }),
+      }
+    );
+  }
+
+  async listProjectPersonas(
+    projectId: string,
+    params?: { skip?: number; limit?: number }
+  ): Promise<ProjectPersona[]> {
+    const searchParams = new URLSearchParams();
+    if (params?.skip) searchParams.set('skip', String(params.skip));
+    if (params?.limit) searchParams.set('limit', String(params.limit));
+
+    const query = searchParams.toString();
+    return this.request<ProjectPersona[]>(
+      `/api/v1/personas/project/${projectId}${query ? `?${query}` : ''}`
+    );
+  }
+
+  async deleteProjectPersonas(projectId: string): Promise<{ message: string; project_id: string }> {
+    return this.request<{ message: string; project_id: string }>(
+      `/api/v1/personas/project/${projectId}/personas`,
+      {
+        method: 'DELETE',
+      }
+    );
+  }
+
   // Region Information
   async listSupportedRegions(): Promise<RegionInfo[]> {
     return this.request<RegionInfo[]>('/api/v1/personas/regions');
@@ -3591,6 +3631,21 @@ export interface PersonaRecord {
   source_type: string;
   confidence_score: number;
   full_prompt: string | null;
+  created_at: string;
+}
+
+// Project Persona - Stored in the personas table linked to a project
+export interface ProjectPersona {
+  id: string;
+  label: string;
+  source: string;
+  demographics: Record<string, unknown>;
+  preferences: Record<string, unknown>;
+  perception_weights: Record<string, unknown>;
+  bias_parameters: Record<string, unknown>;
+  action_priors: Record<string, unknown>;
+  uncertainty_score: number;
+  is_active: boolean;
   created_at: string;
 }
 

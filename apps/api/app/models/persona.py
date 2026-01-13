@@ -34,6 +34,81 @@ class RegionType(str, Enum):
     CUSTOM = "custom"
 
 
+class Persona(Base):
+    """
+    Individual persona linked to a project.
+    This is the primary personas table used by the simulation engine.
+    Schema matches migration 2026_01_08_0002_spec_compliant_schema.py.
+    """
+    __tablename__ = "personas"
+
+    id: Mapped[UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    tenant_id: Mapped[UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    project_id: Mapped[UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("project_specs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+
+    # Identity
+    label: Mapped[str] = mapped_column(String(255), nullable=False)
+    source: Mapped[str] = mapped_column(String(50), nullable=False)  # uploaded/generated/deep_search
+
+    # Core persona attributes (JSONB)
+    demographics: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    preferences: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    perception_weights: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    bias_parameters: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    action_priors: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+    # Uncertainty & Evidence
+    uncertainty_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
+    evidence_refs: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+
+    # Versioning
+    persona_version: Mapped[str] = mapped_column(String(20), nullable=False, default="1.0.0")
+    schema_version: Mapped[str] = mapped_column(String(20), nullable=False, default="1.0.0")
+
+    # Segments
+    segment_ids: Mapped[Optional[List[UUID]]] = mapped_column(
+        ARRAY(UUID(as_uuid=True)), nullable=True
+    )
+
+    # Status
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    def __repr__(self) -> str:
+        return f"<Persona {self.label} ({self.id})>"
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for serialization."""
+        return {
+            "id": str(self.id),
+            "tenant_id": str(self.tenant_id),
+            "project_id": str(self.project_id),
+            "label": self.label,
+            "source": self.source,
+            "demographics": self.demographics,
+            "preferences": self.preferences,
+            "perception_weights": self.perception_weights,
+            "bias_parameters": self.bias_parameters,
+            "action_priors": self.action_priors,
+            "uncertainty_score": self.uncertainty_score,
+            "is_active": self.is_active,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class PersonaTemplate(Base):
     """
     Persona template for a specific market/topic combination.

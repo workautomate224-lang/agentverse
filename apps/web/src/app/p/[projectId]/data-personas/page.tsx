@@ -47,6 +47,9 @@ import {
   useAIResearchJob,
   usePersonas,
   useDeletePersonaTemplate,
+  useProjectPersonas,
+  useSaveProjectPersonas,
+  useDeleteProjectPersonas,
 } from '@/hooks/useApi';
 
 // Persona source options
@@ -781,16 +784,26 @@ export default function DataPersonasPage() {
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [selectedPersona, setSelectedPersona] = useState<Record<string, unknown> | null>(null);
 
-  // AI-generated personas (preview, not yet saved)
+  // AI-generated personas (local state for immediate display)
   const [generatedPersonas, setGeneratedPersonas] = useState<GeneratedPersona[]>([]);
 
   // Data hooks
   const { data: templates, isLoading: loadingTemplates, refetch: refetchTemplates } = usePersonaTemplates({ limit: 100 });
   const deleteTemplate = useDeletePersonaTemplate();
 
-  // Count personas from templates + generated
-  const totalPersonas = (templates?.reduce((acc, t) => acc + (t.persona_count || 0), 0) || 0) + generatedPersonas.length;
-  const hasPersonas = (templates && templates.length > 0) || generatedPersonas.length > 0;
+  // Project personas - persisted in database
+  const {
+    data: projectPersonas,
+    isLoading: loadingProjectPersonas,
+    refetch: refetchProjectPersonas,
+  } = useProjectPersonas(projectId);
+  const saveProjectPersonas = useSaveProjectPersonas();
+  const deleteProjectPersonas = useDeleteProjectPersonas();
+
+  // Count personas from templates + generated + persisted project personas
+  const persistedCount = projectPersonas?.length || 0;
+  const totalPersonas = (templates?.reduce((acc, t) => acc + (t.persona_count || 0), 0) || 0) + generatedPersonas.length + persistedCount;
+  const hasPersonas = (templates && templates.length > 0) || generatedPersonas.length > 0 || persistedCount > 0;
 
   const handleSourceClick = (sourceId: string) => {
     switch (sourceId) {
@@ -811,6 +824,7 @@ export default function DataPersonasPage() {
 
   const handleRefresh = () => {
     refetchTemplates();
+    refetchProjectPersonas();
   };
 
   const handleViewPersona = (persona: Record<string, unknown>) => {
@@ -826,9 +840,53 @@ export default function DataPersonasPage() {
     }
   };
 
-  // Handle AI-generated personas
-  const handleGeneratedPersonas = (personas: GeneratedPersona[]) => {
+  // Handle AI-generated personas - save to DB and update local state
+  const handleGeneratedPersonas = async (personas: GeneratedPersona[]) => {
+    // Update local state immediately for instant feedback
     setGeneratedPersonas((prev) => [...prev, ...personas]);
+
+    // Persist to database
+    try {
+      await saveProjectPersonas.mutateAsync({
+        projectId,
+        personas: personas.map((p) => ({
+          name: p.name,
+          demographics: {
+            age: p.age,
+            gender: p.gender,
+            location: p.location,
+            income_bracket: p.income_bracket,
+            education_level: p.education_level,
+          },
+          preferences: {
+            values: p.values,
+            interests: p.interests,
+            goals: p.goals,
+          },
+          psychographics: {
+            personality_traits: p.personality_traits,
+            communication_style: p.communication_style,
+            decision_making_style: p.decision_making_style,
+          },
+          behavioral: {
+            pain_points: p.pain_points,
+            behavioral_patterns: p.behavioral_patterns,
+            media_consumption: p.media_consumption,
+          },
+          biases: {
+            brand_preferences: p.brand_preferences,
+          },
+          occupation: p.occupation,
+          cultural_context: p.cultural_context,
+        })),
+      });
+      // Clear local state since personas are now persisted
+      setGeneratedPersonas([]);
+      // Refetch to show persisted personas
+      refetchProjectPersonas();
+    } catch {
+      // Keep in local state if save failed - user can try again
+    }
   };
 
   const handleRemoveGeneratedPersona = (personaId: string) => {
@@ -837,6 +895,14 @@ export default function DataPersonasPage() {
 
   const handleClearGeneratedPersonas = () => {
     setGeneratedPersonas([]);
+  };
+
+  const handleClearPersistedPersonas = async () => {
+    try {
+      await deleteProjectPersonas.mutateAsync(projectId);
+    } catch {
+      // Error handled by React Query
+    }
   };
 
   return (
@@ -1031,13 +1097,82 @@ export default function DataPersonasPage() {
           </div>
         )}
 
-        {/* AI Generated Personas Section */}
+        {/* Persisted Project Personas Section */}
+        {persistedCount > 0 && (
+          <div className="mt-6 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xs font-mono text-green-400 uppercase tracking-wider flex items-center gap-2">
+                <CheckCircle className="w-3 h-3" />
+                Saved Personas ({persistedCount})
+              </h2>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleClearPersistedPersonas}
+                disabled={deleteProjectPersonas.isPending}
+                className="text-xs text-red-400 hover:text-red-300"
+              >
+                {deleteProjectPersonas.isPending ? (
+                  <Loader2 className="w-3 h-3 mr-2 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3 h-3 mr-2" />
+                )}
+                Clear All
+              </Button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {projectPersonas?.map((persona) => (
+                <div
+                  key={persona.id}
+                  className="p-4 bg-green-500/5 border border-green-500/20 hover:border-green-500/40 transition-colors"
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <div>
+                      <h4 className="text-sm font-mono font-bold text-white">{persona.label}</h4>
+                      <p className="text-xs font-mono text-white/50">
+                        Source: {persona.source}
+                      </p>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 w-6 p-0"
+                        onClick={() => handleViewPersona(persona as unknown as Record<string, unknown>)}
+                      >
+                        <Eye className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    {persona.demographics?.age && (
+                      <p className="text-xs font-mono text-white/40">
+                        <span className="text-white/60">Age:</span> {String(persona.demographics.age)}
+                        {persona.demographics?.gender && <> • {String(persona.demographics.gender)}</>}
+                      </p>
+                    )}
+                    {persona.demographics?.location && (
+                      <p className="text-xs font-mono text-white/40">
+                        <span className="text-white/60">Location:</span> {String(persona.demographics.location)}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] font-mono text-green-400/60 mt-2">
+              These personas are saved and will persist after page refresh.
+            </p>
+          </div>
+        )}
+
+        {/* AI Generated Personas Section (temporary, not yet saved) */}
         {generatedPersonas.length > 0 && (
           <div className="mt-6 space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-mono text-amber-400 uppercase tracking-wider flex items-center gap-2">
                 <Zap className="w-3 h-3" />
-                AI Generated Personas ({generatedPersonas.length})
+                Saving Personas... ({generatedPersonas.length})
               </h2>
               <Button
                 size="sm"
@@ -1046,7 +1181,7 @@ export default function DataPersonasPage() {
                 className="text-xs text-red-400 hover:text-red-300"
               >
                 <Trash2 className="w-3 h-3 mr-2" />
-                Clear All
+                Clear
               </Button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1106,9 +1241,12 @@ export default function DataPersonasPage() {
                 </div>
               ))}
             </div>
-            <p className="text-[10px] font-mono text-amber-400/60 mt-2">
-              Note: These personas are previews. Backend integration coming soon.
-            </p>
+            {saveProjectPersonas.isPending && (
+              <div className="flex items-center gap-2 text-[10px] font-mono text-amber-400/60 mt-2">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Saving personas to database...
+              </div>
+            )}
           </div>
         )}
       </div>

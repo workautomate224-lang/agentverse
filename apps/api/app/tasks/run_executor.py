@@ -945,10 +945,10 @@ async def _aggregate_ensemble_outcomes(
     from statistics import mean, median, variance
     from collections import Counter
 
-    # Load all completed runs for this node
+    # Load all succeeded runs for this node
     query = select(Run).where(
         Run.node_id == uuid.UUID(node_id),
-        Run.status == "completed",
+        Run.status == RunStatus.SUCCEEDED.value,  # "succeeded" not "completed"
     )
     result = await db.execute(query)
     all_runs = result.scalars().all()

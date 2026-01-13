@@ -826,6 +826,48 @@ export function useAIResearchJobs(params?: { skip?: number; limit?: number }) {
   });
 }
 
+// ========== Project Personas Hooks (DB-persisted personas) ==========
+
+export function useProjectPersonas(projectId: string, params?: { skip?: number; limit?: number }) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['projectPersonas', projectId, params],
+    queryFn: () => api.listProjectPersonas(projectId, params),
+    enabled: isReady && !!projectId,
+  });
+}
+
+export function useSaveProjectPersonas() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: ({
+      projectId,
+      personas,
+    }: {
+      projectId: string;
+      personas: Record<string, unknown>[];
+    }) => api.saveProjectPersonas(projectId, personas),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['projectPersonas', result.project_id] });
+    },
+  });
+}
+
+export function useDeleteProjectPersonas() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: (projectId: string) => api.deleteProjectPersonas(projectId),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['projectPersonas', result.project_id] });
+    },
+  });
+}
+
 // ========== Region Information Hooks ==========
 
 export function useSupportedRegions() {
