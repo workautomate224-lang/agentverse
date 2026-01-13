@@ -385,7 +385,21 @@ async def get_reliability_summary(
 
     Multi-tenant scoped. All computations are deterministic and auditable.
     """
-    tenant_id = UUID(tenant.tenant_id)
+    # Validate tenant context
+    if not tenant:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+
+    try:
+        tenant_id = UUID(tenant.tenant_id)
+    except (ValueError, TypeError) as e:
+        logger.error(f"Invalid tenant_id: {tenant.tenant_id}, error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid tenant context",
+        )
     computed_at = datetime.utcnow()
 
     # Compute deterministic seed
@@ -397,98 +411,105 @@ async def get_reliability_summary(
         manifest_hash=manifest_hash,
     )
 
-    # Build query for run outcomes
-    cutoff_date = datetime.utcnow() - timedelta(days=window_days)
+    try:
+        # Build query for run outcomes
+        cutoff_date = datetime.utcnow() - timedelta(days=window_days)
 
-    query = (
-        select(RunOutcome)
-        .where(
-            and_(
-                RunOutcome.tenant_id == tenant_id,
-                RunOutcome.node_id == node_id,
-                RunOutcome.created_at >= cutoff_date,
+        query = (
+            select(RunOutcome)
+            .where(
+                and_(
+                    RunOutcome.tenant_id == tenant_id,
+                    RunOutcome.node_id == node_id,
+                    RunOutcome.created_at >= cutoff_date,
+                )
             )
+            .order_by(RunOutcome.created_at.desc())
         )
-        .order_by(RunOutcome.created_at.desc())
-    )
 
-    # Add manifest_hash filter if provided
-    if manifest_hash:
-        query = query.where(RunOutcome.manifest_hash == manifest_hash)
+        # Add manifest_hash filter if provided
+        if manifest_hash:
+            query = query.where(RunOutcome.manifest_hash == manifest_hash)
 
-    result = await db.execute(query)
-    outcomes = result.scalars().all()
+        result = await db.execute(query)
+        outcomes = result.scalars().all()
 
-    n_runs_total = len(outcomes)
+        n_runs_total = len(outcomes)
 
-    # Extract metric values
-    values = []
-    run_ids_used = []
-    for outcome in outcomes:
-        metrics = outcome.metrics_json or {}
-        if metric_key in metrics:
-            val = metrics[metric_key]
-            if isinstance(val, (int, float)):
-                values.append(float(val))
-                run_ids_used.append(str(outcome.run_id))
+        # Extract metric values
+        values = []
+        run_ids_used = []
+        for outcome in outcomes:
+            metrics = outcome.metrics_json or {}
+            if metric_key in metrics:
+                val = metrics[metric_key]
+                if isinstance(val, (int, float)):
+                    values.append(float(val))
+                    run_ids_used.append(str(outcome.run_id))
 
-    n_runs_used = len(values)
+        n_runs_used = len(values)
 
-    # Build audit metadata
-    audit = AuditMetadata(
-        computed_at=computed_at,
-        run_ids_used=run_ids_used,
-        filters_applied={
-            "node_id": str(node_id),
-            "metric_key": metric_key,
-            "manifest_hash": manifest_hash,
-            "window_days": window_days,
-            "op": op,
-            "threshold": threshold,
-        },
-        deterministic_seed=seed_hash,
-    )
+        # Build audit metadata
+        audit = AuditMetadata(
+            computed_at=computed_at,
+            run_ids_used=run_ids_used,
+            filters_applied={
+                "node_id": str(node_id),
+                "metric_key": metric_key,
+                "manifest_hash": manifest_hash,
+                "window_days": window_days,
+                "op": op,
+                "threshold": threshold,
+            },
+            deterministic_seed=seed_hash,
+        )
 
-    # Check for insufficient data
-    if n_runs_used < min_runs:
+        # Check for insufficient data
+        if n_runs_used < min_runs:
+            return ReliabilitySummaryResponse(
+                status="insufficient_data",
+                n_runs_total=n_runs_total,
+                n_runs_used=n_runs_used,
+                sensitivity=None,
+                stability=None,
+                drift=None,
+                calibration=None,
+                audit=audit,
+            )
+
+        # Compute sensitivity
+        sensitivity = compute_sensitivity(values, op)
+        sensitivity.metric_key = metric_key
+
+        # Compute stability
+        stability = compute_stability(values, seed_hash)
+
+        # Compute drift (split into baseline vs recent)
+        # Baseline: older half, Recent: newer half
+        mid_point = n_runs_used // 2
+        baseline_values = values[mid_point:]  # Older runs (later in sorted list)
+        recent_values = values[:mid_point]    # Newer runs
+        drift = compute_drift(baseline_values, recent_values)
+
+        # Get calibration summary
+        calibration = await get_calibration_summary(db, tenant_id, node_id)
+
         return ReliabilitySummaryResponse(
-            status="insufficient_data",
+            status="ok",
             n_runs_total=n_runs_total,
             n_runs_used=n_runs_used,
-            sensitivity=None,
-            stability=None,
-            drift=None,
-            calibration=None,
+            sensitivity=sensitivity,
+            stability=stability,
+            drift=drift,
+            calibration=calibration,
             audit=audit,
         )
-
-    # Compute sensitivity
-    sensitivity = compute_sensitivity(values, op)
-    sensitivity.metric_key = metric_key
-
-    # Compute stability
-    stability = compute_stability(values, seed_hash)
-
-    # Compute drift (split into baseline vs recent)
-    # Baseline: older half, Recent: newer half
-    mid_point = n_runs_used // 2
-    baseline_values = values[mid_point:]  # Older runs (later in sorted list)
-    recent_values = values[:mid_point]    # Newer runs
-    drift = compute_drift(baseline_values, recent_values)
-
-    # Get calibration summary
-    calibration = await get_calibration_summary(db, tenant_id, node_id)
-
-    return ReliabilitySummaryResponse(
-        status="ok",
-        n_runs_total=n_runs_total,
-        n_runs_used=n_runs_used,
-        sensitivity=sensitivity,
-        stability=stability,
-        drift=drift,
-        calibration=calibration,
-        audit=audit,
-    )
+    except Exception as e:
+        logger.exception(f"Error in get_reliability_summary: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error computing reliability metrics: {str(e)}",
+        )
 
 
 @router.get(
