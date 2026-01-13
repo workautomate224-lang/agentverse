@@ -125,7 +125,7 @@ class AIGeneratePlanResponse(BaseModel):
 
 class CreateBranchFromPlanRequest(BaseModel):
     """Request to create a new branch from a target plan."""
-    plan_id: UUID
+    # Note: plan_id comes from the URL path parameter, not the request body
     branch_name: Optional[str] = Field(None, description="Optional name for the new branch node")
 
 
