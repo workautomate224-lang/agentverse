@@ -209,6 +209,24 @@ class TelemetrySlice:
     total_ticks: int
 
 
+@dataclass
+class TelemetryIndexResult:
+    """Result of telemetry index query for API."""
+    total_ticks: int
+    keyframe_ticks: List[int]
+    event_types: List[str]
+    agent_ids: List[str]
+    storage_ref: Dict[str, Any]
+
+
+@dataclass
+class TelemetrySliceResult:
+    """Result of telemetry slice query for API."""
+    keyframes: List[TelemetryKeyframe]
+    deltas: List[TelemetryDelta]
+    events: List[Dict[str, Any]]
+
+
 class TelemetryWriter:
     """
     Writes telemetry data during simulation execution.
@@ -336,6 +354,340 @@ class TelemetryService:
 
     def __init__(self, storage: Optional[StorageService] = None):
         self.storage = storage or get_storage_service()
+
+    # ================================================================
+    # RUN-BASED LOOKUP METHODS (used by API endpoints)
+    # These look up the telemetry_ref from Run.outputs, then delegate
+    # to the storage-based methods below.
+    # ================================================================
+
+    async def _get_telemetry_ref_for_run(
+        self,
+        run_id: str,
+        tenant_id: str,
+    ) -> Optional[StorageRef]:
+        """
+        Look up the telemetry StorageRef for a run from the database.
+        Returns None if run not found or no telemetry exists.
+        """
+        from sqlalchemy import select, text
+        from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+        from sqlalchemy.orm import sessionmaker
+        from app.core.config import settings
+
+        # Create a fresh session for this lookup
+        engine = create_async_engine(settings.DATABASE_URL, echo=False)
+        AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+        async with AsyncSessionLocal() as db:
+            query = text("""
+                SELECT outputs
+                FROM runs
+                WHERE id = :run_id AND tenant_id = :tenant_id
+            """)
+            result = await db.execute(query, {
+                "run_id": run_id,
+                "tenant_id": tenant_id,
+            })
+            row = result.fetchone()
+
+            if not row or not row.outputs:
+                return None
+
+            outputs = row.outputs
+            telemetry_ref_dict = outputs.get("telemetry_ref")
+            if not telemetry_ref_dict:
+                return None
+
+            return StorageRef.from_dict(telemetry_ref_dict)
+
+    async def get_telemetry_index(
+        self,
+        run_id: str,
+        tenant_id: str,
+    ) -> Optional["TelemetryIndexResult"]:
+        """
+        Get telemetry index for a run by looking up its storage ref.
+        Used by API endpoints.
+        """
+        storage_ref = await self._get_telemetry_ref_for_run(run_id, tenant_id)
+        if not storage_ref:
+            return None
+
+        try:
+            blob = await self.get_telemetry(storage_ref)
+            return TelemetryIndexResult(
+                total_ticks=blob.ticks_executed,
+                keyframe_ticks=[k.tick for k in blob.keyframes],
+                event_types=list(set(
+                    evt for d in blob.deltas for evt in d.events_triggered
+                )),
+                agent_ids=list(blob.final_states.keys()) if blob.final_states else [],
+                storage_ref=storage_ref.to_dict(),
+            )
+        except Exception:
+            return None
+
+    async def get_telemetry_slice(
+        self,
+        run_id: str,
+        tenant_id: str,
+        start_tick: int,
+        end_tick: int,
+        include_events: bool = True,
+    ) -> Optional["TelemetrySliceResult"]:
+        """
+        Get a slice of telemetry data for a run.
+        Used by API endpoints.
+        """
+        storage_ref = await self._get_telemetry_ref_for_run(run_id, tenant_id)
+        if not storage_ref:
+            return None
+
+        try:
+            blob = await self.get_telemetry(storage_ref)
+
+            # Filter keyframes in range
+            keyframes = [k for k in blob.keyframes if start_tick <= k.tick <= end_tick]
+
+            # Filter deltas in range
+            deltas = [d for d in blob.deltas if start_tick <= d.tick <= end_tick]
+
+            # Extract events from deltas
+            events = []
+            if include_events:
+                for delta in deltas:
+                    for evt_type in delta.events_triggered:
+                        events.append({
+                            "tick": delta.tick,
+                            "event_type": evt_type,
+                            "timestamp": "",
+                            "agent_id": None,
+                            "data": {},
+                        })
+
+            return TelemetrySliceResult(
+                keyframes=keyframes,
+                deltas=deltas,
+                events=events,
+            )
+        except Exception:
+            return None
+
+    async def get_keyframe_at_tick_by_run(
+        self,
+        run_id: str,
+        tick: int,
+        tenant_id: str,
+    ) -> Optional[TelemetryKeyframe]:
+        """
+        Get the closest keyframe at or before a tick for a run.
+        Used by API endpoints.
+        """
+        storage_ref = await self._get_telemetry_ref_for_run(run_id, tenant_id)
+        if not storage_ref:
+            return None
+
+        return await self.get_keyframe_at_tick(storage_ref, tick)
+
+    async def get_telemetry_summary(
+        self,
+        run_id: str,
+        tenant_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get telemetry summary for a run.
+        Used by API endpoints.
+        """
+        storage_ref = await self._get_telemetry_ref_for_run(run_id, tenant_id)
+        if not storage_ref:
+            return None
+
+        try:
+            blob = await self.get_telemetry(storage_ref)
+
+            # Count events by type
+            event_type_counts: Dict[str, int] = {}
+            total_events = 0
+            for delta in blob.deltas:
+                for evt_type in delta.events_triggered:
+                    event_type_counts[evt_type] = event_type_counts.get(evt_type, 0) + 1
+                    total_events += 1
+
+            return {
+                "total_ticks": blob.ticks_executed,
+                "total_events": total_events,
+                "total_agents": blob.agent_count,
+                "event_type_counts": event_type_counts,
+                "key_metrics": blob.metrics_summary,
+                "duration_seconds": 0.0,  # Would need timing data
+            }
+        except Exception:
+            return None
+
+    async def get_telemetry_by_run(
+        self,
+        run_id: str,
+        tenant_id: str,
+    ) -> Optional[TelemetryBlob]:
+        """
+        Get full telemetry blob for a run.
+        Used by API endpoints.
+        """
+        storage_ref = await self._get_telemetry_ref_for_run(run_id, tenant_id)
+        if not storage_ref:
+            return None
+
+        try:
+            return await self.get_telemetry(storage_ref)
+        except Exception:
+            return None
+
+    async def get_agent_history(
+        self,
+        run_id: str,
+        agent_id: str,
+        tenant_id: str,
+        start_tick: int = 0,
+        end_tick: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get state history for a specific agent.
+        Used by API endpoints.
+        """
+        storage_ref = await self._get_telemetry_ref_for_run(run_id, tenant_id)
+        if not storage_ref:
+            return []
+
+        try:
+            blob = await self.get_telemetry(storage_ref)
+
+            history = []
+            for keyframe in blob.keyframes:
+                if keyframe.tick < start_tick:
+                    continue
+                if end_tick is not None and keyframe.tick > end_tick:
+                    break
+                if agent_id in keyframe.agent_states:
+                    history.append({
+                        "tick": keyframe.tick,
+                        "state": keyframe.agent_states[agent_id],
+                        "beliefs": None,
+                        "last_action": None,
+                        "metrics": keyframe.metrics,
+                    })
+
+            return history
+        except Exception:
+            return []
+
+    async def get_events_by_type(
+        self,
+        run_id: str,
+        tenant_id: str,
+        event_type: Optional[str] = None,
+        agent_id: Optional[str] = None,
+        start_tick: int = 0,
+        end_tick: Optional[int] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get events filtered by type and other criteria.
+        Used by API endpoints.
+        """
+        storage_ref = await self._get_telemetry_ref_for_run(run_id, tenant_id)
+        if not storage_ref:
+            return []
+
+        try:
+            blob = await self.get_telemetry(storage_ref)
+
+            events = []
+            for delta in blob.deltas:
+                if delta.tick < start_tick:
+                    continue
+                if end_tick is not None and delta.tick > end_tick:
+                    break
+
+                for evt_type in delta.events_triggered:
+                    if event_type and evt_type != event_type:
+                        continue
+
+                    events.append({
+                        "tick": delta.tick,
+                        "event_type": evt_type,
+                        "timestamp": "",
+                        "agent_id": agent_id,
+                        "data": {},
+                    })
+
+                    if len(events) >= limit:
+                        return events
+
+            return events
+        except Exception:
+            return []
+
+    async def get_aggregated_metrics(
+        self,
+        run_id: str,
+        tenant_id: str,
+        metric_names: Optional[List[str]] = None,
+        aggregation: str = "mean",
+        group_by_tick: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get aggregated metrics from telemetry.
+        Used by API endpoints.
+        """
+        storage_ref = await self._get_telemetry_ref_for_run(run_id, tenant_id)
+        if not storage_ref:
+            return None
+
+        try:
+            blob = await self.get_telemetry(storage_ref)
+
+            if group_by_tick:
+                # Return metrics per tick
+                return {
+                    "by_tick": [
+                        {"tick": d.tick, "metrics": d.metrics}
+                        for d in blob.deltas
+                    ]
+                }
+
+            # Aggregate across all ticks
+            all_metrics: Dict[str, List[float]] = {}
+            for delta in blob.deltas:
+                for key, value in delta.metrics.items():
+                    if metric_names and key not in metric_names:
+                        continue
+                    if key not in all_metrics:
+                        all_metrics[key] = []
+                    if isinstance(value, (int, float)):
+                        all_metrics[key].append(float(value))
+
+            # Apply aggregation
+            result = {}
+            for key, values in all_metrics.items():
+                if not values:
+                    continue
+                if aggregation == "mean":
+                    result[key] = sum(values) / len(values)
+                elif aggregation == "sum":
+                    result[key] = sum(values)
+                elif aggregation == "min":
+                    result[key] = min(values)
+                elif aggregation == "max":
+                    result[key] = max(values)
+                elif aggregation == "std":
+                    mean = sum(values) / len(values)
+                    variance = sum((v - mean) ** 2 for v in values) / len(values)
+                    result[key] = variance ** 0.5
+
+            return result
+        except Exception:
+            return None
 
     # ================================================================
     # WRITE OPERATIONS (used by RunExecutor)

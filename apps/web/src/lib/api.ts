@@ -671,33 +671,87 @@ export interface EventOccurrence {
 
 // Telemetry Index
 export interface TelemetryIndex {
-  tick_index: { tick: number; keyframe_offset?: number; delta_range: [number, number] }[];
-  region_index: Record<string, number[]>;
-  segment_index: Record<string, number[]>;
-  key_agent_index: Record<string, number[]>;
-  available_metrics: string[];
+  run_id: string;
+  total_ticks: number;
+  keyframe_ticks: number[];
+  event_types: string[];
+  agent_ids: string[];
+  storage_ref: {
+    bucket: string;
+    key: string;
+    size_bytes: number;
+    content_type: string;
+    checksum: string;
+    compression?: string;
+    created_at: string;
+  };
 }
 
 // Telemetry Summary
 export interface TelemetrySummary {
-  telemetry_id: string;
   run_id: string;
-  node_id: string;
-  tick_count: number;
-  keyframe_count: number;
-  delta_count: number;
-  size_bytes: number;
-  created_at: string;
-  available_metrics: string[];
-  tracked_agents: number;
+  total_ticks: number;
+  total_events: number;
+  total_agents: number;
+  event_type_counts: Record<string, number>;
+  key_metrics: {
+    by_tick?: { active_agents: number; total_agents: number; activity_rate: number }[];
+  };
+  duration_seconds: number;
+}
+
+// Telemetry Keyframe
+export interface TelemetryKeyframe {
+  tick: number;
+  timestamp: string;
+  agent_states: Record<string, {
+    agent_id: string;
+    persona_id: string;
+    tick: number;
+    state: string;
+    variables: Record<string, number>;
+    memory_summary: { belief_count: number; episode_count: number };
+    social_edge_count: number;
+  }>;
+  environment_state?: Record<string, unknown>;
+  metrics?: Record<string, unknown>;
+  event_count: number;
+}
+
+// Telemetry Delta
+export interface TelemetryDeltaItem {
+  tick: number;
+  agent_updates: {
+    agent_id: string;
+    observation: { environment_signals: number; peer_count: number; events_observed: number };
+    decision: unknown;
+    actions: number;
+    state_delta: Record<string, unknown>;
+  }[];
+  events_triggered: string[];
+  metrics: { active_agents: number; total_agents: number; activity_rate: number };
+}
+
+// Telemetry Event
+export interface TelemetryEvent {
+  event_id: string;
+  tick: number;
+  timestamp: string;
+  event_type: string;
+  agent_id?: string;
+  data: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 }
 
 // Telemetry Slice (for replay)
 export interface TelemetrySlice {
-  tick: number;
-  world_keyframe?: WorldKeyframe;
-  deltas: TelemetryDelta[];
-  is_interpolated: boolean;
+  run_id: string;
+  start_tick: number;
+  end_tick: number;
+  keyframes: TelemetryKeyframe[];
+  deltas: TelemetryDeltaItem[];
+  events: TelemetryEvent[];
+  total_events: number;
 }
 
 // Telemetry Playback State
@@ -2205,7 +2259,10 @@ class ApiClient {
   }
 
   async getTelemetrySlice(runId: string, tick: number): Promise<TelemetrySlice> {
-    return this.request<TelemetrySlice>(`/api/v1/telemetry/${runId}/slice?tick=${tick}`);
+    // Backend expects start_tick and end_tick; get a small range around the requested tick
+    const startTick = Math.max(0, tick);
+    const endTick = tick + 1;
+    return this.request<TelemetrySlice>(`/api/v1/telemetry/${runId}/slice?start_tick=${startTick}&end_tick=${endTick}`);
   }
 
   async getTelemetryRange(runId: string, params: {

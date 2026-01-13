@@ -787,7 +787,7 @@ async def _update_run_complete(
     if execution_counters:
         outputs_data["execution_counters"] = execution_counters
 
-    # Update the run
+    # Update the run (set has_results=True when telemetry is stored)
     stmt = (
         update(Run)
         .where(Run.id == uuid.UUID(run_id))
@@ -795,6 +795,7 @@ async def _update_run_complete(
             status=RunStatus.SUCCEEDED.value,
             timing=timing,
             outputs=outputs_data,
+            has_results=True,  # Flag for Replay availability
             updated_at=datetime.utcnow(),
         )
     )

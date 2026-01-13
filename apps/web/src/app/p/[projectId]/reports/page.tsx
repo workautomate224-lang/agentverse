@@ -435,14 +435,25 @@ interface RunReportProps {
 
 function RunReport({ projectId, runId, runs, onExportJSON, onExportMarkdown, onCopyLink, linkCopied }: RunReportProps) {
   const { data: run, isLoading: runLoading, isError: runError } = useRun(runId);
-  const { data: telemetryIndex, isLoading: indexLoading, isError: indexError } = useTelemetryIndex(runId);
-  const { data: telemetrySummary, isLoading: summaryLoading, isError: summaryError } = useTelemetrySummary(runId);
+  const { data: telemetryIndex, isError: indexError } = useTelemetryIndex(runId);
+  const { data: telemetrySummary, isError: summaryError } = useTelemetrySummary(runId);
   const { data: node } = useNode(run?.node_id);
 
   const isLoading = runLoading;
   const hasTelemetryError = indexError || summaryError;
+  const hasTelemetryData = !!telemetryIndex && !!telemetrySummary && !hasTelemetryError;
 
   const metrics = useMemo((): ReliabilityMetrics => {
+    // Only compute metrics if we have telemetry data
+    if (!hasTelemetryData) {
+      return {
+        coverageScore: 0,
+        integrityScore: 0,
+        activityScore: 0,
+        stabilityScore: null,
+        overallScore: 0,
+      };
+    }
     const coverageScore = computeCoverageScore(telemetryIndex);
     const integrityScore = computeIntegrityScore(telemetryIndex);
     const activityScore = computeActivityScore(telemetrySummary);
@@ -451,11 +462,18 @@ function RunReport({ projectId, runId, runs, onExportJSON, onExportMarkdown, onC
       coverageScore, integrityScore, activityScore, stabilityScore,
       overallScore: computeOverallScore({ coverageScore, integrityScore, activityScore, stabilityScore }),
     };
-  }, [telemetryIndex, telemetrySummary, runs, run?.node_id]);
+  }, [telemetryIndex, telemetrySummary, runs, run?.node_id, hasTelemetryData]);
 
   const warnings = useMemo(() => {
+    if (!hasTelemetryData) {
+      return [{
+        type: 'error' as const,
+        message: 'Telemetry data could not be loaded for this run',
+        fixAction: { label: 'View Run Center', href: `/p/${projectId}/run-center` },
+      }];
+    }
     return generateWarnings(metrics, telemetryIndex, telemetrySummary, run?.node_id || null, projectId);
-  }, [metrics, telemetryIndex, telemetrySummary, run?.node_id, projectId]);
+  }, [metrics, telemetryIndex, telemetrySummary, run?.node_id, projectId, hasTelemetryData]);
 
   if (isLoading) {
     return (
@@ -508,46 +526,53 @@ function RunReport({ projectId, runId, runs, onExportJSON, onExportMarkdown, onC
         </div>
       </div>
 
-      {/* Telemetry Error Warning */}
-      {hasTelemetryError && (
-        <div className="border border-yellow-500/30 bg-yellow-500/5 p-4 flex items-center gap-3">
-          <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0" />
-          <div>
-            <p className="text-sm font-mono text-yellow-400">Telemetry data unavailable</p>
-            <p className="text-xs font-mono text-white/50">Some metrics could not be loaded. The report may be incomplete.</p>
-          </div>
-        </div>
-      )}
-
       {/* Section 2: Executive Summary */}
       <div className="border border-white/10 bg-white/5 p-4">
         <h3 className="text-sm font-mono font-bold text-white/60 uppercase mb-4">Executive Summary</h3>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="flex flex-col items-center p-4 border border-white/10 bg-white/5">
-            <ScoreRing score={metrics.overallScore} size="md" />
-            <span className="mt-2 text-xs font-mono text-white/60">Overall Score</span>
-          </div>
-          <div className="col-span-3 grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="p-3 border border-white/10 bg-white/5">
-              <div className="text-[10px] font-mono text-white/40 uppercase flex items-center gap-1"><Target className="w-3 h-3" /> Coverage</div>
-              <div className={cn('text-xl font-mono font-bold', metrics.coverageScore >= 60 ? 'text-green-400' : 'text-yellow-400')}>{metrics.coverageScore}</div>
+        {hasTelemetryData ? (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="flex flex-col items-center p-4 border border-white/10 bg-white/5">
+              <ScoreRing score={metrics.overallScore} size="md" />
+              <span className="mt-2 text-xs font-mono text-white/60">Overall Score</span>
             </div>
-            <div className="p-3 border border-white/10 bg-white/5">
-              <div className="text-[10px] font-mono text-white/40 uppercase flex items-center gap-1"><Database className="w-3 h-3" /> Integrity</div>
-              <div className={cn('text-xl font-mono font-bold', metrics.integrityScore >= 60 ? 'text-green-400' : 'text-yellow-400')}>{metrics.integrityScore}</div>
-            </div>
-            <div className="p-3 border border-white/10 bg-white/5">
-              <div className="text-[10px] font-mono text-white/40 uppercase flex items-center gap-1"><Activity className="w-3 h-3" /> Activity</div>
-              <div className={cn('text-xl font-mono font-bold', metrics.activityScore >= 60 ? 'text-green-400' : 'text-yellow-400')}>{metrics.activityScore}</div>
-            </div>
-            <div className="p-3 border border-white/10 bg-white/5">
-              <div className="text-[10px] font-mono text-white/40 uppercase flex items-center gap-1"><BarChart3 className="w-3 h-3" /> Stability</div>
-              <div className={cn('text-xl font-mono font-bold', metrics.stabilityScore !== null && metrics.stabilityScore >= 60 ? 'text-green-400' : 'text-white/30')}>
-                {metrics.stabilityScore ?? '--'}
+            <div className="col-span-3 grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="p-3 border border-white/10 bg-white/5">
+                <div className="text-[10px] font-mono text-white/40 uppercase flex items-center gap-1"><Target className="w-3 h-3" /> Coverage</div>
+                <div className={cn('text-xl font-mono font-bold', metrics.coverageScore >= 60 ? 'text-green-400' : 'text-yellow-400')}>{metrics.coverageScore}</div>
+              </div>
+              <div className="p-3 border border-white/10 bg-white/5">
+                <div className="text-[10px] font-mono text-white/40 uppercase flex items-center gap-1"><Database className="w-3 h-3" /> Integrity</div>
+                <div className={cn('text-xl font-mono font-bold', metrics.integrityScore >= 60 ? 'text-green-400' : 'text-yellow-400')}>{metrics.integrityScore}</div>
+              </div>
+              <div className="p-3 border border-white/10 bg-white/5">
+                <div className="text-[10px] font-mono text-white/40 uppercase flex items-center gap-1"><Activity className="w-3 h-3" /> Activity</div>
+                <div className={cn('text-xl font-mono font-bold', metrics.activityScore >= 60 ? 'text-green-400' : 'text-yellow-400')}>{metrics.activityScore}</div>
+              </div>
+              <div className="p-3 border border-white/10 bg-white/5">
+                <div className="text-[10px] font-mono text-white/40 uppercase flex items-center gap-1"><BarChart3 className="w-3 h-3" /> Stability</div>
+                <div className={cn('text-xl font-mono font-bold', metrics.stabilityScore !== null && metrics.stabilityScore >= 60 ? 'text-green-400' : 'text-white/30')}>
+                  {metrics.stabilityScore ?? '--'}
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        ) : (
+          <div className="flex items-center gap-4 p-4 border border-white/10 bg-white/5">
+            <div className="flex flex-col items-center">
+              <ScoreRing score={0} size="md" loading={!hasTelemetryError} />
+              <span className="mt-2 text-xs font-mono text-white/40">
+                {hasTelemetryError ? 'Unavailable' : 'Loading...'}
+              </span>
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-mono text-white/60">
+                {hasTelemetryError
+                  ? 'Telemetry data could not be loaded. Reliability metrics are unavailable for this run.'
+                  : 'Loading telemetry data...'}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Section 3: Reliability Snapshot with Warnings */}
@@ -589,7 +614,7 @@ function RunReport({ projectId, runId, runs, onExportJSON, onExportMarkdown, onC
       </div>
 
       {/* Section 5: Timeline Highlights (Telemetry Summary) */}
-      {telemetrySummary && (
+      {hasTelemetryData && telemetrySummary && (
         <div className="border border-white/10 bg-white/5 p-4">
           <h3 className="text-sm font-mono font-bold text-white/60 uppercase mb-4">Timeline Highlights</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

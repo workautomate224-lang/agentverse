@@ -61,6 +61,8 @@ from app.services.telemetry import (
     TelemetrySlice,
     TelemetryQueryParams,
     TelemetryVersion,
+    TelemetryIndexResult,
+    TelemetrySliceResult,
     get_telemetry_service,
     create_telemetry_writer,
 )
@@ -164,6 +166,8 @@ __all__ = [
     "TelemetrySlice",
     "TelemetryQueryParams",
     "TelemetryVersion",
+    "TelemetryIndexResult",
+    "TelemetrySliceResult",
     "get_telemetry_service",
     "create_telemetry_writer",
     # Simulation Orchestrator (Phase 1 Integration)

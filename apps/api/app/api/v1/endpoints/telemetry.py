@@ -277,7 +277,7 @@ async def get_keyframe_at_tick(
 
     telemetry_service = get_telemetry_service()
 
-    keyframe = await telemetry_service.get_keyframe_at_tick(
+    keyframe = await telemetry_service.get_keyframe_at_tick_by_run(
         run_id=run_id,
         tick=tick,
         tenant_id=tenant_ctx.tenant_id,
@@ -563,7 +563,7 @@ async def export_telemetry(
     telemetry_service = get_telemetry_service()
 
     # Get telemetry data
-    telemetry = await telemetry_service.get_telemetry(
+    telemetry = await telemetry_service.get_telemetry_by_run(
         run_id=run_id,
         tenant_id=tenant_ctx.tenant_id,
     )

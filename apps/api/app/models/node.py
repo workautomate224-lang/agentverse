@@ -766,6 +766,11 @@ class Run(Base):
     # Outputs (populated when succeeded)
     outputs: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB, nullable=True)
 
+    # Has results flag (set to True when telemetry is successfully stored)
+    has_results: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="false"
+    )
+
     # Error (populated when failed)
     error: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB, nullable=True)
 

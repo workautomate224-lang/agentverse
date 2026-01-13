@@ -97,6 +97,7 @@ class RunResponse(BaseModel):
     aggregated_outcome: Optional[dict] = None
     telemetry_ref: Optional[dict] = None
     reliability_ref: Optional[dict] = None
+    has_results: bool = False  # True when telemetry is available for Replay
 
     # Metrics
     ticks_completed: int = 0
@@ -222,6 +223,7 @@ async def create_run(
             created_at=run.created_at.isoformat() if run.created_at else None,
             started_at=run.timing.get("started_at") if run.timing else None,
             completed_at=run.timing.get("completed_at") if run.timing else None,
+            has_results=getattr(run, 'has_results', False),
             ticks_completed=run.timing.get("ticks_executed", 0) if run.timing else 0,
             agents_processed=run.timing.get("agents_processed", 0) if run.timing else 0,
             task_id=task_id_str,
@@ -294,6 +296,7 @@ async def list_runs(
             completed_at=run.timing.get("completed_at") if run.timing else None,
             aggregated_outcome=run.outputs.get("outcomes") if run.outputs else None,
             telemetry_ref=run.outputs.get("telemetry_ref") if run.outputs else None,
+            has_results=getattr(run, 'has_results', False),
             ticks_completed=run.timing.get("ticks_executed", 0) if run.timing else 0,
             agents_processed=run.timing.get("agents_processed", 0) if run.timing else 0,
         )
@@ -353,6 +356,7 @@ async def get_run(
         aggregated_outcome=outputs.get("outcomes"),
         telemetry_ref=outputs.get("telemetry_ref"),
         reliability_ref=outputs.get("reliability_ref"),
+        has_results=getattr(run, 'has_results', False),
         ticks_completed=timing.get("ticks_executed", 0),
         agents_processed=timing.get("agents_processed", 0),
         duration_seconds=duration,
@@ -418,6 +422,7 @@ async def start_run(
             created_at=run.created_at.isoformat() if run.created_at else None,
             started_at=run.timing.get("started_at") if run.timing else None,
             completed_at=run.timing.get("completed_at") if run.timing else None,
+            has_results=getattr(run, 'has_results', False),
             ticks_completed=run.timing.get("ticks_executed", 0) if run.timing else 0,
             agents_processed=run.timing.get("agents_processed", 0) if run.timing else 0,
             task_id=task_id,
@@ -483,6 +488,7 @@ async def cancel_run(
             created_at=run.created_at.isoformat() if run.created_at else None,
             started_at=run.timing.get("started_at") if run.timing else None,
             completed_at=run.timing.get("completed_at") if run.timing else None,
+            has_results=getattr(run, 'has_results', False),
             ticks_completed=run.timing.get("ticks_executed", 0) if run.timing else 0,
             agents_processed=run.timing.get("agents_processed", 0) if run.timing else 0,
         )
@@ -769,6 +775,7 @@ async def create_batch_runs(
             created_at=run.created_at.isoformat() if run.created_at else None,
             started_at=run.timing.get("started_at") if run.timing else None,
             completed_at=run.timing.get("completed_at") if run.timing else None,
+            has_results=getattr(run, 'has_results', False),
             ticks_completed=run.timing.get("ticks_executed", 0) if run.timing else 0,
             agents_processed=run.timing.get("agents_processed", 0) if run.timing else 0,
         )
@@ -1195,6 +1202,7 @@ async def retry_failed_run(
             created_at=run.created_at.isoformat() if run.created_at else None,
             started_at=run.timing.get("started_at") if run.timing else None,
             completed_at=run.timing.get("completed_at") if run.timing else None,
+            has_results=getattr(run, 'has_results', False),
             ticks_completed=run.timing.get("ticks_executed", 0) if run.timing else 0,
             agents_processed=run.timing.get("agents_processed", 0) if run.timing else 0,
             task_id=task_id,
