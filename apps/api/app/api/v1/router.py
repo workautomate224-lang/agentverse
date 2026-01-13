@@ -34,6 +34,8 @@ from app.api.v1.endpoints import (
     target_plans,
     # Calibration & Reliability (project.md §11 Phase 7)
     calibration,
+    # PHASE 6: Reliability Integration
+    reliability,
     # 2D Replay (project.md §11 Phase 8)
     replay,
     # Export Controls (project.md §11 Phase 9)
@@ -55,6 +57,8 @@ from app.api.v1.endpoints import (
     # Step 3.2: Staging-only Chaos Engineering & Test endpoints
     ops_chaos,
     ops_test,
+    # PHASE 2: Run Manifest / Reproducibility
+    manifests,
 )
 
 api_router = APIRouter()
@@ -90,6 +94,9 @@ api_router.include_router(target_plans.router, tags=["Target Plans"])
 # Calibration & Reliability (project.md §11 Phase 7)
 api_router.include_router(calibration.router, prefix="/calibration", tags=["Calibration & Reliability"])
 
+# PHASE 6: Reliability Integration
+api_router.include_router(reliability.router, prefix="/reliability", tags=["Reliability"])
+
 # 2D Replay (project.md §11 Phase 8) - READ-ONLY per C3
 api_router.include_router(replay.router, prefix="/replay", tags=["2D Replay"])
 
@@ -121,3 +128,6 @@ api_router.include_router(validation_center.router, prefix="/validation-center",
 # NOTE: These endpoints have their own prefix defined in the router (/ops/chaos, /ops/test)
 api_router.include_router(ops_chaos.router, tags=["Ops - Chaos Engineering"])
 api_router.include_router(ops_test.router, tags=["Ops - Test Simulation"])
+
+# PHASE 2: Run Manifest / Reproducibility
+api_router.include_router(manifests.router, tags=["Run Manifests"])

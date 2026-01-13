@@ -358,3 +358,183 @@ export interface ReliabilityComparison {
 
   summary: string;
 }
+
+// ============================================================================
+// PHASE 6: Reliability Integration API Types
+// Reference: Phase 6 Specification
+// ============================================================================
+
+/**
+ * Sensitivity result from empirical distribution analysis.
+ * Phase 6: P(metric op threshold) across threshold grid.
+ */
+export interface Phase6SensitivityResult {
+  /** Array of threshold values */
+  threshold_grid: number[];
+  /** P(metric op threshold) for each threshold */
+  probabilities: number[];
+  /** Comparison operator used */
+  op: string;
+  /** Metric key analyzed */
+  metric_key: string;
+}
+
+/**
+ * Stability result from bootstrap resampling.
+ * Phase 6: Deterministic seed + 95% CI.
+ */
+export interface Phase6StabilityResult {
+  /** Mean of bootstrap estimates */
+  bootstrap_mean: number;
+  /** Std of bootstrap estimates */
+  bootstrap_std: number;
+  /** 95% CI lower bound */
+  ci_95_lower: number;
+  /** 95% CI upper bound */
+  ci_95_upper: number;
+  /** Number of bootstrap samples */
+  n_bootstrap: number;
+  /** Deterministic seed hash for reproducibility */
+  seed_hash: string;
+}
+
+/**
+ * Drift detection result using KS statistic and PSI.
+ * Phase 6: stable | warning | drifting status.
+ */
+export interface Phase6DriftResult {
+  /** Kolmogorov-Smirnov statistic */
+  ks_statistic: number;
+  /** KS test p-value */
+  ks_pvalue: number;
+  /** Population Stability Index */
+  psi: number;
+  /** Drift status: stable | warning | drifting */
+  drift_status: 'stable' | 'warning' | 'drifting';
+  /** Number of baseline runs */
+  baseline_n: number;
+  /** Number of recent runs */
+  recent_n: number;
+  /** Baseline distribution histogram */
+  baseline_histogram?: number[];
+  /** Recent distribution histogram */
+  recent_histogram?: number[];
+  /** Histogram bin edges */
+  histogram_bins?: number[];
+}
+
+/**
+ * Calibration summary from latest calibration job.
+ * Phase 6: Brier score and ECE.
+ */
+export interface Phase6CalibrationSummary {
+  /** Brier score (lower is better) */
+  brier_score?: number;
+  /** Expected Calibration Error */
+  ece?: number;
+  /** Calibration method used */
+  method?: string;
+  /** Reference to CalibrationJob */
+  calibration_job_id?: string;
+}
+
+/**
+ * Audit metadata for reproducibility.
+ * Phase 6: All computations are deterministic and auditable.
+ */
+export interface Phase6AuditMetadata {
+  /** Computation timestamp */
+  computed_at: string;
+  /** Run IDs included in computation */
+  run_ids_used: string[];
+  /** Filters used */
+  filters_applied: Record<string, unknown>;
+  /** Seed for reproducibility */
+  deterministic_seed: string;
+}
+
+/**
+ * Response for GET /reliability/nodes/{node_id}/reliability/summary
+ * Phase 6: Main reliability summary endpoint response.
+ */
+export interface Phase6ReliabilitySummaryResponse {
+  /** ok | insufficient_data */
+  status: 'ok' | 'insufficient_data';
+  /** Total runs found */
+  n_runs_total: number;
+  /** Runs used after filtering */
+  n_runs_used: number;
+
+  /** Sensitivity analysis (null if insufficient_data) */
+  sensitivity?: Phase6SensitivityResult;
+  /** Stability analysis (null if insufficient_data) */
+  stability?: Phase6StabilityResult;
+  /** Drift detection (null if insufficient_data) */
+  drift?: Phase6DriftResult;
+  /** Calibration metrics (null if insufficient_data) */
+  calibration?: Phase6CalibrationSummary;
+
+  /** Audit trail */
+  audit: Phase6AuditMetadata;
+}
+
+/**
+ * Response for GET /reliability/nodes/{node_id}/reliability/detail
+ * Phase 6: Detailed reliability analysis with raw data.
+ */
+export interface Phase6ReliabilityDetailResponse {
+  /** ok | insufficient_data */
+  status: 'ok' | 'insufficient_data';
+  /** Total runs found */
+  n_runs_total: number;
+  /** Runs used after filtering */
+  n_runs_used: number;
+
+  /** Sensitivity analysis */
+  sensitivity?: Phase6SensitivityResult;
+  /** Stability analysis */
+  stability?: Phase6StabilityResult;
+  /** Drift detection */
+  drift?: Phase6DriftResult;
+  /** Calibration metrics */
+  calibration?: Phase6CalibrationSummary;
+
+  /** Raw metric values for custom analysis */
+  raw_values?: number[];
+  /** Percentile breakdown */
+  percentiles?: {
+    p5: number;
+    p25: number;
+    p50: number;
+    p75: number;
+    p95: number;
+    mean: number;
+    std: number;
+    min: number;
+    max: number;
+  };
+  /** Bootstrap sample estimates */
+  bootstrap_samples?: number[];
+
+  /** Audit trail */
+  audit: Phase6AuditMetadata;
+}
+
+/**
+ * Query parameters for reliability endpoints.
+ * Phase 6: Shared params for summary and detail.
+ */
+export interface Phase6ReliabilityQueryParams {
+  /** Metric key to analyze (required) */
+  metric_key: string;
+  /** Comparison operator: gte, lte, gt, lt, eq */
+  op?: 'gte' | 'lte' | 'gt' | 'lt' | 'eq';
+  /** Threshold for sensitivity at specific point */
+  threshold?: number;
+  /** Filter by manifest hash */
+  manifest_hash?: string;
+  /** Time window in days */
+  window_days?: number;
+  /** Minimum runs required */
+  min_runs?: number;
+}

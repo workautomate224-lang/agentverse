@@ -141,6 +141,10 @@ import api, {
   AuditLogListResponse,
   AuditLogStatsResponse,
   AuditLogExportResponse,
+  // PHASE 6: Reliability Integration types
+  Phase6ReliabilitySummaryResponse,
+  Phase6ReliabilityDetailResponse,
+  Phase6ReliabilityQueryParams,
 } from '@/lib/api';
 
 // Extended session user type for type safety
@@ -1639,6 +1643,46 @@ export function useCalibrationStatus(calibrationId: string) {
       }
       return false;
     },
+  });
+}
+
+// =============================================================================
+// PHASE 6: Reliability Integration Hooks
+// =============================================================================
+
+/**
+ * Hook for Phase 6 reliability summary.
+ * Returns sensitivity, stability, drift, and calibration metrics.
+ */
+export function usePhase6ReliabilitySummary(
+  nodeId: string | undefined,
+  params: Phase6ReliabilityQueryParams | undefined
+) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['phase6Reliability', 'summary', nodeId, params],
+    queryFn: () => api.getPhase6ReliabilitySummary(nodeId!, params!),
+    enabled: isReady && !!nodeId && !!params?.metric_key,
+    staleTime: CACHE_TIMES.MEDIUM,
+  });
+}
+
+/**
+ * Hook for Phase 6 reliability detail.
+ * Returns raw values, percentiles, and bootstrap samples.
+ */
+export function usePhase6ReliabilityDetail(
+  nodeId: string | undefined,
+  params: Phase6ReliabilityQueryParams | undefined
+) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['phase6Reliability', 'detail', nodeId, params],
+    queryFn: () => api.getPhase6ReliabilityDetail(nodeId!, params!),
+    enabled: isReady && !!nodeId && !!params?.metric_key,
+    staleTime: CACHE_TIMES.MEDIUM,
   });
 }
 

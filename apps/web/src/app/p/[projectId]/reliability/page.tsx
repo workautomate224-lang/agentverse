@@ -35,8 +35,20 @@ import {
   Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useNodes, useRuns, useTelemetryIndex, useTelemetrySummary } from '@/hooks/useApi';
-import type { NodeSummary, RunSummary, TelemetryIndex, TelemetrySummary, SpecRunStatus } from '@/lib/api';
+import { useNodes, useRuns, useTelemetryIndex, useTelemetrySummary, usePhase6ReliabilitySummary } from '@/hooks/useApi';
+import type { NodeSummary, RunSummary, TelemetryIndex, TelemetrySummary, SpecRunStatus, Phase6ReliabilitySummaryResponse, Phase6ReliabilityQueryParams } from '@/lib/api';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  ReferenceLine,
+} from 'recharts';
 
 // ============================================================================
 // Types for Reliability Metrics
@@ -514,6 +526,199 @@ function MetricCard({ label, score, icon: Icon, description, loading }: MetricCa
 }
 
 // ============================================================================
+// PHASE 6: Reliability Integration Components
+// ============================================================================
+
+interface Phase6SensitivityChartProps {
+  data: Phase6ReliabilitySummaryResponse | undefined;
+  loading?: boolean;
+}
+
+function Phase6SensitivityChart({ data, loading }: Phase6SensitivityChartProps) {
+  if (loading) {
+    return (
+      <div className="h-64 flex items-center justify-center">
+        <Loader2 className="w-6 h-6 animate-spin text-cyan-400/50" />
+      </div>
+    );
+  }
+
+  if (!data?.sensitivity) {
+    return (
+      <div className="h-64 flex items-center justify-center text-white/40 text-sm font-mono">
+        No sensitivity data available
+      </div>
+    );
+  }
+
+  const chartData = data.sensitivity.threshold_grid.map((threshold, i) => ({
+    threshold: threshold.toFixed(2),
+    probability: (data.sensitivity!.probabilities[i] * 100).toFixed(1),
+  }));
+
+  return (
+    <ResponsiveContainer width="100%" height={256}>
+      <LineChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+        <XAxis
+          dataKey="threshold"
+          stroke="rgba(255,255,255,0.4)"
+          tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 10 }}
+          label={{ value: `Threshold (${data.sensitivity.metric_key})`, position: 'bottom', fill: 'rgba(255,255,255,0.4)', fontSize: 10 }}
+        />
+        <YAxis
+          stroke="rgba(255,255,255,0.4)"
+          tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 10 }}
+          label={{ value: 'P(%)', angle: -90, position: 'insideLeft', fill: 'rgba(255,255,255,0.4)', fontSize: 10 }}
+          domain={[0, 100]}
+        />
+        <Tooltip
+          contentStyle={{ backgroundColor: '#000', border: '1px solid rgba(255,255,255,0.2)', fontFamily: 'monospace', fontSize: 12 }}
+          labelStyle={{ color: 'rgba(255,255,255,0.6)' }}
+          itemStyle={{ color: '#00FFFF' }}
+          formatter={(value: string) => [`${value}%`, 'Probability']}
+        />
+        <Line
+          type="monotone"
+          dataKey="probability"
+          stroke="#00FFFF"
+          strokeWidth={2}
+          dot={{ fill: '#00FFFF', r: 3 }}
+          activeDot={{ r: 5, fill: '#00FFFF' }}
+        />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+interface Phase6DriftStatusProps {
+  data: Phase6ReliabilitySummaryResponse | undefined;
+  loading?: boolean;
+}
+
+function Phase6DriftStatus({ data, loading }: Phase6DriftStatusProps) {
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2">
+        <Loader2 className="w-4 h-4 animate-spin text-white/40" />
+        <span className="text-sm font-mono text-white/40">Checking drift...</span>
+      </div>
+    );
+  }
+
+  if (!data?.drift) {
+    return (
+      <div className="flex items-center gap-2 text-white/40">
+        <Info className="w-4 h-4" />
+        <span className="text-sm font-mono">Insufficient data for drift detection</span>
+      </div>
+    );
+  }
+
+  const { drift_status, ks_statistic, psi, baseline_n, recent_n } = data.drift;
+
+  const statusConfig = {
+    stable: { color: 'text-green-400', bg: 'bg-green-400/10', border: 'border-green-400/30', label: 'STABLE' },
+    warning: { color: 'text-yellow-400', bg: 'bg-yellow-400/10', border: 'border-yellow-400/30', label: 'WARNING' },
+    drifting: { color: 'text-red-400', bg: 'bg-red-400/10', border: 'border-red-400/30', label: 'DRIFTING' },
+  };
+
+  const config = statusConfig[drift_status];
+
+  return (
+    <div className={cn('border p-4', config.bg, config.border)}>
+      <div className="flex items-center gap-2 mb-3">
+        {drift_status === 'stable' && <CheckCircle2 className={cn('w-5 h-5', config.color)} />}
+        {drift_status === 'warning' && <AlertTriangle className={cn('w-5 h-5', config.color)} />}
+        {drift_status === 'drifting' && <XCircle className={cn('w-5 h-5', config.color)} />}
+        <span className={cn('text-sm font-mono font-bold', config.color)}>{config.label}</span>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs font-mono">
+        <div>
+          <div className="text-white/40">KS Statistic</div>
+          <div className="text-white">{ks_statistic.toFixed(4)}</div>
+        </div>
+        <div>
+          <div className="text-white/40">PSI</div>
+          <div className="text-white">{psi.toFixed(4)}</div>
+        </div>
+        <div>
+          <div className="text-white/40">Baseline Runs</div>
+          <div className="text-white">{baseline_n}</div>
+        </div>
+        <div>
+          <div className="text-white/40">Recent Runs</div>
+          <div className="text-white">{recent_n}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface Phase6StabilityDisplayProps {
+  data: Phase6ReliabilitySummaryResponse | undefined;
+  loading?: boolean;
+}
+
+function Phase6StabilityDisplay({ data, loading }: Phase6StabilityDisplayProps) {
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2">
+        <Loader2 className="w-4 h-4 animate-spin text-white/40" />
+        <span className="text-sm font-mono text-white/40">Computing stability...</span>
+      </div>
+    );
+  }
+
+  if (!data?.stability) {
+    return (
+      <div className="flex items-center gap-2 text-white/40">
+        <Info className="w-4 h-4" />
+        <span className="text-sm font-mono">Insufficient data for stability analysis</span>
+      </div>
+    );
+  }
+
+  const { bootstrap_mean, bootstrap_std, ci_95_lower, ci_95_upper, n_bootstrap, seed_hash } = data.stability;
+
+  return (
+    <div className="border border-white/10 bg-white/5 p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <BarChart3 className="w-5 h-5 text-cyan-400" />
+        <span className="text-sm font-mono font-bold text-white">Bootstrap Analysis</span>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-xs font-mono">
+        <div>
+          <div className="text-white/40">Mean</div>
+          <div className="text-xl font-bold text-cyan-400">{bootstrap_mean.toFixed(3)}</div>
+        </div>
+        <div>
+          <div className="text-white/40">Std Dev</div>
+          <div className="text-xl font-bold text-white">{bootstrap_std.toFixed(3)}</div>
+        </div>
+        <div>
+          <div className="text-white/40">95% CI</div>
+          <div className="text-sm text-white">[{ci_95_lower.toFixed(3)}, {ci_95_upper.toFixed(3)}]</div>
+        </div>
+      </div>
+      <div className="mt-3 pt-3 border-t border-white/10 flex items-center justify-between text-[10px] font-mono text-white/40">
+        <span>{n_bootstrap} bootstrap samples</span>
+        <span>Seed: {seed_hash.slice(0, 8)}</span>
+      </div>
+    </div>
+  );
+}
+
+// Metric key options for Phase 6
+const METRIC_KEY_OPTIONS = [
+  { value: 'purchase_rate', label: 'Purchase Rate' },
+  { value: 'revenue', label: 'Revenue' },
+  { value: 'conversion_rate', label: 'Conversion Rate' },
+  { value: 'engagement_score', label: 'Engagement Score' },
+  { value: 'activity_rate', label: 'Activity Rate' },
+];
+
+// ============================================================================
 // Main Page Component
 // ============================================================================
 
@@ -525,10 +730,13 @@ export default function ReliabilityPage() {
 
   // Get initial node from URL
   const initialNodeId = searchParams.get('node');
+  const initialMetricKey = searchParams.get('metric_key') || 'purchase_rate';
 
   // State
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(initialNodeId);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [selectedMetricKey, setSelectedMetricKey] = useState<string>(initialMetricKey);
+  const [showPhase6, setShowPhase6] = useState(true);
 
   // Fetch nodes for this project
   const { data: nodes, isLoading: nodesLoading } = useNodes({ project_id: projectId });
@@ -544,6 +752,12 @@ export default function ReliabilityPage() {
   // Fetch telemetry for selected run
   const { data: telemetryIndex, isLoading: indexLoading } = useTelemetryIndex(selectedRunId || undefined);
   const { data: telemetrySummary, isLoading: summaryLoading } = useTelemetrySummary(selectedRunId || undefined);
+
+  // PHASE 6: Fetch reliability metrics
+  const phase6Params: Phase6ReliabilityQueryParams | undefined = selectedNodeId
+    ? { metric_key: selectedMetricKey, op: 'gte', min_runs: 3 }
+    : undefined;
+  const { data: phase6Data, isLoading: phase6Loading } = usePhase6ReliabilitySummary(selectedNodeId || undefined, phase6Params);
 
   // Auto-select baseline node if none selected
   useEffect(() => {
@@ -818,6 +1032,94 @@ export default function ReliabilityPage() {
                   <div className="text-xl font-mono font-bold text-cyan-400">{telemetrySummary.duration_seconds}s</div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* PHASE 6: Statistical Reliability Analysis */}
+          {showPhase6 && selectedNodeId && (
+            <div className="max-w-6xl mb-6">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-cyan-400" />
+                  <span className="text-[10px] font-mono text-white/40 uppercase tracking-wider">
+                    Statistical Reliability Analysis
+                  </span>
+                  {phase6Data?.status === 'insufficient_data' && (
+                    <span className="text-[10px] font-mono text-yellow-400 bg-yellow-400/10 px-2 py-0.5">
+                      {phase6Data.n_runs_used}/{phase6Data.n_runs_total} runs
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={selectedMetricKey}
+                    onChange={(e) => setSelectedMetricKey(e.target.value)}
+                    className="text-xs font-mono bg-black border border-white/20 text-white px-2 py-1 focus:outline-none focus:border-cyan-400"
+                  >
+                    {METRIC_KEY_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => setShowPhase6(!showPhase6)}
+                    className="text-[10px] font-mono text-white/40 hover:text-white/60"
+                  >
+                    <ChevronDown className={cn('w-4 h-4 transition-transform', !showPhase6 && '-rotate-90')} />
+                  </button>
+                </div>
+              </div>
+
+              {phase6Data?.status === 'insufficient_data' ? (
+                <div className="border border-yellow-500/20 bg-yellow-500/5 p-6 text-center">
+                  <Info className="w-8 h-8 mx-auto text-yellow-400/50 mb-3" />
+                  <p className="text-sm font-mono text-white/60 mb-2">
+                    Insufficient data for statistical analysis
+                  </p>
+                  <p className="text-xs font-mono text-white/40">
+                    Need at least 3 completed runs. Currently have {phase6Data.n_runs_total} runs.
+                  </p>
+                  <Link href={`/p/${projectId}/run-center${selectedNodeId ? `?node=${selectedNodeId}` : ''}`} className="mt-4 inline-block">
+                    <Button variant="outline" size="sm" className="text-xs">
+                      <Play className="w-3 h-3 mr-1" />
+                      Queue More Runs
+                    </Button>
+                  </Link>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Sensitivity Chart */}
+                  <div className="border border-white/10 bg-white/5 p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Target className="w-4 h-4 text-cyan-400" />
+                      <span className="text-sm font-mono font-bold text-white">Sensitivity Curve</span>
+                      <span className="text-[10px] font-mono text-white/40">
+                        P({selectedMetricKey} {'>='} threshold)
+                      </span>
+                    </div>
+                    <Phase6SensitivityChart data={phase6Data} loading={phase6Loading} />
+                  </div>
+
+                  {/* Drift Status */}
+                  <div>
+                    <div className="text-[10px] font-mono text-white/40 uppercase mb-2">Distribution Drift</div>
+                    <Phase6DriftStatus data={phase6Data} loading={phase6Loading} />
+                  </div>
+
+                  {/* Stability / Bootstrap Analysis */}
+                  <div>
+                    <div className="text-[10px] font-mono text-white/40 uppercase mb-2">Bootstrap Stability</div>
+                    <Phase6StabilityDisplay data={phase6Data} loading={phase6Loading} />
+                  </div>
+
+                  {/* Audit Info */}
+                  {phase6Data?.audit && (
+                    <div className="text-[10px] font-mono text-white/30 flex items-center justify-between">
+                      <span>Computed: {new Date(phase6Data.audit.computed_at).toLocaleString()}</span>
+                      <span>Seed: {phase6Data.audit.deterministic_seed.slice(0, 12)}...</span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
