@@ -760,6 +760,7 @@ export default function RunCenterPage() {
     };
 
     try {
+      // Create run with auto_start: true - backend handles starting
       const newRun = await createRun.mutateAsync(runInput);
       setActiveRunId(newRun.run_id);
 
@@ -770,11 +771,7 @@ export default function RunCenterPage() {
       });
 
       refetchRuns();
-
-      // If not auto-started, start it manually
-      if (newRun.status === 'queued') {
-        await startRun.mutateAsync(newRun.run_id);
-      }
+      // Note: No manual startRun call needed - auto_start: true handles it
     } catch (error) {
       // Extract error message from the error
       const errorMessage = error instanceof Error
