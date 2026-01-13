@@ -17,6 +17,7 @@ The run_manifests table stores:
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.exc import ProgrammingError
 
 
 # revision identifiers, used by Alembic.
@@ -26,119 +27,143 @@ branch_labels = None
 depends_on = None
 
 
+def create_index_if_not_exists(index_name: str, table_name: str, columns: list, **kwargs):
+    """Create index only if it doesn't already exist."""
+    try:
+        op.create_index(index_name, table_name, columns, **kwargs)
+    except ProgrammingError as e:
+        if "already exists" in str(e):
+            pass  # Index already exists, skip
+        else:
+            raise
+
+
+def table_exists(table_name: str) -> bool:
+    """Check if a table exists."""
+    conn = op.get_bind()
+    result = conn.execute(
+        sa.text(
+            "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = :table)"
+        ),
+        {"table": table_name}
+    )
+    return result.scalar()
+
+
 def upgrade() -> None:
     """Create run_manifests table."""
-    op.create_table(
-        "run_manifests",
-        # Identity
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column(
-            "tenant_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("tenants.id", ondelete="CASCADE"),
-            nullable=False,
-            index=True,
-        ),
-        sa.Column(
-            "project_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("project_specs.id", ondelete="CASCADE"),
-            nullable=False,
-            index=True,
-        ),
-        sa.Column(
-            "run_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("runs.id", ondelete="CASCADE"),
-            nullable=False,
-            unique=True,  # One-to-one with Run
-            index=True,
-        ),
-        sa.Column(
-            "node_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("nodes.id", ondelete="SET NULL"),
-            nullable=True,
-            index=True,
-        ),
-        # Global deterministic seed
-        sa.Column(
-            "seed",
-            sa.BigInteger,
-            nullable=False,
-            comment="Global deterministic seed for all RNG in this run",
-        ),
-        # Configuration snapshot (normalized)
-        sa.Column(
-            "config_json",
-            postgresql.JSONB,
-            nullable=False,
-            comment="Normalized config snapshot: max_ticks, agents, environment params, etc.",
-        ),
-        # Versions snapshot
-        sa.Column(
-            "versions_json",
-            postgresql.JSONB,
-            nullable=False,
-            comment="Version info: code_version, sim_engine_version, rules_version, personas_version, model_version, dataset_version",
-        ),
-        # Integrity hash
-        sa.Column(
-            "manifest_hash",
-            sa.String(64),
-            nullable=False,
-            index=True,
-            comment="SHA256 hash of canonical manifest payload for integrity verification",
-        ),
-        # Optional S3 storage for large payloads
-        sa.Column(
-            "storage_ref",
-            postgresql.JSONB,
-            nullable=True,
-            comment="S3 pointer if manifest is stored externally: {bucket, key, etag}",
-        ),
-        # Immutability flag
-        sa.Column(
-            "is_immutable",
-            sa.Boolean,
-            nullable=False,
-            server_default="true",
-            comment="True once run starts - prevents modifications",
-        ),
-        # Provenance metadata
-        sa.Column(
-            "created_by_user_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("users.id", ondelete="SET NULL"),
-            nullable=True,
-        ),
-        sa.Column(
-            "source_run_id",
-            postgresql.UUID(as_uuid=True),
-            nullable=True,
-            comment="If this is a reproduction, the original run_id",
-        ),
-        # Timestamps
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.func.now(),
-            nullable=False,
-        ),
-    )
+    if not table_exists("run_manifests"):
+        op.create_table(
+            "run_manifests",
+            # Identity
+            sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+            sa.Column(
+                "tenant_id",
+                postgresql.UUID(as_uuid=True),
+                sa.ForeignKey("tenants.id", ondelete="CASCADE"),
+                nullable=False,
+                index=True,
+            ),
+            sa.Column(
+                "project_id",
+                postgresql.UUID(as_uuid=True),
+                sa.ForeignKey("project_specs.id", ondelete="CASCADE"),
+                nullable=False,
+                index=True,
+            ),
+            sa.Column(
+                "run_id",
+                postgresql.UUID(as_uuid=True),
+                sa.ForeignKey("runs.id", ondelete="CASCADE"),
+                nullable=False,
+                unique=True,  # One-to-one with Run
+                index=True,
+            ),
+            sa.Column(
+                "node_id",
+                postgresql.UUID(as_uuid=True),
+                sa.ForeignKey("nodes.id", ondelete="SET NULL"),
+                nullable=True,
+                index=True,
+            ),
+            # Global deterministic seed
+            sa.Column(
+                "seed",
+                sa.BigInteger,
+                nullable=False,
+                comment="Global deterministic seed for all RNG in this run",
+            ),
+            # Configuration snapshot (normalized)
+            sa.Column(
+                "config_json",
+                postgresql.JSONB,
+                nullable=False,
+                comment="Normalized config snapshot: max_ticks, agents, environment params, etc.",
+            ),
+            # Versions snapshot
+            sa.Column(
+                "versions_json",
+                postgresql.JSONB,
+                nullable=False,
+                comment="Version info: code_version, sim_engine_version, rules_version, personas_version, model_version, dataset_version",
+            ),
+            # Integrity hash
+            sa.Column(
+                "manifest_hash",
+                sa.String(64),
+                nullable=False,
+                index=True,
+                comment="SHA256 hash of canonical manifest payload for integrity verification",
+            ),
+            # Optional S3 storage for large payloads
+            sa.Column(
+                "storage_ref",
+                postgresql.JSONB,
+                nullable=True,
+                comment="S3 pointer if manifest is stored externally: {bucket, key, etag}",
+            ),
+            # Immutability flag
+            sa.Column(
+                "is_immutable",
+                sa.Boolean,
+                nullable=False,
+                server_default="true",
+                comment="True once run starts - prevents modifications",
+            ),
+            # Provenance metadata
+            sa.Column(
+                "created_by_user_id",
+                postgresql.UUID(as_uuid=True),
+                sa.ForeignKey("users.id", ondelete="SET NULL"),
+                nullable=True,
+            ),
+            sa.Column(
+                "source_run_id",
+                postgresql.UUID(as_uuid=True),
+                nullable=True,
+                comment="If this is a reproduction, the original run_id",
+            ),
+            # Timestamps
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
+        )
 
-    # Create indexes for common queries
-    op.create_index(
+    # Create indexes for common queries (idempotent)
+    create_index_if_not_exists(
         "ix_run_manifests_project_created",
         "run_manifests",
         ["project_id", "created_at"],
     )
-    op.create_index(
+    create_index_if_not_exists(
         "ix_run_manifests_manifest_hash",
         "run_manifests",
         ["tenant_id", "manifest_hash"],
     )
-    op.create_index(
+    create_index_if_not_exists(
         "ix_run_manifests_source_run",
         "run_manifests",
         ["source_run_id"],

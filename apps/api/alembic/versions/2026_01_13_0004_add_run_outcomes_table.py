@@ -19,6 +19,7 @@ derived from empirical distributions across multiple runs.
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.exc import ProgrammingError
 
 
 # revision identifiers, used by Alembic.
@@ -28,128 +29,152 @@ branch_labels = None
 depends_on = None
 
 
+def create_index_if_not_exists(index_name: str, table_name: str, columns: list, **kwargs):
+    """Create index only if it doesn't already exist."""
+    try:
+        op.create_index(index_name, table_name, columns, **kwargs)
+    except ProgrammingError as e:
+        if "already exists" in str(e):
+            pass  # Index already exists, skip
+        else:
+            raise
+
+
+def table_exists(table_name: str) -> bool:
+    """Check if a table exists."""
+    conn = op.get_bind()
+    result = conn.execute(
+        sa.text(
+            "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = :table)"
+        ),
+        {"table": table_name}
+    )
+    return result.scalar()
+
+
 def upgrade() -> None:
     """Create run_outcomes table."""
-    op.create_table(
-        "run_outcomes",
-        # Primary key
-        sa.Column(
-            "id",
-            postgresql.UUID(as_uuid=True),
-            primary_key=True,
-            server_default=sa.text("uuid_generate_v4()"),
-        ),
-        # Multi-tenancy
-        sa.Column(
-            "tenant_id",
-            postgresql.UUID(as_uuid=True),
-            nullable=False,
-        ),
-        # Foreign keys
-        sa.Column(
-            "project_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("projects.id", ondelete="CASCADE"),
-            nullable=False,
-        ),
-        sa.Column(
-            "node_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("nodes.id", ondelete="CASCADE"),
-            nullable=False,
-        ),
-        sa.Column(
-            "run_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("runs.id", ondelete="CASCADE"),
-            nullable=False,
-            unique=True,
-        ),
-        # Timestamps
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.func.now(),
-        ),
-        # Link to Phase 2 manifest for version filtering
-        sa.Column(
-            "manifest_hash",
-            sa.String(64),
-            nullable=True,
-        ),
-        # Normalized numeric outcomes (JSONB)
-        sa.Column(
-            "metrics_json",
-            postgresql.JSONB,
-            nullable=False,
-            server_default="{}",
-        ),
-        # Data quality flags (JSONB)
-        sa.Column(
-            "quality_flags",
-            postgresql.JSONB,
-            nullable=False,
-            server_default="{}",
-        ),
-        # Run status (only SUCCEEDED by default)
-        sa.Column(
-            "status",
-            sa.String(32),
-            nullable=False,
-            server_default="succeeded",
-        ),
-    )
+    if not table_exists("run_outcomes"):
+        op.create_table(
+            "run_outcomes",
+            # Primary key
+            sa.Column(
+                "id",
+                postgresql.UUID(as_uuid=True),
+                primary_key=True,
+                server_default=sa.text("uuid_generate_v4()"),
+            ),
+            # Multi-tenancy
+            sa.Column(
+                "tenant_id",
+                postgresql.UUID(as_uuid=True),
+                nullable=False,
+            ),
+            # Foreign keys
+            sa.Column(
+                "project_id",
+                postgresql.UUID(as_uuid=True),
+                sa.ForeignKey("projects.id", ondelete="CASCADE"),
+                nullable=False,
+            ),
+            sa.Column(
+                "node_id",
+                postgresql.UUID(as_uuid=True),
+                sa.ForeignKey("nodes.id", ondelete="CASCADE"),
+                nullable=False,
+            ),
+            sa.Column(
+                "run_id",
+                postgresql.UUID(as_uuid=True),
+                sa.ForeignKey("runs.id", ondelete="CASCADE"),
+                nullable=False,
+                unique=True,
+            ),
+            # Timestamps
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                nullable=False,
+                server_default=sa.func.now(),
+            ),
+            # Link to Phase 2 manifest for version filtering
+            sa.Column(
+                "manifest_hash",
+                sa.String(64),
+                nullable=True,
+            ),
+            # Normalized numeric outcomes (JSONB)
+            sa.Column(
+                "metrics_json",
+                postgresql.JSONB,
+                nullable=False,
+                server_default="{}",
+            ),
+            # Data quality flags (JSONB)
+            sa.Column(
+                "quality_flags",
+                postgresql.JSONB,
+                nullable=False,
+                server_default="{}",
+            ),
+            # Run status (only SUCCEEDED by default)
+            sa.Column(
+                "status",
+                sa.String(32),
+                nullable=False,
+                server_default="succeeded",
+            ),
+        )
 
-    # Create indexes
+    # Create indexes (idempotent)
     # Primary query pattern: get all outcomes for a node within time range
-    op.create_index(
+    create_index_if_not_exists(
         "ix_run_outcomes_project_node_created",
         "run_outcomes",
         ["project_id", "node_id", "created_at"],
     )
 
     # Filter by manifest version
-    op.create_index(
+    create_index_if_not_exists(
         "ix_run_outcomes_node_manifest",
         "run_outcomes",
         ["node_id", "manifest_hash"],
     )
 
     # Tenant scoping
-    op.create_index(
+    create_index_if_not_exists(
         "ix_run_outcomes_tenant_project",
         "run_outcomes",
         ["tenant_id", "project_id"],
     )
 
     # Individual column indexes
-    op.create_index(
+    create_index_if_not_exists(
         "ix_run_outcomes_run_id",
         "run_outcomes",
         ["run_id"],
         unique=True,
     )
 
-    op.create_index(
+    create_index_if_not_exists(
         "ix_run_outcomes_manifest_hash",
         "run_outcomes",
         ["manifest_hash"],
     )
 
-    op.create_index(
+    create_index_if_not_exists(
         "ix_run_outcomes_tenant_id",
         "run_outcomes",
         ["tenant_id"],
     )
 
-    op.create_index(
+    create_index_if_not_exists(
         "ix_run_outcomes_project_id",
         "run_outcomes",
         ["project_id"],
     )
 
-    op.create_index(
+    create_index_if_not_exists(
         "ix_run_outcomes_node_id",
         "run_outcomes",
         ["node_id"],
