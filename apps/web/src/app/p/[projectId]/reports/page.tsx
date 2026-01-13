@@ -632,7 +632,7 @@ function RunReport({ projectId, runId, runs, onExportJSON, onExportMarkdown, onC
             </div>
             <div className="p-3 border border-cyan-500/20 bg-cyan-500/5">
               <div className="text-[10px] font-mono text-cyan-400 uppercase">Duration</div>
-              <div className="text-xl font-mono font-bold text-white">{telemetrySummary.duration_seconds}s</div>
+              <div className="text-xl font-mono font-bold text-white">{telemetrySummary.duration_seconds ?? 'N/A'}{telemetrySummary.duration_seconds !== undefined && 's'}</div>
             </div>
           </div>
           {Object.keys(telemetrySummary.event_type_counts || {}).length > 0 && (

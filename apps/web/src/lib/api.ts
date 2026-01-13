@@ -697,7 +697,7 @@ export interface TelemetrySummary {
   key_metrics: {
     by_tick?: { active_agents: number; total_agents: number; activity_rate: number }[];
   };
-  duration_seconds: number;
+  duration_seconds?: number;
 }
 
 // Telemetry Keyframe
