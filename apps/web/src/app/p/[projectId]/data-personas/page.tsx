@@ -390,19 +390,42 @@ function UploadDataModal({
   );
 }
 
+// Generated persona type
+interface GeneratedPersona {
+  id: string;
+  name: string;
+  age: number;
+  gender: string;
+  occupation: string;
+  income_bracket: string;
+  education_level: string;
+  location: string;
+  personality_traits: string[];
+  values: string[];
+  interests: string[];
+  pain_points: string[];
+  goals: string[];
+  communication_style: string;
+  decision_making_style: string;
+  brand_preferences?: string[];
+  media_consumption?: string[];
+  cultural_context?: string;
+  behavioral_patterns?: string[];
+}
+
 // AI Generation Modal
 function GeneratePersonasModal({
   open,
   onOpenChange,
   projectId,
-  onSuccess,
+  onGenerated,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   projectId: string;
-  onSuccess: () => void;
+  onGenerated: (personas: GeneratedPersona[]) => void;
 }) {
-  const [count, setCount] = useState(100);
+  const [count, setCount] = useState(10);
   const [ageRange, setAgeRange] = useState('');
   const [region, setRegion] = useState('');
   const [language, setLanguage] = useState('');
@@ -416,13 +439,16 @@ function GeneratePersonasModal({
       if (ageRange) keywords.push(`age: ${ageRange}`);
       if (language) keywords.push(`language: ${language}`);
 
-      await generatePersonas.mutateAsync({
+      const result = await generatePersonas.mutateAsync({
         count,
         region: region || 'US',
         topic: context || undefined,
         keywords: keywords.length > 0 ? keywords : undefined,
       });
-      onSuccess();
+      // Pass generated personas to parent
+      if (result.sample_personas && result.sample_personas.length > 0) {
+        onGenerated(result.sample_personas as unknown as GeneratedPersona[]);
+      }
       onOpenChange(false);
       resetForm();
     } catch {
@@ -755,13 +781,16 @@ export default function DataPersonasPage() {
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [selectedPersona, setSelectedPersona] = useState<Record<string, unknown> | null>(null);
 
+  // AI-generated personas (preview, not yet saved)
+  const [generatedPersonas, setGeneratedPersonas] = useState<GeneratedPersona[]>([]);
+
   // Data hooks
   const { data: templates, isLoading: loadingTemplates, refetch: refetchTemplates } = usePersonaTemplates({ limit: 100 });
   const deleteTemplate = useDeletePersonaTemplate();
 
-  // Count personas from templates
-  const totalPersonas = templates?.reduce((acc, t) => acc + (t.persona_count || 0), 0) || 0;
-  const hasPersonas = templates && templates.length > 0;
+  // Count personas from templates + generated
+  const totalPersonas = (templates?.reduce((acc, t) => acc + (t.persona_count || 0), 0) || 0) + generatedPersonas.length;
+  const hasPersonas = (templates && templates.length > 0) || generatedPersonas.length > 0;
 
   const handleSourceClick = (sourceId: string) => {
     switch (sourceId) {
@@ -795,6 +824,19 @@ export default function DataPersonasPage() {
     } catch {
       // Error handled by React Query
     }
+  };
+
+  // Handle AI-generated personas
+  const handleGeneratedPersonas = (personas: GeneratedPersona[]) => {
+    setGeneratedPersonas((prev) => [...prev, ...personas]);
+  };
+
+  const handleRemoveGeneratedPersona = (personaId: string) => {
+    setGeneratedPersonas((prev) => prev.filter((p) => p.id !== personaId));
+  };
+
+  const handleClearGeneratedPersonas = () => {
+    setGeneratedPersonas([]);
   };
 
   return (
@@ -988,6 +1030,87 @@ export default function DataPersonasPage() {
             </Button>
           </div>
         )}
+
+        {/* AI Generated Personas Section */}
+        {generatedPersonas.length > 0 && (
+          <div className="mt-6 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xs font-mono text-amber-400 uppercase tracking-wider flex items-center gap-2">
+                <Zap className="w-3 h-3" />
+                AI Generated Personas ({generatedPersonas.length})
+              </h2>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleClearGeneratedPersonas}
+                className="text-xs text-red-400 hover:text-red-300"
+              >
+                <Trash2 className="w-3 h-3 mr-2" />
+                Clear All
+              </Button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {generatedPersonas.map((persona) => (
+                <div
+                  key={persona.id}
+                  className="p-4 bg-amber-500/5 border border-amber-500/20 hover:border-amber-500/40 transition-colors"
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <div>
+                      <h4 className="text-sm font-mono font-bold text-white">{persona.name}</h4>
+                      <p className="text-xs font-mono text-white/50">
+                        {persona.age} • {persona.gender} • {persona.occupation}
+                      </p>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 w-6 p-0"
+                        onClick={() => handleViewPersona(persona as unknown as Record<string, unknown>)}
+                      >
+                        <Eye className="w-3 h-3" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 w-6 p-0 text-red-400 hover:text-red-300"
+                        onClick={() => handleRemoveGeneratedPersona(persona.id)}
+                      >
+                        <X className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs font-mono text-white/40">
+                      <span className="text-white/60">Location:</span> {persona.location}
+                    </p>
+                    <p className="text-xs font-mono text-white/40">
+                      <span className="text-white/60">Income:</span> {persona.income_bracket} • <span className="text-white/60">Education:</span> {persona.education_level}
+                    </p>
+                    {persona.personality_traits && persona.personality_traits.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {persona.personality_traits.slice(0, 3).map((trait, i) => (
+                          <span key={i} className="px-1.5 py-0.5 text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                            {trait}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {persona.cultural_context && (
+                      <p className="text-[10px] font-mono text-white/40 mt-2 italic line-clamp-2">
+                        {persona.cultural_context}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] font-mono text-amber-400/60 mt-2">
+              Note: These personas are previews. Backend integration coming soon.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Navigation CTA */}
@@ -1039,7 +1162,7 @@ export default function DataPersonasPage() {
         open={generateModalOpen}
         onOpenChange={setGenerateModalOpen}
         projectId={projectId}
-        onSuccess={refetchTemplates}
+        onGenerated={handleGeneratedPersonas}
       />
       <DeepSearchModal
         open={searchModalOpen}
