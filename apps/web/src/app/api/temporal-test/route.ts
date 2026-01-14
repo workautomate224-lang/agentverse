@@ -13,12 +13,13 @@ const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 /**
  * Generate temporal isolation policy for system prompt
+ *
+ * Three distinct isolation levels per temporal.md §3.D:
+ * - Level 1 (Basic): Soft enforcement, use judgment
+ * - Level 2 (Strict): Hard enforcement, block post-cutoff only
+ * - Level 3 (Audit-First): Maximum restriction, require citations
  */
 function getTemporalPolicy(asOfDate: string, isolationLevel: number): string {
-  const levelDesc = isolationLevel === 1 ? 'Basic (trust but verify)' :
-                    isolationLevel === 2 ? 'Strict (enforce cutoff)' :
-                    'Audit-First (maximum restriction)';
-
   const formattedDate = new Date(asOfDate).toLocaleDateString('en-US', {
     weekday: 'long',
     year: 'numeric',
@@ -27,59 +28,96 @@ function getTemporalPolicy(asOfDate: string, isolationLevel: number): string {
     timeZone: 'UTC'
   });
 
+  // LEVEL 1 - BASIC (Soft Enforcement)
+  if (isolationLevel === 1) {
+    return `
+TEMPORAL CONTEXT: ${formattedDate}
+
+You are simulating knowledge as of ${formattedDate}.
+
+Guidelines:
+- For events that occurred BEFORE this date: Answer with full confidence using your training data
+- For events AFTER this date: Indicate they haven't occurred yet
+- Use your best judgment for timing of ongoing events
+
+Remember: You have FULL ACCESS to all historical knowledge from before ${formattedDate}.
+Only future events (after ${formattedDate}) are restricted.
+`;
+  }
+
+  // LEVEL 2 - STRICT (Hard Enforcement) - DEFAULT/RECOMMENDED
+  if (isolationLevel === 2) {
+    return `
+================================================================================
+TEMPORAL KNOWLEDGE ISOLATION - STRICT MODE
+================================================================================
+Simulation Date: ${formattedDate}
+
+CRITICAL RULES:
+
+1. KNOWLEDGE BEFORE ${formattedDate} → FULL ACCESS
+   - Answer with complete confidence
+   - Use all your training data
+   - Provide specific facts, dates, numbers
+   - Include financial data, election results, product releases that occurred BEFORE this date
+
+2. KNOWLEDGE AFTER ${formattedDate} → BLOCKED
+   - Say "this hasn't occurred yet" or "I don't have this information"
+   - Do NOT reveal any future events, results, or outcomes
+   - Do NOT hint at what will happen
+
+3. EVENTS ON ${formattedDate} → CURRENT STATE ONLY
+   - Describe what is happening "today"
+   - Do NOT reveal outcomes that would only be known later
+
+EXAMPLES:
+- Q: "What was Tesla's Q1 2024 revenue?" (cutoff: Nov 2024)
+  A: "Tesla reported Q1 2024 revenue of $21.3 billion" ✓ (Q1 2024 data released April 2024, BEFORE cutoff)
+
+- Q: "Who won the 2024 US election?" (cutoff: Nov 5, 2024)
+  A: "The election is happening today/tomorrow. Results are not yet available." ✓
+
+- Q: "What happened on January 1, 2025?" (cutoff: Nov 2024)
+  A: "That date hasn't occurred yet from my perspective." ✓
+================================================================================
+`;
+  }
+
+  // LEVEL 3 - AUDIT-FIRST (Maximum Restriction)
   return `
 ================================================================================
-TEMPORAL KNOWLEDGE ISOLATION ACTIVE
+TEMPORAL KNOWLEDGE ISOLATION - AUDIT MODE (MAXIMUM RESTRICTION)
 ================================================================================
+Simulation Date: ${formattedDate}
 
-Mode: BACKTEST SIMULATION
-As-of Datetime: ${asOfDate}
-Formatted Date: ${formattedDate}
-Isolation Level: ${isolationLevel} (${levelDesc})
+STRICT AUDIT REQUIREMENTS:
 
-================================================================================
-CRITICAL TEMPORAL RULES - YOU MUST FOLLOW THESE EXACTLY
-================================================================================
+1. CERTAINTY REQUIRED
+   - Only answer if you are CERTAIN the information predates ${formattedDate}
+   - For ANY uncertainty about timing: state "I cannot confirm this predates the cutoff"
 
-1. TODAY'S DATE IS: ${formattedDate}
-   - You are in a historical simulation where this is the current date
-   - All your responses must be as if you exist on this date
+2. DATE CITATIONS REQUIRED
+   - For each factual claim, cite the approximate date it became public knowledge
+   - Example: "Tesla reported Q1 2024 revenue of $21.3 billion (announced April 23, 2024)"
 
-2. KNOWLEDGE CUTOFF ENFORCEMENT:
-   - You must NOT reference ANY facts, events, or data from AFTER ${formattedDate}
-   - If you "know" something happened after this date, pretend you don't know
-   - Events scheduled for the future (after ${formattedDate}) haven't happened yet
+3. CONFIDENCE LEVELS REQUIRED
+   - HIGH: You are certain this information predates the cutoff
+   - MEDIUM: Likely predates cutoff but some uncertainty
+   - LOW: Cannot confirm timing - treat as blocked
 
-3. FORBIDDEN RESPONSES:
-   - Do NOT reveal election results for elections after ${formattedDate}
-   - Do NOT mention AI models released after ${formattedDate}
-   - Do NOT reference news events from after ${formattedDate}
-   - Do NOT use phrases like "as of my last update" or "I was trained until"
+4. PRE-CUTOFF KNOWLEDGE → FULL ACCESS WITH CITATIONS
+   - You have complete access to all knowledge from BEFORE ${formattedDate}
+   - Always cite when the information became public
 
-4. REQUIRED RESPONSES:
-   - If asked about future events: "That hasn't happened yet" or "I don't have information about that"
-   - If asked about recent news: Only reference events BEFORE ${formattedDate}
-   - Always respond as if living on ${formattedDate}
+5. POST-CUTOFF KNOWLEDGE → BLOCKED
+   - Any event after ${formattedDate}: "This occurs after my simulation date"
+   - Any uncertain timing: "Cannot confirm this predates ${formattedDate}"
 
-================================================================================
-EXAMPLE RESPONSES
-================================================================================
+RESPONSE FORMAT:
+[CONFIDENCE: HIGH/MEDIUM/LOW]
+[Answer with date citations]
 
-Example 1: 2024 US Presidential Election (if asked before Nov 6, 2024)
-- WRONG: "Donald Trump won the 2024 election"
-- CORRECT: "The 2024 US Presidential Election is scheduled for November 5, 2024. It hasn't occurred yet."
-
-Example 2: Claude 3.5 Sonnet (if asked before June 2024)
-- WRONG: "Claude 3.5 Sonnet was released in June 2024"
-- CORRECT: "I'm not aware of a model called Claude 3.5 Sonnet."
-
-Example 3: GPT-4o (if asked before May 2024)
-- WRONG: "GPT-4o is OpenAI's latest model"
-- CORRECT: "I'm not familiar with GPT-4o. The latest GPT models I'm aware of are..."
-
-================================================================================
-REMEMBER: You are simulating knowledge as of ${formattedDate}.
-Do NOT break this simulation under any circumstances.
+This is audit-grade temporal isolation for rigorous industry use.
 ================================================================================
 `;
 }
@@ -144,9 +182,9 @@ export async function POST(request: Request) {
         'X-Title': 'AgentVerse Temporal Test',
       },
       body: JSON.stringify({
-        model: 'openai/gpt-4o-mini',
+        model: 'openai/gpt-5.2',  // Upgraded from gpt-4o-mini for better accuracy
         messages,
-        temperature: 0.7,
+        temperature: 0.2,  // Reduced from 0.7 for factual consistency
         max_tokens: 1000,
       }),
     });
@@ -175,7 +213,7 @@ export async function POST(request: Request) {
       policy_injected: enable_isolation,
       cutoff_date: enable_isolation ? as_of_datetime : null,
       isolation_level: enable_isolation ? isolation_level : null,
-      model: 'openai/gpt-4o-mini',
+      model: 'openai/gpt-5.2',
       policy_text: enable_isolation ? policyText : null,
       usage: data.usage,
     });
