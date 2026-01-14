@@ -27,6 +27,7 @@ import {
   FileText,
   Settings,
   Layers,
+  Shield,
 } from 'lucide-react';
 import { useRun, useRunProgress, useCancelRun, useStartRun } from '@/hooks/useApi';
 import { cn } from '@/lib/utils';
@@ -345,21 +346,27 @@ export default function RunDetailPage() {
                 Run Succeeded
               </h3>
               <p className="text-xs font-mono text-white/40">
-                View telemetry data and replay the simulation (read-only)
+                View telemetry data, audit report, and replay the simulation (read-only)
               </p>
             </div>
             <div className="flex items-center gap-2">
               <Link href={`/dashboard/runs/${run.run_id}/telemetry`}>
                 <Button size="sm">
                   <BarChart3 className="w-3 h-3 mr-2" />
-                  VIEW TELEMETRY
+                  TELEMETRY
+                </Button>
+              </Link>
+              <Link href={`/dashboard/runs/${run.run_id}/audit`}>
+                <Button variant="secondary" size="sm">
+                  <Shield className="w-3 h-3 mr-2" />
+                  AUDIT REPORT
                 </Button>
               </Link>
               {run.node_id && (
                 <Link href={`/dashboard/nodes/${run.node_id}`}>
                   <Button variant="secondary" size="sm">
                     <GitBranch className="w-3 h-3 mr-2" />
-                    VIEW NODE
+                    NODE
                   </Button>
                 </Link>
               )}

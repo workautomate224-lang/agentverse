@@ -5,6 +5,14 @@ Provides an immutable snapshot of all configuration, versions, and seeds
 used for a simulation run, enabling exact reproducibility and audit trails.
 
 Reference: project.md Phase 2 - Run Manifest / Seed / Version System
+Reference: temporal.md §4 - Temporal Knowledge Isolation fields
+
+Temporal Isolation fields added per temporal.md §4:
+- cutoff_applied_as_of_datetime: copied from project at run-time
+- data_manifest_ref: pointer to full data access manifest
+- lineage_ref: feature derivation lineage metadata
+- isolation_status: 'PASS' or 'FAIL'
+- isolation_violations: details of any temporal violations
 """
 
 import hashlib
@@ -139,6 +147,40 @@ class RunManifest(Base):
         comment="If this is a reproduction, the original run_id"
     )
 
+    # ==========================================================================
+    # Temporal Knowledge Isolation (temporal.md §4)
+    # ==========================================================================
+    # Cutoff timestamp copied from project at run-time
+    cutoff_applied_as_of_datetime: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Temporal cutoff applied to this run (copied from project.as_of_datetime)"
+    )
+    # Data access manifest pointer (list of all DataGateway requests)
+    data_manifest_ref: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Full data access manifest: sources, endpoints, time windows, hashes"
+    )
+    # Feature/derivation lineage metadata
+    lineage_ref: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Feature derivation lineage: what was derived from what, window boundaries"
+    )
+    # Isolation status: 'PASS' or 'FAIL'
+    isolation_status: Mapped[Optional[str]] = mapped_column(
+        String(20),
+        nullable=True,
+        comment="Temporal isolation compliance: 'PASS' or 'FAIL'"
+    )
+    # Details of any isolation violations
+    isolation_violations: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Details of temporal isolation violations, if any"
+    )
+
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -219,6 +261,12 @@ class RunManifest(Base):
             "source_run_id": str(self.source_run_id) if self.source_run_id else None,
             "created_by_user_id": str(self.created_by_user_id) if self.created_by_user_id else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+            # Temporal isolation fields
+            "cutoff_applied_as_of_datetime": self.cutoff_applied_as_of_datetime.isoformat() if self.cutoff_applied_as_of_datetime else None,
+            "data_manifest_ref": self.data_manifest_ref,
+            "lineage_ref": self.lineage_ref,
+            "isolation_status": self.isolation_status,
+            "isolation_violations": self.isolation_violations,
         }
 
     def get_provenance_summary(self) -> Dict[str, Any]:
@@ -255,3 +303,50 @@ class RunManifest(Base):
             self.versions_json
         )
         return computed == self.manifest_hash
+
+    def get_temporal_audit_report(self) -> Dict[str, Any]:
+        """
+        Generate temporal isolation audit report per temporal.md §9.
+
+        Returns:
+            Audit report dict with isolation status and details
+        """
+        # Extract manifest entries if available
+        sources_accessed = []
+        records_filtered_out = 0
+        payload_hashes = {}
+
+        if self.data_manifest_ref:
+            entries = self.data_manifest_ref.get("entries", [])
+            for entry in entries:
+                sources_accessed.append({
+                    "source_name": entry.get("source_name"),
+                    "endpoint": entry.get("endpoint"),
+                    "time_window": entry.get("time_window"),
+                    "record_count": entry.get("record_count", 0),
+                    "filtered_count": entry.get("filtered_count", 0),
+                })
+                records_filtered_out += entry.get("filtered_count", 0)
+                if entry.get("payload_hash"):
+                    key = f"{entry.get('source_name')}:{entry.get('endpoint')}"
+                    payload_hashes[key] = entry.get("payload_hash")
+
+        return {
+            "run_id": str(self.run_id),
+            "project_id": str(self.project_id),
+            "as_of_datetime": self.cutoff_applied_as_of_datetime.isoformat() if self.cutoff_applied_as_of_datetime else None,
+            "isolation_status": self.isolation_status or "UNKNOWN",
+            "isolation_violations": self.isolation_violations or [],
+            "sources_accessed": sources_accessed,
+            "payload_hashes": payload_hashes,
+            "records_filtered_out": records_filtered_out,
+            "versions": self.versions_json,
+            "random_seed": self.seed,
+            "manifest_hash": self.manifest_hash,
+            "lineage": self.lineage_ref,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+    def is_isolation_passing(self) -> bool:
+        """Check if temporal isolation passed for this run."""
+        return self.isolation_status == "PASS"

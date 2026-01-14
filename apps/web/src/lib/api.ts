@@ -364,6 +364,9 @@ export interface RunSummary {
   has_results: boolean;
   triggered_by: SpecRun['triggered_by'];
   created_at: string;
+  // Temporal isolation fields (temporal.md §8 Phase 5.3)
+  isolation_status?: 'PASS' | 'FAIL' | null;
+  isolation_score?: number;
 }
 
 // Run Results
@@ -770,6 +773,103 @@ export interface TelemetryPlaybackState {
 // Project Spec Types (project.md §6.1)
 // =============================================================================
 
+// Temporal Knowledge Isolation Types (temporal.md §4)
+export interface TemporalContextCreate {
+  mode: 'live' | 'backtest';
+  as_of_datetime?: string;  // ISO 8601 datetime (required for backtest)
+  timezone?: string;        // IANA timezone, default 'Asia/Kuala_Lumpur'
+  isolation_level?: number; // 1=Basic, 2=Strict (default), 3=Audit-First
+  allowed_sources?: string[];
+}
+
+export interface TemporalContextResponse {
+  mode: string;
+  as_of_datetime?: string;
+  timezone: string;
+  isolation_level: number;
+  allowed_sources?: string[];
+  policy_version: string;
+  lock_status: string;
+}
+
+// =============================================================================
+// Run Audit Report Types (temporal.md §8 Phase 5)
+// =============================================================================
+
+export interface SourceAccessEntry {
+  source_name: string;
+  endpoint: string;
+  params: Record<string, unknown>;
+  params_hash: string;
+  time_window?: Record<string, unknown>;
+  record_count: number;
+  filtered_count: number;
+  payload_hash: string;
+  timestamp: string;
+  response_time_ms: number;
+}
+
+export interface IsolationViolation {
+  violation_type: string;
+  description: string;
+  severity: string;
+  evidence: string;
+  line_number?: number;
+  confidence: number;
+}
+
+export interface VersionSnapshot {
+  engine_version: string;
+  ruleset_version: string;
+  dataset_version: string;
+  policy_version: string;
+}
+
+export interface TemporalContextAudit {
+  mode: string;
+  as_of_datetime?: string;
+  timezone: string;
+  isolation_level: number;
+  policy_version: string;
+}
+
+export interface RunAuditReport {
+  run_id: string;
+  project_id: string;
+  node_id?: string;
+  temporal_context: TemporalContextAudit;
+  isolation_status: 'PASS' | 'FAIL';
+  compliance_score: number;
+  violations: IsolationViolation[];
+  sources_accessed: SourceAccessEntry[];
+  total_records: number;
+  total_filtered: number;
+  payload_hashes: Record<string, string>;
+  versions: VersionSnapshot;
+  random_seed?: number;
+  created_at: string;
+  completed_at?: string;
+}
+
+export interface DataManifestResponse {
+  run_id: string;
+  entries: SourceAccessEntry[];
+  total_records: number;
+  total_filtered: number;
+  sources_accessed: string[];
+  generated_at: string;
+}
+
+export interface IsolationStatusResponse {
+  run_id: string;
+  status: 'PASS' | 'FAIL';
+  compliance_score: number;
+  violations: IsolationViolation[];
+  grounded_facts_count: number;
+  ungrounded_facts_count: number;
+  checked_at: string;
+}
+
 export interface ProjectSpecSettings {
   default_horizon: number;
   default_tick_rate: number;
@@ -789,6 +889,8 @@ export interface ProjectSpec {
   run_count: number;
   created_at: string;
   updated_at: string;
+  // Temporal Knowledge Isolation (temporal.md §4)
+  temporal_context?: TemporalContextResponse;
 }
 
 export interface ProjectSpecCreate {
@@ -797,6 +899,8 @@ export interface ProjectSpecCreate {
   domain: string;
   settings?: Partial<ProjectSpecSettings>;
   default_run_config?: Partial<CreateRunConfigInput>;
+  // Temporal Knowledge Isolation (temporal.md §4)
+  temporal_context?: TemporalContextCreate;
 }
 
 export interface ProjectSpecUpdate {
@@ -2210,6 +2314,22 @@ class ApiClient {
 
   async getRunResults(runId: string): Promise<SpecRunResults> {
     return this.request<SpecRunResults>(`/api/v1/runs/${runId}/results`);
+  }
+
+  // =============================================================================
+  // Run Audit Report Endpoints (temporal.md §8 Phase 5)
+  // =============================================================================
+
+  async getRunAuditReport(runId: string): Promise<RunAuditReport> {
+    return this.request<RunAuditReport>(`/api/v1/runs/${runId}/audit`);
+  }
+
+  async getRunAuditManifest(runId: string): Promise<DataManifestResponse> {
+    return this.request<DataManifestResponse>(`/api/v1/runs/${runId}/audit/manifest`);
+  }
+
+  async getRunIsolationStatus(runId: string): Promise<IsolationStatusResponse> {
+    return this.request<IsolationStatusResponse>(`/api/v1/runs/${runId}/audit/isolation`);
   }
 
   // Stream run progress (SSE)

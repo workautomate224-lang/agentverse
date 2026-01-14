@@ -26,6 +26,9 @@ import {
   Pause,
   BarChart3,
   Zap,
+  Shield,
+  ShieldCheck,
+  ShieldX,
 } from 'lucide-react';
 import { useRuns, useCancelRun, useStartRun } from '@/hooks/useApi';
 import type { RunSummary, SpecRunStatus } from '@/lib/api';
@@ -224,6 +227,9 @@ export default function RunsPage() {
                       Status
                     </th>
                     <th className="text-left px-4 py-3 text-[10px] font-mono text-white/40 uppercase tracking-wider">
+                      Isolation
+                    </th>
+                    <th className="text-left px-4 py-3 text-[10px] font-mono text-white/40 uppercase tracking-wider">
                       Run ID
                     </th>
                     <th className="text-left px-4 py-3 text-[10px] font-mono text-white/40 uppercase tracking-wider">
@@ -310,6 +316,38 @@ function RunRow({ run, onUpdate }: { run: RunSummary; onUpdate: () => void }) {
     setShowMenu(false);
   };
 
+  // Isolation status badge helper
+  const renderIsolationBadge = () => {
+    if (!run.isolation_status) {
+      return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-white/5 text-white/30 text-[10px] font-mono">
+          <Shield className="w-2.5 h-2.5" />
+          N/A
+        </span>
+      );
+    }
+    if (run.isolation_status === 'PASS') {
+      return (
+        <Link
+          href={`/dashboard/runs/${run.run_id}/audit`}
+          className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-green-500/20 text-green-400 text-[10px] font-mono hover:bg-green-500/30 transition-colors"
+        >
+          <ShieldCheck className="w-2.5 h-2.5" />
+          PASS
+        </Link>
+      );
+    }
+    return (
+      <Link
+        href={`/dashboard/runs/${run.run_id}/audit`}
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-red-500/20 text-red-400 text-[10px] font-mono hover:bg-red-500/30 transition-colors"
+      >
+        <ShieldX className="w-2.5 h-2.5" />
+        FAIL
+      </Link>
+    );
+  };
+
   return (
     <tr className="hover:bg-white/5 transition-colors">
       <td className="px-4 py-3">
@@ -317,6 +355,9 @@ function RunRow({ run, onUpdate }: { run: RunSummary; onUpdate: () => void }) {
           {status.icon}
           {status.label}
         </span>
+      </td>
+      <td className="px-4 py-3">
+        {renderIsolationBadge()}
       </td>
       <td className="px-4 py-3">
         <Link
@@ -387,14 +428,24 @@ function RunRow({ run, onUpdate }: { run: RunSummary; onUpdate: () => void }) {
                   View Details
                 </Link>
                 {run.status === 'succeeded' && (
-                  <Link
-                    href={`/dashboard/runs/${run.run_id}/telemetry`}
-                    className="flex items-center gap-2 px-3 py-1.5 text-xs font-mono text-white/60 hover:bg-white/10"
-                    onClick={() => setShowMenu(false)}
-                  >
-                    <BarChart3 className="w-3 h-3" />
-                    Telemetry
-                  </Link>
+                  <>
+                    <Link
+                      href={`/dashboard/runs/${run.run_id}/telemetry`}
+                      className="flex items-center gap-2 px-3 py-1.5 text-xs font-mono text-white/60 hover:bg-white/10"
+                      onClick={() => setShowMenu(false)}
+                    >
+                      <BarChart3 className="w-3 h-3" />
+                      Telemetry
+                    </Link>
+                    <Link
+                      href={`/dashboard/runs/${run.run_id}/audit`}
+                      className="flex items-center gap-2 px-3 py-1.5 text-xs font-mono text-white/60 hover:bg-white/10"
+                      onClick={() => setShowMenu(false)}
+                    >
+                      <Shield className="w-3 h-3" />
+                      Audit Report
+                    </Link>
+                  </>
                 )}
                 {run.status === 'queued' && (
                   <button

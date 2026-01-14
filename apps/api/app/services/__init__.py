@@ -113,6 +113,35 @@ from app.services.target_mode import (
     TargetModeTelemetry,
     get_target_mode_service,
 )
+# DataGateway Service (temporal.md §5 - Temporal Knowledge Isolation)
+from app.services.data_gateway import (
+    DataGateway,
+    DataGatewayContext,
+    DataGatewayResponse,
+    ManifestEntry,
+    SourceBlockedError,
+    SourceNotFoundError,
+    create_data_gateway,
+    create_data_gateway_from_project,
+    get_data_gateway,
+)
+# LeakageGuard Service (verification_checklist_v2.md §1.3)
+from app.services.leakage_guard import (
+    LeakageGuard,
+    LeakageGuardStats,
+    LeakageAttempt,
+    LeakageViolationError,
+    create_leakage_guard_from_config,
+    get_leakage_guard,
+)
+# DataManifest Service (temporal.md §5, §9)
+from app.services.data_manifest import (
+    DataManifestService,
+    ManifestSummary,
+    IsolationViolation,
+    get_data_manifest_service,
+    finalize_run_manifest,
+)
 
 __all__ = [
     "OpenRouterService",
@@ -209,4 +238,27 @@ __all__ = [
     "PathNodeBridge",
     "TargetModeTelemetry",
     "get_target_mode_service",
+    # DataGateway (temporal.md §5)
+    "DataGateway",
+    "DataGatewayContext",
+    "DataGatewayResponse",
+    "ManifestEntry",
+    "SourceBlockedError",
+    "SourceNotFoundError",
+    "create_data_gateway",
+    "create_data_gateway_from_project",
+    "get_data_gateway",
+    # LeakageGuard
+    "LeakageGuard",
+    "LeakageGuardStats",
+    "LeakageAttempt",
+    "LeakageViolationError",
+    "create_leakage_guard_from_config",
+    "get_leakage_guard",
+    # DataManifest (temporal.md §5, §9)
+    "DataManifestService",
+    "ManifestSummary",
+    "IsolationViolation",
+    "get_data_manifest_service",
+    "finalize_run_manifest",
 ]

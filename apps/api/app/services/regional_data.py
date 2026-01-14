@@ -1,12 +1,19 @@
 """
 Multi-Region Data Service
 Supports: US (Census Bureau), Europe (Eurostat), Southeast Asia, China
+
+Temporal Knowledge Isolation:
+    Services in this module support DataGateway integration for temporal
+    isolation in backtest mode. When DataGateway is configured, all external
+    API calls route through it for cutoff enforcement and audit logging.
+
+    Reference: temporal.md §5 - DataGateway
 """
 
 import httpx
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any, Callable, Optional, TYPE_CHECKING
 from datetime import datetime
 
 from pydantic import BaseModel
@@ -16,7 +23,19 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.models.data_source import DataSource, CensusData, RegionalProfile
 
+if TYPE_CHECKING:
+    from app.services.data_gateway import DataGateway, DataGatewayContext
+
 logger = logging.getLogger(__name__)
+
+# Source names for DataGateway registry
+SOURCE_NAME_CENSUS = "census_bureau"
+SOURCE_NAME_EUROSTAT = "eurostat"
+SOURCE_NAME_ASEAN = "asean_statistics"
+SOURCE_NAME_CHINA_NBS = "china_nbs"
+SOURCE_NAME_LATAM_STATS = "latam_regional_stats"
+SOURCE_NAME_MENA_STATS = "mena_regional_stats"
+SOURCE_NAME_AFRICA_STATS = "africa_regional_stats"
 
 
 # ============= Data Models =============
@@ -29,6 +48,9 @@ class DemographicDistribution(BaseModel):
     source: str
     source_year: int
     confidence_score: float = 0.9
+    # Temporal isolation metadata
+    payload_hash: Optional[str] = None
+    manifest_entry_id: Optional[str] = None
 
 
 class RegionalDemographics(BaseModel):
@@ -53,12 +75,25 @@ class RegionalDemographics(BaseModel):
     source_year: int
     confidence_score: float = 0.85
     data_completeness: float = 0.8
+    # Temporal isolation metadata
+    payload_hash: Optional[str] = None
+    manifest_entry_id: Optional[str] = None
 
 
 # ============= Abstract Base Service =============
 
 class RegionalDataService(ABC):
-    """Abstract base class for regional data services."""
+    """
+    Abstract base class for regional data services.
+
+    Supports optional DataGateway integration for temporal isolation
+    in backtest mode. When DataGateway is configured, external API
+    calls route through it for cutoff enforcement and audit logging.
+    """
+
+    # DataGateway fields (optional, for temporal isolation)
+    _data_gateway: Optional["DataGateway"] = None
+    _gateway_context: Optional["DataGatewayContext"] = None
 
     @property
     @abstractmethod
@@ -71,6 +106,30 @@ class RegionalDataService(ABC):
     def source_name(self) -> str:
         """Return the data source name."""
         pass
+
+    @property
+    @abstractmethod
+    def gateway_source_name(self) -> str:
+        """Return the source name for DataGateway registry."""
+        pass
+
+    def with_gateway(
+        self,
+        data_gateway: "DataGateway",
+        gateway_context: "DataGatewayContext",
+    ) -> "RegionalDataService":
+        """
+        Configure this service to use DataGateway for temporal isolation.
+
+        Returns self for method chaining.
+        """
+        self._data_gateway = data_gateway
+        self._gateway_context = gateway_context
+        return self
+
+    def _is_gateway_mode(self) -> bool:
+        """Check if DataGateway mode is enabled."""
+        return self._data_gateway is not None and self._gateway_context is not None
 
     @abstractmethod
     async def get_demographics(
@@ -97,9 +156,17 @@ class RegionalDataService(ABC):
 # ============= US Census Service =============
 
 class USCensusService(RegionalDataService):
-    """US Census Bureau API integration."""
+    """
+    US Census Bureau API integration.
+
+    Supports DataGateway integration for temporal isolation in backtest mode.
+    When configured, all Census API calls route through DataGateway.
+    """
 
     BASE_URL = "https://api.census.gov/data"
+
+    # Last manifest entry from DataGateway (for attaching to response models)
+    _last_manifest_entry: Optional[dict] = None
 
     # ACS 5-Year Survey variables
     AGE_VARIABLES = {
@@ -191,8 +258,15 @@ class USCensusService(RegionalDataService):
         "DC": "11", "PR": "72",
     }
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        data_gateway: Optional["DataGateway"] = None,
+        gateway_context: Optional["DataGatewayContext"] = None,
+    ):
         self.api_key = api_key or settings.CENSUS_API_KEY
+        self._data_gateway = data_gateway
+        self._gateway_context = gateway_context
 
     @property
     def region_code(self) -> str:
@@ -201,6 +275,10 @@ class USCensusService(RegionalDataService):
     @property
     def source_name(self) -> str:
         return "US Census Bureau ACS 5-Year"
+
+    @property
+    def gateway_source_name(self) -> str:
+        return SOURCE_NAME_CENSUS
 
     # Fallback data based on 2022 ACS 5-Year estimates (national level, in thousands)
     FALLBACK_DATA = {
@@ -299,6 +377,61 @@ class USCensusService(RegionalDataService):
         else:
             params["for"] = "us:*"
 
+        # Route through DataGateway if configured
+        if self._is_gateway_mode():
+            return await self._fetch_batch_via_gateway(url, params, var_list, year, state, county)
+
+        # Direct fetch (live mode or no gateway configured)
+        return await self._fetch_batch_direct(url, params, var_list)
+
+    async def _fetch_batch_via_gateway(
+        self,
+        url: str,
+        params: dict[str, Any],
+        var_list: list[str],
+        year: int,
+        state: Optional[str],
+        county: Optional[str],
+    ) -> dict[str, int]:
+        """Fetch census data through DataGateway with temporal isolation."""
+        endpoint = f"/acs/acs5/{year}"
+        gateway_params = {
+            "variables": var_list,
+            "year": year,
+            "state": state,
+            "county": county,
+        }
+
+        async def data_fetcher():
+            return await self._fetch_batch_direct(url, params, var_list)
+
+        assert self._data_gateway is not None
+        assert self._gateway_context is not None
+
+        gateway_response = await self._data_gateway.request(
+            source_name=self.gateway_source_name,
+            endpoint=endpoint,
+            params=gateway_params,
+            context=self._gateway_context,
+            data_fetcher=data_fetcher,
+            timestamp_field="year",
+        )
+
+        # Store manifest entry for later attachment to response models
+        self._last_manifest_entry = {
+            "payload_hash": gateway_response.payload_hash,
+            "manifest_entry_id": gateway_response.manifest_entry.id,
+        }
+
+        return gateway_response.data
+
+    async def _fetch_batch_direct(
+        self,
+        url: str,
+        params: dict[str, Any],
+        var_list: list[str],
+    ) -> dict[str, int]:
+        """Direct fetch from Census API (no gateway)."""
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(url, params=params)
@@ -400,6 +533,8 @@ class USCensusService(RegionalDataService):
         if not variables:
             raise ValueError(f"Unknown category: {category}")
 
+        # Clear last manifest entry before fetch
+        self._last_manifest_entry = None
         raw_data = await self._fetch_data(variables, year, state, county)
 
         if category == "age":
@@ -407,14 +542,22 @@ class USCensusService(RegionalDataService):
         else:
             distribution = self._calculate_distribution(raw_data, variables)
 
-        return DemographicDistribution(
+        # Build response with optional manifest metadata
+        result = DemographicDistribution(
             category=category,
             distribution=distribution,
             total_population=sum(raw_data.values()),
             source=self.source_name,
             source_year=year,
-            confidence_score=0.95
+            confidence_score=0.95,
         )
+
+        # Attach manifest metadata if gateway mode was used
+        if self._last_manifest_entry:
+            result.payload_hash = self._last_manifest_entry.get("payload_hash")
+            result.manifest_entry_id = self._last_manifest_entry.get("manifest_entry_id")
+
+        return result
 
     async def get_demographics(
         self,
@@ -437,9 +580,11 @@ class USCensusService(RegionalDataService):
             **self.ETHNICITY_VARIABLES,
         }
 
+        # Clear last manifest entry before fetch
+        self._last_manifest_entry = None
         raw_data = await self._fetch_data(all_vars, year, state, county)
 
-        return RegionalDemographics(
+        result = RegionalDemographics(
             region="us",
             country="United States",
             sub_region=sub_region,
@@ -452,16 +597,31 @@ class USCensusService(RegionalDataService):
             source=self.source_name,
             source_year=year,
             confidence_score=0.95,
-            data_completeness=0.95
+            data_completeness=0.95,
         )
+
+        # Attach manifest metadata if gateway mode was used
+        if self._last_manifest_entry:
+            result.payload_hash = self._last_manifest_entry.get("payload_hash")
+            result.manifest_entry_id = self._last_manifest_entry.get("manifest_entry_id")
+
+        return result
 
 
 # ============= Europe (Eurostat) Service =============
 
 class EurostatService(RegionalDataService):
-    """Eurostat API integration for EU demographic data."""
+    """
+    Eurostat API integration for EU demographic data.
+
+    Supports DataGateway integration for temporal isolation in backtest mode.
+    When configured, all Eurostat API calls route through DataGateway.
+    """
 
     BASE_URL = "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data"
+
+    # Last manifest entry from DataGateway (for attaching to response models)
+    _last_manifest_entry: Optional[dict] = None
 
     # EU country codes
     EU_COUNTRIES = {
@@ -504,8 +664,13 @@ class EurostatService(RegionalDataService):
         "Elementary occupations": 0.12
     }
 
-    def __init__(self):
-        pass
+    def __init__(
+        self,
+        data_gateway: Optional["DataGateway"] = None,
+        gateway_context: Optional["DataGatewayContext"] = None,
+    ):
+        self._data_gateway = data_gateway
+        self._gateway_context = gateway_context
 
     @property
     def region_code(self) -> str:
@@ -514,6 +679,10 @@ class EurostatService(RegionalDataService):
     @property
     def source_name(self) -> str:
         return "Eurostat"
+
+    @property
+    def gateway_source_name(self) -> str:
+        return SOURCE_NAME_EUROSTAT
 
     async def _fetch_eurostat_data(
         self,
@@ -530,6 +699,58 @@ class EurostatService(RegionalDataService):
         if year:
             params["time"] = str(year)
 
+        # Route through DataGateway if configured
+        if self._is_gateway_mode():
+            return await self._fetch_eurostat_via_gateway(url, params, dataset, country, year)
+
+        # Direct fetch
+        return await self._fetch_eurostat_direct(url, params)
+
+    async def _fetch_eurostat_via_gateway(
+        self,
+        url: str,
+        params: dict[str, Any],
+        dataset: str,
+        country: Optional[str],
+        year: Optional[int],
+    ) -> dict[str, Any]:
+        """Fetch Eurostat data through DataGateway with temporal isolation."""
+        endpoint = f"/eurostat/{dataset}"
+        gateway_params = {
+            "dataset": dataset,
+            "country": country,
+            "year": year,
+        }
+
+        async def data_fetcher():
+            return await self._fetch_eurostat_direct(url, params)
+
+        assert self._data_gateway is not None
+        assert self._gateway_context is not None
+
+        gateway_response = await self._data_gateway.request(
+            source_name=self.gateway_source_name,
+            endpoint=endpoint,
+            params=gateway_params,
+            context=self._gateway_context,
+            data_fetcher=data_fetcher,
+            timestamp_field="time",
+        )
+
+        # Store manifest entry for later attachment to response models
+        self._last_manifest_entry = {
+            "payload_hash": gateway_response.payload_hash,
+            "manifest_entry_id": gateway_response.manifest_entry.id,
+        }
+
+        return gateway_response.data
+
+    async def _fetch_eurostat_direct(
+        self,
+        url: str,
+        params: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Direct fetch from Eurostat API (no gateway)."""
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(url, params=params)
@@ -637,7 +858,15 @@ class EurostatService(RegionalDataService):
 # ============= Southeast Asia Service =============
 
 class SoutheastAsiaService(RegionalDataService):
-    """Southeast Asia demographic data service."""
+    """
+    Southeast Asia demographic data service.
+
+    Uses static data profiles (no external API calls).
+    DataGateway integration tracks data access for audit.
+    """
+
+    # Last manifest entry from DataGateway (for attaching to response models)
+    _last_manifest_entry: Optional[dict] = None
 
     ASEAN_COUNTRIES = {
         "SG": "Singapore", "MY": "Malaysia", "ID": "Indonesia",
@@ -704,8 +933,13 @@ class SoutheastAsiaService(RegionalDataService):
         "occupation": {"Agriculture": 0.28, "Manufacturing": 0.18, "Services": 0.42, "Others": 0.12},
     }
 
-    def __init__(self):
-        pass
+    def __init__(
+        self,
+        data_gateway: Optional["DataGateway"] = None,
+        gateway_context: Optional["DataGatewayContext"] = None,
+    ):
+        self._data_gateway = data_gateway
+        self._gateway_context = gateway_context
 
     @property
     def region_code(self) -> str:
@@ -714,6 +948,10 @@ class SoutheastAsiaService(RegionalDataService):
     @property
     def source_name(self) -> str:
         return "ASEAN Statistics & National Census Data"
+
+    @property
+    def gateway_source_name(self) -> str:
+        return SOURCE_NAME_ASEAN
 
     async def get_distribution(
         self,
@@ -780,7 +1018,15 @@ class SoutheastAsiaService(RegionalDataService):
 # ============= China Service =============
 
 class ChinaDataService(RegionalDataService):
-    """China National Bureau of Statistics data service."""
+    """
+    China National Bureau of Statistics data service.
+
+    Uses static data profiles (no external API calls).
+    DataGateway integration tracks data access for audit.
+    """
+
+    # Last manifest entry from DataGateway (for attaching to response models)
+    _last_manifest_entry: Optional[dict] = None
 
     PROVINCES = {
         "BJ": "Beijing", "SH": "Shanghai", "TJ": "Tianjin", "CQ": "Chongqing",
@@ -816,8 +1062,13 @@ class ChinaDataService(RegionalDataService):
         "occupation": {"Agriculture": 0.02, "Manufacturing": 0.15, "Services": 0.55, "Government/SOE": 0.12, "Tech/Finance": 0.16},
     }
 
-    def __init__(self):
-        pass
+    def __init__(
+        self,
+        data_gateway: Optional["DataGateway"] = None,
+        gateway_context: Optional["DataGatewayContext"] = None,
+    ):
+        self._data_gateway = data_gateway
+        self._gateway_context = gateway_context
 
     @property
     def region_code(self) -> str:
@@ -826,6 +1077,10 @@ class ChinaDataService(RegionalDataService):
     @property
     def source_name(self) -> str:
         return "China National Bureau of Statistics"
+
+    @property
+    def gateway_source_name(self) -> str:
+        return SOURCE_NAME_CHINA_NBS
 
     def _get_tier_for_city(self, city: str) -> Optional[str]:
         """Determine city tier."""
@@ -908,7 +1163,15 @@ class ChinaDataService(RegionalDataService):
 # ============= Latin America Service =============
 
 class LatinAmericaService(RegionalDataService):
-    """Latin America demographic data service."""
+    """
+    Latin America demographic data service.
+
+    Uses static data profiles (no external API calls).
+    DataGateway integration tracks data access for audit.
+    """
+
+    # Last manifest entry from DataGateway (for attaching to response models)
+    _last_manifest_entry: Optional[dict] = None
 
     COUNTRIES = {
         "BR": "Brazil", "MX": "Mexico", "AR": "Argentina", "CO": "Colombia",
@@ -982,8 +1245,13 @@ class LatinAmericaService(RegionalDataService):
         "occupation": {"Agriculture": 0.12, "Industry": 0.22, "Services": 0.50, "Government": 0.11, "Informal": 0.05},
     }
 
-    def __init__(self):
-        pass
+    def __init__(
+        self,
+        data_gateway: Optional["DataGateway"] = None,
+        gateway_context: Optional["DataGatewayContext"] = None,
+    ):
+        self._data_gateway = data_gateway
+        self._gateway_context = gateway_context
 
     @property
     def region_code(self) -> str:
@@ -992,6 +1260,10 @@ class LatinAmericaService(RegionalDataService):
     @property
     def source_name(self) -> str:
         return "IBGE/INEGI/INDEC/DANE Regional Statistics"
+
+    @property
+    def gateway_source_name(self) -> str:
+        return SOURCE_NAME_LATAM_STATS
 
     async def get_distribution(
         self,
@@ -1058,7 +1330,15 @@ class LatinAmericaService(RegionalDataService):
 # ============= Middle East Service =============
 
 class MiddleEastService(RegionalDataService):
-    """Middle East demographic data service."""
+    """
+    Middle East demographic data service.
+
+    Uses static data profiles (no external API calls).
+    DataGateway integration tracks data access for audit.
+    """
+
+    # Last manifest entry from DataGateway (for attaching to response models)
+    _last_manifest_entry: Optional[dict] = None
 
     COUNTRIES = {
         "AE": "United Arab Emirates", "SA": "Saudi Arabia", "IL": "Israel",
@@ -1130,8 +1410,13 @@ class MiddleEastService(RegionalDataService):
         "occupation": {"Agriculture": 0.12, "Industry": 0.22, "Services": 0.42, "Government": 0.16, "Other": 0.08},
     }
 
-    def __init__(self):
-        pass
+    def __init__(
+        self,
+        data_gateway: Optional["DataGateway"] = None,
+        gateway_context: Optional["DataGatewayContext"] = None,
+    ):
+        self._data_gateway = data_gateway
+        self._gateway_context = gateway_context
 
     @property
     def region_code(self) -> str:
@@ -1140,6 +1425,10 @@ class MiddleEastService(RegionalDataService):
     @property
     def source_name(self) -> str:
         return "UAE Statistics Centre / GASTAT / Israel CBS"
+
+    @property
+    def gateway_source_name(self) -> str:
+        return SOURCE_NAME_MENA_STATS
 
     async def get_distribution(
         self,
@@ -1206,7 +1495,15 @@ class MiddleEastService(RegionalDataService):
 # ============= Africa Service =============
 
 class AfricaDataService(RegionalDataService):
-    """Africa demographic data service."""
+    """
+    Africa demographic data service.
+
+    Uses static data profiles (no external API calls).
+    DataGateway integration tracks data access for audit.
+    """
+
+    # Last manifest entry from DataGateway (for attaching to response models)
+    _last_manifest_entry: Optional[dict] = None
 
     COUNTRIES = {
         "ZA": "South Africa", "NG": "Nigeria", "KE": "Kenya",
@@ -1281,8 +1578,13 @@ class AfricaDataService(RegionalDataService):
         "occupation": {"Agriculture": 0.45, "Services": 0.28, "Manufacturing": 0.12, "Government": 0.08, "Informal": 0.07},
     }
 
-    def __init__(self):
-        pass
+    def __init__(
+        self,
+        data_gateway: Optional["DataGateway"] = None,
+        gateway_context: Optional["DataGatewayContext"] = None,
+    ):
+        self._data_gateway = data_gateway
+        self._gateway_context = gateway_context
 
     @property
     def region_code(self) -> str:
@@ -1291,6 +1593,10 @@ class AfricaDataService(RegionalDataService):
     @property
     def source_name(self) -> str:
         return "StatsSA / NBS Nigeria / KNBS Kenya"
+
+    @property
+    def gateway_source_name(self) -> str:
+        return SOURCE_NAME_AFRICA_STATS
 
     async def get_distribution(
         self,
@@ -1356,8 +1662,27 @@ class AfricaDataService(RegionalDataService):
 
 # ============= Factory Function =============
 
-def get_regional_service(region: str) -> RegionalDataService:
-    """Factory function to get the appropriate regional data service."""
+def get_regional_service(
+    region: str,
+    data_gateway: Optional["DataGateway"] = None,
+    gateway_context: Optional["DataGatewayContext"] = None,
+) -> RegionalDataService:
+    """
+    Factory function to get the appropriate regional data service.
+
+    Args:
+        region: Region identifier (e.g., 'us', 'europe', 'asia')
+        data_gateway: Optional DataGateway for temporal isolation
+        gateway_context: Optional gateway context for cutoff enforcement
+
+    Returns:
+        RegionalDataService configured with optional gateway support
+
+    Temporal Isolation:
+        When data_gateway and gateway_context are provided, the service
+        will route external API calls through DataGateway for cutoff
+        enforcement and audit logging.
+    """
     services = {
         "us": USCensusService,
         "usa": USCensusService,
@@ -1385,24 +1710,70 @@ def get_regional_service(region: str) -> RegionalDataService:
     if not service_class:
         raise ValueError(f"Unknown region: {region}. Supported: {list(services.keys())}")
 
-    return service_class()
+    # Create service with optional gateway parameters
+    service = service_class(
+        data_gateway=data_gateway,
+        gateway_context=gateway_context,
+    )
+    return service
 
 
 # ============= Unified Multi-Region Service =============
 
 class MultiRegionDataService:
-    """Unified service for fetching data across all supported regions."""
+    """
+    Unified service for fetching data across all supported regions.
 
-    def __init__(self):
+    Temporal Isolation:
+        When initialized with data_gateway and gateway_context, all
+        regional services will route external API calls through
+        DataGateway for cutoff enforcement and audit logging.
+    """
+
+    def __init__(
+        self,
+        data_gateway: Optional["DataGateway"] = None,
+        gateway_context: Optional["DataGatewayContext"] = None,
+    ):
+        """
+        Initialize MultiRegionDataService.
+
+        Args:
+            data_gateway: Optional DataGateway for temporal isolation
+            gateway_context: Optional gateway context for cutoff enforcement
+        """
+        self._data_gateway = data_gateway
+        self._gateway_context = gateway_context
+
         self.services = {
-            "us": USCensusService(),
-            "europe": EurostatService(),
-            "southeast_asia": SoutheastAsiaService(),
-            "china": ChinaDataService(),
-            "latin_america": LatinAmericaService(),
-            "middle_east": MiddleEastService(),
-            "africa": AfricaDataService(),
+            "us": USCensusService(data_gateway, gateway_context),
+            "europe": EurostatService(data_gateway, gateway_context),
+            "southeast_asia": SoutheastAsiaService(data_gateway, gateway_context),
+            "china": ChinaDataService(data_gateway, gateway_context),
+            "latin_america": LatinAmericaService(data_gateway, gateway_context),
+            "middle_east": MiddleEastService(data_gateway, gateway_context),
+            "africa": AfricaDataService(data_gateway, gateway_context),
         }
+
+    def with_gateway(
+        self,
+        data_gateway: "DataGateway",
+        gateway_context: "DataGatewayContext",
+    ) -> "MultiRegionDataService":
+        """
+        Create a new MultiRegionDataService with DataGateway configured.
+
+        Args:
+            data_gateway: DataGateway for temporal isolation
+            gateway_context: Gateway context for cutoff enforcement
+
+        Returns:
+            New MultiRegionDataService instance with gateway configured
+        """
+        return MultiRegionDataService(
+            data_gateway=data_gateway,
+            gateway_context=gateway_context,
+        )
 
     async def get_demographics(
         self,

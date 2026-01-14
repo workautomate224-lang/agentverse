@@ -192,6 +192,11 @@ from app.models.backtest import (
     BacktestStatus,
     BacktestRunStatus,
 )
+# Temporal Knowledge Isolation Models (temporal.md)
+from app.models.source_registry import (
+    SourceCapability,
+    SourceCapabilityAudit,
+)
 # STEP 10: Production Readiness Models
 from app.models.production import (
     # Enums
@@ -415,4 +420,7 @@ __all__ = [
     "BacktestReportSnapshot",
     "BacktestStatus",
     "BacktestRunStatus",
+    # Temporal Knowledge Isolation Models
+    "SourceCapability",
+    "SourceCapabilityAudit",
 ]

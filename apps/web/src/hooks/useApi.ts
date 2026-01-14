@@ -1874,6 +1874,43 @@ export function useRunResults(runId: string | undefined) {
   });
 }
 
+// =============================================================================
+// Run Audit Report Hooks (temporal.md §8 Phase 5)
+// =============================================================================
+
+export function useRunAuditReport(runId: string | undefined) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['runs', runId, 'audit'],
+    queryFn: () => api.getRunAuditReport(runId!),
+    enabled: isReady && !!runId,
+    staleTime: CACHE_TIMES.LONG,
+  });
+}
+
+export function useRunAuditManifest(runId: string | undefined) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['runs', runId, 'audit', 'manifest'],
+    queryFn: () => api.getRunAuditManifest(runId!),
+    enabled: isReady && !!runId,
+    staleTime: CACHE_TIMES.LONG,
+  });
+}
+
+export function useRunIsolationStatus(runId: string | undefined) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['runs', runId, 'audit', 'isolation'],
+    queryFn: () => api.getRunIsolationStatus(runId!),
+    enabled: isReady && !!runId,
+    staleTime: CACHE_TIMES.SHORT,
+  });
+}
+
 export function useCreateBatchRuns() {
   const queryClient = useQueryClient();
   useApiAuth();

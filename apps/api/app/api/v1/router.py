@@ -63,6 +63,8 @@ from app.api.v1.endpoints import (
     ops_test,
     # PHASE 2: Run Manifest / Reproducibility
     manifests,
+    # PHASE 5: Run Audit Report (temporal.md §8)
+    run_audit,
 )
 
 api_router = APIRouter()
@@ -141,3 +143,6 @@ api_router.include_router(ops_test.router, tags=["Ops - Test Simulation"])
 
 # PHASE 2: Run Manifest / Reproducibility
 api_router.include_router(manifests.router, tags=["Run Manifests"])
+
+# PHASE 5: Run Audit Report (temporal.md §8)
+api_router.include_router(run_audit.router, tags=["Run Audit Report"])

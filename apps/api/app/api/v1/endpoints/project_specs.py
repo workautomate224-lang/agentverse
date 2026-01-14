@@ -1,20 +1,22 @@
 """
 Project Spec API Endpoints
-Reference: project.md §6.1
+Reference: project.md §6.1, temporal.md §4
 
 Provides endpoints for:
 - Managing project specifications
 - Configuring personas, event scripts, rulesets
 - Creating runs from projects
+- Temporal Knowledge Isolation context (backtest mode)
 
 This is the spec-compliant replacement for the legacy projects endpoint.
 """
 
-from typing import List, Optional
+from datetime import datetime
+from typing import List, Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,8 +25,68 @@ from app.models.user import User
 
 
 # ============================================================================
-# Request/Response Schemas (project.md §6.1)
+# Request/Response Schemas (project.md §6.1, temporal.md §4)
 # ============================================================================
+
+
+class TemporalContextCreate(BaseModel):
+    """
+    Temporal Knowledge Isolation context for project creation.
+    Reference: temporal.md §4
+
+    Required for backtest mode to enforce temporal cutoffs and prevent
+    future data leakage.
+    """
+    mode: Literal['live', 'backtest'] = Field(
+        default='live',
+        description="Temporal mode: 'live' for real-time, 'backtest' for historical simulation"
+    )
+    as_of_datetime: Optional[str] = Field(
+        default=None,
+        description="ISO 8601 datetime string for backtest cutoff (required if mode='backtest')"
+    )
+    timezone: str = Field(
+        default='Asia/Kuala_Lumpur',
+        description="IANA timezone for cutoff evaluation"
+    )
+    isolation_level: int = Field(
+        default=2,
+        ge=1,
+        le=3,
+        description="Isolation strictness: 1=Basic, 2=Strict (recommended), 3=Audit-First"
+    )
+    allowed_sources: Optional[List[str]] = Field(
+        default=None,
+        description="List of allowed source identifiers (null = all sources allowed)"
+    )
+
+    @field_validator('as_of_datetime')
+    @classmethod
+    def validate_as_of_datetime(cls, v: Optional[str], info) -> Optional[str]:
+        """Validate as_of_datetime is not in the future."""
+        if v is None:
+            return v
+        try:
+            dt = datetime.fromisoformat(v.replace('Z', '+00:00'))
+            if dt > datetime.now(dt.tzinfo if dt.tzinfo else None):
+                raise ValueError("as_of_datetime cannot be in the future")
+            return v
+        except ValueError as e:
+            if "as_of_datetime cannot be" in str(e):
+                raise
+            raise ValueError(f"Invalid ISO 8601 datetime: {v}")
+
+
+class TemporalContextResponse(BaseModel):
+    """Temporal context in API responses."""
+    mode: str
+    as_of_datetime: Optional[str]
+    timezone: str
+    isolation_level: int
+    allowed_sources: Optional[List[str]]
+    policy_version: str
+    lock_status: str
+
 
 class PersonaConfig(BaseModel):
     """Persona configuration per project.md §6.2."""
@@ -58,11 +120,25 @@ class ProjectSpecCreate(BaseModel):
     event_script_config: Optional[EventScriptConfig] = None
     ruleset_config: Optional[RuleSetConfig] = None
 
+    # Temporal Knowledge Isolation (temporal.md §4)
+    temporal_context: Optional[TemporalContextCreate] = Field(
+        default=None,
+        description="Temporal isolation context. Required for backtest mode."
+    )
+
     # Versions
     schema_version: str = Field(default="1.0.0")
 
     # Settings
     settings: dict = Field(default_factory=dict)
+
+    @field_validator('temporal_context')
+    @classmethod
+    def validate_backtest_has_datetime(cls, v: Optional[TemporalContextCreate]) -> Optional[TemporalContextCreate]:
+        """Validate backtest mode has as_of_datetime."""
+        if v is not None and v.mode == 'backtest' and not v.as_of_datetime:
+            raise ValueError("as_of_datetime is required for backtest mode")
+        return v
 
 
 class ProjectSpecUpdate(BaseModel):
@@ -78,7 +154,7 @@ class ProjectSpecUpdate(BaseModel):
 
 
 class ProjectSpecResponse(BaseModel):
-    """Project spec response per project.md §6.1."""
+    """Project spec response per project.md §6.1, temporal.md §4."""
     id: str  # Changed from project_id to match frontend interface
     tenant_id: str
     name: str
@@ -90,6 +166,9 @@ class ProjectSpecResponse(BaseModel):
     persona_set_ref: Optional[str]
     event_script_ref: Optional[str]
     ruleset_ref: Optional[str]
+
+    # Temporal Knowledge Isolation (temporal.md §4)
+    temporal_context: Optional[TemporalContextResponse] = None
 
     # Versions
     schema_version: str
@@ -139,6 +218,7 @@ async def list_project_specs(
     limit: int = Query(20, ge=1, le=100),
     domain: Optional[str] = Query(None, pattern="^(marketing|political|finance|custom)$"),
     search: Optional[str] = Query(None, max_length=100),
+    temporal_mode: Optional[str] = Query(None, pattern="^(live|backtest)$"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     tenant_ctx: TenantContext = Depends(require_tenant),
@@ -148,7 +228,10 @@ async def list_project_specs(
 
     Projects are the top-level container for simulations.
     They hold references to datasets, personas, and event scripts.
+
+    Optionally filter by temporal_mode ('live' or 'backtest').
     """
+    import json
     # Query project_specs table
     from sqlalchemy import text
 
@@ -169,11 +252,18 @@ async def list_project_specs(
         where_clauses.append("title ILIKE :search_pattern")
         params["search_pattern"] = f"%{search}%"
 
+    if temporal_mode:
+        where_clauses.append("temporal_mode = :temporal_mode")
+        params["temporal_mode"] = temporal_mode
+
     query = text(f"""
         SELECT
             id, tenant_id, title, goal_nl, description, domain_template,
             prediction_core, default_horizon, default_output_metrics,
             privacy_level, policy_flags, has_baseline,
+            temporal_mode, as_of_datetime, temporal_timezone,
+            isolation_level, allowed_sources, temporal_policy_version,
+            temporal_lock_status,
             created_at, updated_at
         FROM project_specs
         WHERE {" AND ".join(where_clauses)}
@@ -186,8 +276,28 @@ async def list_project_specs(
     rows = result.fetchall()
 
     # Map spec-compliant columns to response model
-    return [
-        ProjectSpecResponse(
+    responses = []
+    for row in rows:
+        # Parse allowed_sources if present
+        allowed_sources_parsed = None
+        if row.allowed_sources:
+            if isinstance(row.allowed_sources, str):
+                allowed_sources_parsed = json.loads(row.allowed_sources)
+            else:
+                allowed_sources_parsed = row.allowed_sources
+
+        # Build temporal context response
+        temporal_context_response = TemporalContextResponse(
+            mode=row.temporal_mode or "live",
+            as_of_datetime=row.as_of_datetime.isoformat() if row.as_of_datetime else None,
+            timezone=row.temporal_timezone or "Asia/Kuala_Lumpur",
+            isolation_level=row.isolation_level or 1,
+            allowed_sources=allowed_sources_parsed,
+            policy_version=row.temporal_policy_version or "1.0.0",
+            lock_status=row.temporal_lock_status or "unlocked",
+        )
+
+        responses.append(ProjectSpecResponse(
             id=str(row.id),
             tenant_id=str(row.tenant_id),
             name=row.title,
@@ -197,6 +307,7 @@ async def list_project_specs(
             persona_set_ref=None,  # Not stored in spec schema
             event_script_ref=None,  # Not stored in spec schema
             ruleset_ref=None,  # Not stored in spec schema
+            temporal_context=temporal_context_response,
             schema_version="1.0.0",  # Default version
             project_version="1.0.0",  # Not stored in spec schema
             settings={
@@ -208,9 +319,9 @@ async def list_project_specs(
             },
             created_at=row.created_at.isoformat() if row.created_at else "",
             updated_at=row.updated_at.isoformat() if row.updated_at else "",
-        )
-        for row in rows
-    ]
+        ))
+
+    return responses
 
 
 @router.post(
@@ -252,17 +363,57 @@ async def create_project_spec(
     if request.ruleset_config:
         ruleset_ref = request.ruleset_config.ruleset_ref
 
+    # Extract temporal context (default to live mode if not provided)
+    temporal_mode = "live"
+    as_of_datetime_val = None
+    temporal_timezone = "Asia/Kuala_Lumpur"
+    isolation_level = 1  # Default for live mode
+    allowed_sources_val = None
+    temporal_policy_version = "1.0.0"
+    temporal_lock_status = "unlocked"  # Live mode doesn't need locking
+    temporal_lock_history = None
+
+    if request.temporal_context:
+        tc = request.temporal_context
+        temporal_mode = tc.mode
+
+        if tc.mode == "backtest":
+            # Backtest mode requires locking and has stricter defaults
+            as_of_datetime_val = tc.as_of_datetime
+            temporal_timezone = tc.timezone
+            isolation_level = tc.isolation_level
+            allowed_sources_val = tc.allowed_sources
+            temporal_lock_status = "locked"  # Lock immediately for backtest
+            temporal_lock_history = [{
+                "action": "locked",
+                "timestamp": now.isoformat(),
+                "user_id": str(current_user.id),
+                "reason": "Project created in backtest mode"
+            }]
+        else:
+            # Live mode uses provided values or defaults
+            temporal_timezone = tc.timezone
+            isolation_level = tc.isolation_level
+            allowed_sources_val = tc.allowed_sources
+
     # Insert project spec (using spec-compliant schema from migration)
+    # Includes temporal fields per temporal.md §4
     insert_query = text("""
         INSERT INTO project_specs (
             id, tenant_id, owner_id, title, goal_nl, description,
             prediction_core, domain_template, default_horizon,
             default_output_metrics, privacy_level, policy_flags,
+            temporal_mode, as_of_datetime, temporal_timezone,
+            isolation_level, allowed_sources, temporal_policy_version,
+            temporal_lock_status, temporal_lock_history,
             has_baseline, created_at, updated_at
         ) VALUES (
             :id, :tenant_id, :owner_id, :title, :goal_nl, :description,
             :prediction_core, :domain_template, :default_horizon,
             :default_output_metrics, :privacy_level, :policy_flags,
+            :temporal_mode, :as_of_datetime, :temporal_timezone,
+            :isolation_level, :allowed_sources, :temporal_policy_version,
+            :temporal_lock_status, :temporal_lock_history,
             :has_baseline, :created_at, :updated_at
         )
     """)
@@ -282,6 +433,15 @@ async def create_project_spec(
             "default_output_metrics": json.dumps(request.settings.get("output_metrics", {})),
             "privacy_level": "private" if request.settings.get("allow_public_templates", True) else "public",
             "policy_flags": json.dumps({}),
+            # Temporal Knowledge Isolation fields
+            "temporal_mode": temporal_mode,
+            "as_of_datetime": as_of_datetime_val,
+            "temporal_timezone": temporal_timezone,
+            "isolation_level": isolation_level,
+            "allowed_sources": json.dumps(allowed_sources_val) if allowed_sources_val else None,
+            "temporal_policy_version": temporal_policy_version,
+            "temporal_lock_status": temporal_lock_status,
+            "temporal_lock_history": json.dumps(temporal_lock_history) if temporal_lock_history else None,
             "has_baseline": False,
             "created_at": now,
             "updated_at": now,
@@ -289,6 +449,17 @@ async def create_project_spec(
     )
 
     await db.commit()
+
+    # Build temporal context response
+    temporal_context_response = TemporalContextResponse(
+        mode=temporal_mode,
+        as_of_datetime=as_of_datetime_val,
+        timezone=temporal_timezone,
+        isolation_level=isolation_level,
+        allowed_sources=allowed_sources_val,
+        policy_version=temporal_policy_version,
+        lock_status=temporal_lock_status,
+    )
 
     return ProjectSpecResponse(
         id=str(project_id),
@@ -300,6 +471,7 @@ async def create_project_spec(
         persona_set_ref=persona_set_ref,
         event_script_ref=event_script_ref,
         ruleset_ref=ruleset_ref,
+        temporal_context=temporal_context_response,
         schema_version=request.schema_version,
         project_version="1.0.0",
         settings=request.settings,
@@ -320,14 +492,18 @@ async def get_project_spec(
     tenant_ctx: TenantContext = Depends(require_tenant),
 ) -> ProjectSpecResponse:
     """Get a project spec by ID."""
+    import json
     from sqlalchemy import text
 
-    # Query using spec-compliant schema columns
+    # Query using spec-compliant schema columns including temporal fields
     query = text("""
         SELECT
             id, tenant_id, title, goal_nl, description, domain_template,
             prediction_core, default_horizon, default_output_metrics,
             privacy_level, policy_flags, has_baseline,
+            temporal_mode, as_of_datetime, temporal_timezone,
+            isolation_level, allowed_sources, temporal_policy_version,
+            temporal_lock_status,
             created_at, updated_at
         FROM project_specs
         WHERE id = :project_id AND tenant_id = :tenant_id
@@ -346,6 +522,24 @@ async def get_project_spec(
             detail=f"Project {project_id} not found",
         )
 
+    # Build temporal context response
+    allowed_sources_parsed = None
+    if row.allowed_sources:
+        if isinstance(row.allowed_sources, str):
+            allowed_sources_parsed = json.loads(row.allowed_sources)
+        else:
+            allowed_sources_parsed = row.allowed_sources
+
+    temporal_context_response = TemporalContextResponse(
+        mode=row.temporal_mode or "live",
+        as_of_datetime=row.as_of_datetime.isoformat() if row.as_of_datetime else None,
+        timezone=row.temporal_timezone or "Asia/Kuala_Lumpur",
+        isolation_level=row.isolation_level or 1,
+        allowed_sources=allowed_sources_parsed,
+        policy_version=row.temporal_policy_version or "1.0.0",
+        lock_status=row.temporal_lock_status or "unlocked",
+    )
+
     # Map spec-compliant columns to response model
     return ProjectSpecResponse(
         id=str(row.id),
@@ -357,6 +551,7 @@ async def get_project_spec(
         persona_set_ref=None,
         event_script_ref=None,
         ruleset_ref=None,
+        temporal_context=temporal_context_response,
         schema_version="1.0.0",
         project_version="1.0.0",
         settings={

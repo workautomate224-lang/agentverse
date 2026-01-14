@@ -1,10 +1,13 @@
 'use client';
 
 /**
- * Create Project Wizard - 3-Step Flow
+ * Create Project Wizard - 4-Step Flow
  * Step 1: Goal (textarea + example chips)
- * Step 2: Pick a Core (Collective/Target/Hybrid)
- * Step 3: Project Setup (name, tags, visibility)
+ * Step 2: Temporal Context (mode, as-of date, isolation level)
+ * Step 3: Pick a Core (Collective/Target/Hybrid)
+ * Step 4: Project Setup (name, tags, visibility)
+ *
+ * Reference: temporal.md §3 - Create Project Flow UI
  */
 
 import { useState, useCallback } from 'react';
@@ -29,18 +32,79 @@ import {
   Sparkles,
   Loader2,
   AlertCircle,
+  Clock,
+  Calendar,
+  Globe,
+  Shield,
+  Database,
+  ChevronDown,
+  ChevronUp,
+  AlertTriangle,
+  Info,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useCreateProjectSpec } from '@/hooks/useApi';
 
-// Wizard step definitions - simplified to 3 steps
+// Wizard step definitions - 4-step flow per temporal.md §3
 const STEPS = [
   { id: 'goal', label: 'Goal', number: 1 },
-  { id: 'core', label: 'Pick Core', number: 2 },
-  { id: 'setup', label: 'Setup', number: 3 },
+  { id: 'temporal', label: 'Temporal', number: 2 },
+  { id: 'core', label: 'Pick Core', number: 3 },
+  { id: 'setup', label: 'Setup', number: 4 },
 ] as const;
 
 type StepId = typeof STEPS[number]['id'];
+
+// Temporal mode options
+type TemporalMode = 'live' | 'backtest';
+
+// Isolation level definitions per temporal.md §4
+const ISOLATION_LEVELS = [
+  {
+    level: 1,
+    name: 'Level 1 - Basic',
+    description: 'Cutoff enforced, but latest-only sources allowed with disclaimer. Suitable for quick exploratory analyses.',
+    badge: 'BASIC',
+    color: 'amber',
+  },
+  {
+    level: 2,
+    name: 'Level 2 - Strict (Recommended)',
+    description: 'No latest-only sources permitted. Must use historical or as-of capable sources. Required for publishable backtests.',
+    badge: 'STRICT',
+    color: 'cyan',
+  },
+  {
+    level: 3,
+    name: 'Level 3 - Audit-First',
+    description: 'Strictest mode. Output auditor reviews every LLM response. Reserved for regulatory or compliance-sensitive predictions.',
+    badge: 'AUDIT',
+    color: 'purple',
+  },
+] as const;
+
+// Common timezone options
+const TIMEZONE_OPTIONS = [
+  { value: 'Asia/Kuala_Lumpur', label: 'Malaysia (GMT+8)', shortLabel: 'MYT' },
+  { value: 'Asia/Singapore', label: 'Singapore (GMT+8)', shortLabel: 'SGT' },
+  { value: 'Asia/Hong_Kong', label: 'Hong Kong (GMT+8)', shortLabel: 'HKT' },
+  { value: 'Asia/Tokyo', label: 'Japan (GMT+9)', shortLabel: 'JST' },
+  { value: 'America/New_York', label: 'US Eastern (GMT-5)', shortLabel: 'EST' },
+  { value: 'America/Los_Angeles', label: 'US Pacific (GMT-8)', shortLabel: 'PST' },
+  { value: 'Europe/London', label: 'UK (GMT+0)', shortLabel: 'GMT' },
+  { value: 'UTC', label: 'UTC (GMT+0)', shortLabel: 'UTC' },
+] as const;
+
+// Available data sources (would come from API in production)
+const AVAILABLE_SOURCES = [
+  { id: 'census_bureau', name: 'US Census Bureau', category: 'Government', badge: 'HISTORICAL' },
+  { id: 'eurostat', name: 'Eurostat', category: 'Government', badge: 'HISTORICAL' },
+  { id: 'world_bank', name: 'World Bank', category: 'International', badge: 'HISTORICAL' },
+  { id: 'imf', name: 'IMF Data', category: 'International', badge: 'HISTORICAL' },
+  { id: 'fred', name: 'FRED Economic Data', category: 'Economic', badge: 'HISTORICAL' },
+  { id: 'internal_personas', name: 'Internal Personas', category: 'Internal', badge: 'INTERNAL' },
+  { id: 'internal_scenarios', name: 'Internal Scenarios', category: 'Internal', badge: 'INTERNAL' },
+] as const;
 
 // Example goal chips for quick fill
 const EXAMPLE_GOALS = [
@@ -84,6 +148,15 @@ type CoreType = 'collective' | 'target' | 'hybrid';
 // Form data interface
 interface WizardFormData {
   goal: string;
+  // Temporal context fields (per temporal.md §3)
+  temporalMode: TemporalMode;
+  asOfDate: string; // ISO date string YYYY-MM-DD
+  asOfTime: string; // Time string HH:MM
+  timezone: string;
+  isolationLevel: 1 | 2 | 3;
+  allowedSources: string[]; // Source IDs
+  backtestConfirmation: boolean; // Required true for backtest
+  // Core & setup
   coreType: CoreType;
   name: string;
   tags: string[];
@@ -147,6 +220,15 @@ export default function CreateProjectWizardPage() {
   const [currentStep, setCurrentStep] = useState<StepId>('goal');
   const [formData, setFormData] = useState<WizardFormData>({
     goal: '',
+    // Temporal defaults per temporal.md §3
+    temporalMode: 'live',
+    asOfDate: '',
+    asOfTime: '',
+    timezone: 'Asia/Kuala_Lumpur',
+    isolationLevel: 2, // Default to Strict for backtests
+    allowedSources: AVAILABLE_SOURCES.map(s => s.id), // All sources by default
+    backtestConfirmation: false,
+    // Core & setup
     coreType: 'collective',
     name: '',
     tags: [],
@@ -154,6 +236,7 @@ export default function CreateProjectWizardPage() {
   });
   const [tagInput, setTagInput] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
+  const [showSourcesPanel, setShowSourcesPanel] = useState(false);
 
   // Get current step index
   const currentStepIndex = STEPS.findIndex(s => s.id === currentStep);
@@ -192,6 +275,19 @@ export default function CreateProjectWizardPage() {
     switch (stepId) {
       case 'goal':
         return formData.goal.trim().length >= 10;
+      case 'temporal':
+        // Live mode: always valid (no temporal constraints)
+        if (formData.temporalMode === 'live') return true;
+        // Backtest mode: requires date, time, and confirmation
+        const hasDate = formData.asOfDate.trim().length > 0;
+        const hasTime = formData.asOfTime.trim().length > 0;
+        const hasConfirmation = formData.backtestConfirmation;
+        // Validate date is not in the future
+        if (hasDate && hasTime) {
+          const asOfDateTime = new Date(`${formData.asOfDate}T${formData.asOfTime}`);
+          if (asOfDateTime > new Date()) return false; // Cannot be in future
+        }
+        return hasDate && hasTime && hasConfirmation;
       case 'core':
         return !!formData.coreType;
       case 'setup':
@@ -199,6 +295,15 @@ export default function CreateProjectWizardPage() {
       default:
         return false;
     }
+  };
+
+  // Check if as-of date is in the future (validation helper)
+  const isAsOfInFuture = (): boolean => {
+    if (formData.asOfDate && formData.asOfTime) {
+      const asOfDateTime = new Date(`${formData.asOfDate}T${formData.asOfTime}`);
+      return asOfDateTime > new Date();
+    }
+    return false;
   };
 
   // Handle example chip click
@@ -237,6 +342,20 @@ export default function CreateProjectWizardPage() {
       // Detect domain from goal (API expects: marketing, political, finance, custom)
       const domain = detectDomain(formData.goal);
 
+      // Build temporal context for backtest mode
+      let temporalContext = undefined;
+      if (formData.temporalMode === 'backtest') {
+        // Construct ISO datetime from date and time
+        const asOfDateTimeIso = `${formData.asOfDate}T${formData.asOfTime}:00`;
+        temporalContext = {
+          mode: 'backtest' as const,
+          as_of_datetime: asOfDateTimeIso,
+          timezone: formData.timezone,
+          isolation_level: formData.isolationLevel,
+          allowed_sources: formData.allowedSources,
+        };
+      }
+
       // Create project via backend API
       const project = await createProjectMutation.mutateAsync({
         name: formData.name,
@@ -248,6 +367,8 @@ export default function CreateProjectWizardPage() {
           default_agent_count: 100,
           allow_public_templates: formData.isPublic,
         },
+        // Include temporal context if backtest mode (per temporal.md §3)
+        ...(temporalContext && { temporal_context: temporalContext }),
       });
 
       // Navigate to the project workspace using real UUID from backend
@@ -376,7 +497,317 @@ export default function CreateProjectWizardPage() {
           </div>
         )}
 
-        {/* Step 2: Pick a Core */}
+        {/* Step 2: Temporal Context (per temporal.md §3) */}
+        {currentStep === 'temporal' && (
+          <div className="space-y-4">
+            {/* Mode Selector */}
+            <div className="bg-white/5 border border-white/10 p-4 md:p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Clock className="w-4 h-4 md:w-5 md:h-5 text-cyan-400" />
+                <h2 className="text-base md:text-lg font-mono font-bold text-white">Temporal Context</h2>
+              </div>
+              <p className="text-xs md:text-sm font-mono text-white/50 mb-4 md:mb-6">
+                Choose how your project handles time and data access.
+              </p>
+
+              {/* Mode Selection */}
+              <div className="space-y-3 mb-6">
+                <label className="block text-[10px] md:text-xs font-mono text-white/40 uppercase mb-2">
+                  Prediction Mode
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Live Mode */}
+                  <button
+                    type="button"
+                    onClick={() => setFormData(prev => ({
+                      ...prev,
+                      temporalMode: 'live',
+                      backtestConfirmation: false,
+                    }))}
+                    className={cn(
+                      'flex flex-col items-start p-4 border transition-all text-left',
+                      formData.temporalMode === 'live'
+                        ? 'bg-green-500/10 border-green-500/50'
+                        : 'bg-black border-white/10 hover:border-white/20'
+                    )}
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className={cn(
+                        'w-4 h-4 border flex items-center justify-center',
+                        formData.temporalMode === 'live' ? 'border-green-500 bg-green-500/20' : 'border-white/20'
+                      )}>
+                        {formData.temporalMode === 'live' && <Check className="w-3 h-3 text-green-400" />}
+                      </div>
+                      <span className={cn(
+                        'text-sm font-mono font-bold',
+                        formData.temporalMode === 'live' ? 'text-green-400' : 'text-white'
+                      )}>
+                        Live Mode
+                      </span>
+                      <span className="px-2 py-0.5 bg-green-500/20 text-green-400 text-[9px] font-mono">
+                        DEFAULT
+                      </span>
+                    </div>
+                    <p className="text-xs font-mono text-white/50 leading-relaxed">
+                      Real-time predictions using the latest available data. No temporal restrictions applied.
+                    </p>
+                  </button>
+
+                  {/* Backtest Mode */}
+                  <button
+                    type="button"
+                    onClick={() => setFormData(prev => ({
+                      ...prev,
+                      temporalMode: 'backtest',
+                    }))}
+                    className={cn(
+                      'flex flex-col items-start p-4 border transition-all text-left',
+                      formData.temporalMode === 'backtest'
+                        ? 'bg-amber-500/10 border-amber-500/50'
+                        : 'bg-black border-white/10 hover:border-white/20'
+                    )}
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className={cn(
+                        'w-4 h-4 border flex items-center justify-center',
+                        formData.temporalMode === 'backtest' ? 'border-amber-500 bg-amber-500/20' : 'border-white/20'
+                      )}>
+                        {formData.temporalMode === 'backtest' && <Check className="w-3 h-3 text-amber-400" />}
+                      </div>
+                      <span className={cn(
+                        'text-sm font-mono font-bold',
+                        formData.temporalMode === 'backtest' ? 'text-amber-400' : 'text-white'
+                      )}>
+                        Backtest Mode
+                      </span>
+                    </div>
+                    <p className="text-xs font-mono text-white/50 leading-relaxed">
+                      Simulate as-of a historical date. All data is filtered to enforce temporal isolation.
+                    </p>
+                  </button>
+                </div>
+              </div>
+
+              {/* Backtest Configuration (visible only in backtest mode) */}
+              {formData.temporalMode === 'backtest' && (
+                <div className="space-y-4 pt-4 border-t border-white/10">
+                  {/* As-of Date/Time */}
+                  <div>
+                    <label className="block text-[10px] md:text-xs font-mono text-white/40 uppercase mb-2">
+                      <Calendar className="w-3 h-3 inline mr-1" />
+                      As-of Date & Time <span className="text-red-400">*</span>
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <input
+                        type="date"
+                        value={formData.asOfDate}
+                        onChange={(e) => setFormData(prev => ({ ...prev, asOfDate: e.target.value }))}
+                        max={new Date().toISOString().split('T')[0]}
+                        className="w-full px-3 py-2 bg-black border border-white/10 text-sm font-mono text-white focus:outline-none focus:border-cyan-500/50"
+                      />
+                      <input
+                        type="time"
+                        value={formData.asOfTime}
+                        onChange={(e) => setFormData(prev => ({ ...prev, asOfTime: e.target.value }))}
+                        className="w-full px-3 py-2 bg-black border border-white/10 text-sm font-mono text-white focus:outline-none focus:border-cyan-500/50"
+                      />
+                    </div>
+                    {isAsOfInFuture() && (
+                      <div className="flex items-center gap-2 mt-2 text-red-400">
+                        <AlertTriangle className="w-3 h-3" />
+                        <span className="text-[10px] font-mono">As-of date cannot be in the future</span>
+                      </div>
+                    )}
+                    <p className="text-[10px] font-mono text-white/30 mt-2">
+                      The simulation will pretend it is this date. No data after this point will be accessible.
+                    </p>
+                  </div>
+
+                  {/* Timezone */}
+                  <div>
+                    <label className="block text-[10px] md:text-xs font-mono text-white/40 uppercase mb-2">
+                      <Globe className="w-3 h-3 inline mr-1" />
+                      Timezone
+                    </label>
+                    <select
+                      value={formData.timezone}
+                      onChange={(e) => setFormData(prev => ({ ...prev, timezone: e.target.value }))}
+                      className="w-full px-3 py-2 bg-black border border-white/10 text-sm font-mono text-white focus:outline-none focus:border-cyan-500/50"
+                    >
+                      {TIMEZONE_OPTIONS.map((tz) => (
+                        <option key={tz.value} value={tz.value}>
+                          {tz.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Isolation Level */}
+                  <div>
+                    <label className="block text-[10px] md:text-xs font-mono text-white/40 uppercase mb-2">
+                      <Shield className="w-3 h-3 inline mr-1" />
+                      Isolation Level
+                    </label>
+                    <div className="space-y-2">
+                      {ISOLATION_LEVELS.map((level) => {
+                        const isSelected = formData.isolationLevel === level.level;
+                        const colorClasses = {
+                          amber: { bg: 'bg-amber-500/10', border: 'border-amber-500/50', text: 'text-amber-400', badge: 'bg-amber-500/20 text-amber-400' },
+                          cyan: { bg: 'bg-cyan-500/10', border: 'border-cyan-500/50', text: 'text-cyan-400', badge: 'bg-cyan-500/20 text-cyan-400' },
+                          purple: { bg: 'bg-purple-500/10', border: 'border-purple-500/50', text: 'text-purple-400', badge: 'bg-purple-500/20 text-purple-400' },
+                        }[level.color];
+
+                        return (
+                          <button
+                            key={level.level}
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, isolationLevel: level.level as 1 | 2 | 3 }))}
+                            className={cn(
+                              'w-full flex items-start gap-3 p-3 border transition-all text-left',
+                              isSelected
+                                ? `${colorClasses.bg} ${colorClasses.border}`
+                                : 'bg-black border-white/10 hover:border-white/20'
+                            )}
+                          >
+                            <div className={cn(
+                              'w-4 h-4 border flex items-center justify-center flex-shrink-0 mt-0.5',
+                              isSelected ? `${colorClasses.border} ${colorClasses.bg}` : 'border-white/20'
+                            )}>
+                              {isSelected && <Check className={cn('w-3 h-3', colorClasses.text)} />}
+                            </div>
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className={cn('text-sm font-mono font-bold', isSelected ? colorClasses.text : 'text-white')}>
+                                  {level.name}
+                                </span>
+                                <span className={cn('px-2 py-0.5 text-[9px] font-mono', colorClasses.badge)}>
+                                  {level.badge}
+                                </span>
+                              </div>
+                              <p className="text-xs font-mono text-white/50 mt-1 leading-relaxed">
+                                {level.description}
+                              </p>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Allowed Sources (Collapsible) */}
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setShowSourcesPanel(!showSourcesPanel)}
+                      className="flex items-center justify-between w-full text-left"
+                    >
+                      <label className="text-[10px] md:text-xs font-mono text-white/40 uppercase cursor-pointer">
+                        <Database className="w-3 h-3 inline mr-1" />
+                        Allowed Data Sources ({formData.allowedSources.length} selected)
+                      </label>
+                      {showSourcesPanel ? (
+                        <ChevronUp className="w-4 h-4 text-white/40" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-white/40" />
+                      )}
+                    </button>
+
+                    {showSourcesPanel && (
+                      <div className="mt-3 space-y-2">
+                        {AVAILABLE_SOURCES.map((source) => {
+                          const isChecked = formData.allowedSources.includes(source.id);
+                          return (
+                            <label
+                              key={source.id}
+                              className={cn(
+                                'flex items-center gap-3 p-2 border cursor-pointer transition-all',
+                                isChecked
+                                  ? 'bg-cyan-500/5 border-cyan-500/30'
+                                  : 'bg-black border-white/10 hover:border-white/20'
+                              )}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setFormData(prev => ({
+                                      ...prev,
+                                      allowedSources: [...prev.allowedSources, source.id],
+                                    }));
+                                  } else {
+                                    setFormData(prev => ({
+                                      ...prev,
+                                      allowedSources: prev.allowedSources.filter(s => s !== source.id),
+                                    }));
+                                  }
+                                }}
+                                className="w-4 h-4 accent-cyan-500"
+                              />
+                              <span className="flex-1 text-xs font-mono text-white/80">{source.name}</span>
+                              <span className="text-[9px] font-mono text-white/40">{source.category}</span>
+                              <span className={cn(
+                                'px-2 py-0.5 text-[9px] font-mono',
+                                source.badge === 'HISTORICAL' ? 'bg-green-500/20 text-green-400' : 'bg-cyan-500/20 text-cyan-400'
+                              )}>
+                                {source.badge}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Confirmation Checkbox */}
+                  <div className="pt-4 border-t border-white/10">
+                    <label className={cn(
+                      'flex items-start gap-3 p-4 border cursor-pointer transition-all',
+                      formData.backtestConfirmation
+                        ? 'bg-amber-500/10 border-amber-500/50'
+                        : 'bg-black border-white/10 hover:border-white/20'
+                    )}>
+                      <input
+                        type="checkbox"
+                        checked={formData.backtestConfirmation}
+                        onChange={(e) => setFormData(prev => ({ ...prev, backtestConfirmation: e.target.checked }))}
+                        className="w-5 h-5 mt-0.5 accent-amber-500"
+                      />
+                      <div>
+                        <span className={cn(
+                          'text-sm font-mono font-bold block',
+                          formData.backtestConfirmation ? 'text-amber-400' : 'text-white'
+                        )}>
+                          I understand this is a backtest simulation
+                        </span>
+                        <p className="text-xs font-mono text-white/50 mt-1 leading-relaxed">
+                          The temporal context will be <strong className="text-white/70">locked</strong> once the project is created.
+                          All data access will be restricted to before the as-of date. This cannot be changed after creation.
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {/* Live Mode Info */}
+              {formData.temporalMode === 'live' && (
+                <div className="flex items-start gap-3 p-4 bg-green-500/5 border border-green-500/20">
+                  <Info className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <span className="text-sm font-mono text-green-400 font-bold block">Live Mode Selected</span>
+                    <p className="text-xs font-mono text-white/50 mt-1">
+                      Your project will use real-time data without temporal restrictions.
+                      You can proceed to the next step.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Step 3: Pick a Core */}
         {currentStep === 'core' && (
           <div className="bg-white/5 border border-white/10 p-4 md:p-6">
             <div className="flex items-center gap-2 mb-2">
@@ -447,7 +878,7 @@ export default function CreateProjectWizardPage() {
           </div>
         )}
 
-        {/* Step 3: Project Setup */}
+        {/* Step 4: Project Setup */}
         {currentStep === 'setup' && (
           <div className="space-y-4">
             {/* Project Name */}
@@ -575,6 +1006,37 @@ export default function CreateProjectWizardPage() {
                   <span className="text-white/50">Goal:</span>
                   <span className="text-white/80 text-right max-w-[60%] truncate">{formData.goal}</span>
                 </div>
+                {/* Temporal Context Summary */}
+                <div className="flex justify-between">
+                  <span className="text-white/50">Mode:</span>
+                  <span className={cn(
+                    'px-2 py-0.5 text-xs',
+                    formData.temporalMode === 'live' ? 'bg-green-500/20 text-green-400' : 'bg-amber-500/20 text-amber-400'
+                  )}>
+                    {formData.temporalMode === 'live' ? 'LIVE' : 'BACKTEST'}
+                  </span>
+                </div>
+                {formData.temporalMode === 'backtest' && (
+                  <>
+                    <div className="flex justify-between">
+                      <span className="text-white/50">As-of:</span>
+                      <span className="text-white/80">
+                        {formData.asOfDate} {formData.asOfTime}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-white/50">Isolation:</span>
+                      <span className={cn(
+                        'px-2 py-0.5 text-xs',
+                        formData.isolationLevel === 1 && 'bg-amber-500/20 text-amber-400',
+                        formData.isolationLevel === 2 && 'bg-cyan-500/20 text-cyan-400',
+                        formData.isolationLevel === 3 && 'bg-purple-500/20 text-purple-400'
+                      )}>
+                        Level {formData.isolationLevel}
+                      </span>
+                    </div>
+                  </>
+                )}
                 <div className="flex justify-between">
                   <span className="text-white/50">Core:</span>
                   <span className={cn(

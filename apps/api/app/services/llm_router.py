@@ -68,6 +68,11 @@ class LLMRouterContext(BaseModel):
     user_id: Optional[str] = None
     seed: Optional[int] = None  # For deterministic replay
     phase: Optional[str] = None  # "compilation" or "tick_loop" for C5 tracking (§1.4)
+    # Temporal Knowledge Isolation (temporal.md §8 Phase 4)
+    temporal_mode: Optional[str] = None  # 'live' or 'backtest'
+    cutoff_time: Optional[datetime] = None  # as_of_datetime for backtest
+    isolation_level: int = 1  # 1=Basic, 2=Strict, 3=Audit-First
+    timezone: str = "UTC"  # Timezone for cutoff
 
 
 class LLMRouter:
@@ -128,6 +133,9 @@ class LLMRouter:
         temperature = temperature_override if temperature_override is not None else profile.temperature
         max_tokens = max_tokens_override if max_tokens_override is not None else profile.max_tokens
         model = profile.model
+
+        # 2.5 Inject backtest policy into system prompt (temporal.md §8 Phase 4)
+        messages = self._inject_backtest_policy(messages, context)
 
         # 3. Compute cache key
         cache_key = self._compute_cache_key(
@@ -352,6 +360,64 @@ class LLMRouter:
             is_active=True,
             is_default=True,
         )
+
+    def _inject_backtest_policy(
+        self,
+        messages: List[Dict[str, str]],
+        context: LLMRouterContext,
+    ) -> List[Dict[str, str]]:
+        """
+        Inject backtest policy into system prompt if running in backtest mode.
+
+        Reference: temporal.md §8 Phase 4 item 11
+
+        Args:
+            messages: Original message list
+            context: LLMRouterContext with temporal settings
+
+        Returns:
+            Modified message list with policy injected (if backtest mode)
+        """
+        # Skip if not in backtest mode or no cutoff
+        if context.temporal_mode != "backtest" or not context.cutoff_time:
+            return messages
+
+        # Generate policy text
+        from app.services.llm_data_tools import get_backtest_policy_prompt
+
+        policy_text = get_backtest_policy_prompt(
+            as_of_datetime=context.cutoff_time,
+            isolation_level=context.isolation_level,
+            timezone=context.timezone,
+        )
+
+        # Find system message and inject policy
+        modified_messages = []
+        policy_injected = False
+
+        for msg in messages:
+            if msg.get("role") == "system" and not policy_injected:
+                # Prepend policy to existing system message
+                modified_messages.append({
+                    "role": "system",
+                    "content": f"{policy_text}\n\n{msg.get('content', '')}"
+                })
+                policy_injected = True
+            else:
+                modified_messages.append(msg)
+
+        # If no system message, add one with just the policy
+        if not policy_injected:
+            modified_messages.insert(0, {
+                "role": "system",
+                "content": policy_text
+            })
+
+        logger.info(
+            f"LLM_ROUTER: Injected backtest policy (as_of={context.cutoff_time}, level={context.isolation_level})"
+        )
+
+        return modified_messages
 
     async def _complete_with_fallback(
         self,

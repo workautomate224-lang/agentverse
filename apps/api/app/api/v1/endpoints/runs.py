@@ -107,6 +107,10 @@ class RunResponse(BaseModel):
     # Task info
     task_id: Optional[str] = None
 
+    # Temporal isolation fields (temporal.md §8 Phase 5.3)
+    isolation_status: Optional[str] = None  # 'PASS' | 'FAIL' | null
+    isolation_score: Optional[float] = None  # Compliance score 0.0-1.0
+
     class Config:
         from_attributes = True
 
@@ -299,6 +303,9 @@ async def list_runs(
             has_results=getattr(run, 'has_results', False),
             ticks_completed=run.timing.get("ticks_executed", 0) if run.timing else 0,
             agents_processed=run.timing.get("agents_processed", 0) if run.timing else 0,
+            # Temporal isolation fields (temporal.md §8 Phase 5.3)
+            isolation_status=getattr(run, 'isolation_status', None),
+            isolation_score=getattr(run, 'isolation_score', None),
         )
         for run in runs
     ]
@@ -360,6 +367,9 @@ async def get_run(
         ticks_completed=timing.get("ticks_executed", 0),
         agents_processed=timing.get("agents_processed", 0),
         duration_seconds=duration,
+        # Temporal isolation fields (temporal.md §8 Phase 5.3)
+        isolation_status=getattr(run, 'isolation_status', None),
+        isolation_score=getattr(run, 'isolation_score', None),
     )
 
 

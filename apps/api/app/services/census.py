@@ -2,6 +2,11 @@
 Census Data Service
 Integrates with US Census Bureau API and other official data sources.
 Provides real demographic distributions for persona generation.
+
+TEMPORAL ISOLATION (temporal.md §5):
+- All external data access routes through DataGateway when in backtest mode
+- DataGateway enforces cutoff timestamps via LeakageGuard
+- Per-request manifest entries generated with payload hashes
 """
 
 import asyncio
@@ -16,6 +21,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.data_source import CensusData, DataSource, RegionalProfile
+from app.services.data_gateway import (
+    DataGateway,
+    DataGatewayContext,
+    DataGatewayResponse,
+    SourceBlockedError,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -25,6 +36,9 @@ logger = logging.getLogger(__name__)
 CENSUS_API_BASE = "https://api.census.gov/data"
 ACS_5_YEAR = "acs/acs5"
 LATEST_ACS_YEAR = 2022  # Most recent complete ACS 5-year data
+
+# Source identifier for DataGateway
+CENSUS_SOURCE_NAME = "census_bureau"
 
 
 class CensusVariable(BaseModel):
@@ -43,6 +57,9 @@ class DemographicDistribution(BaseModel):
     margin_of_error: Optional[float] = None
     source_year: int
     source_survey: str
+    # Temporal isolation metadata
+    payload_hash: Optional[str] = None
+    manifest_entry_id: Optional[str] = None
 
 
 # Census Variable Mappings
@@ -162,18 +179,75 @@ OCCUPATION_VARIABLES = {
 class CensusDataService:
     """
     Service for fetching and processing census data from official sources.
+
+    Supports two modes:
+    1. Direct mode: Fetches data directly via httpx (for live/non-backtest)
+    2. DataGateway mode: Routes through DataGateway with temporal isolation (for backtest)
+
+    In DataGateway mode:
+    - Source capability is checked before requests
+    - Cutoff timestamps are enforced via LeakageGuard
+    - Manifest entries are generated with payload hashes
+    - Requests are auditable and reproducible
     """
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        data_gateway: Optional[DataGateway] = None,
+        gateway_context: Optional[DataGatewayContext] = None,
+    ):
         """
         Initialize the Census Data Service.
 
         Args:
             api_key: Optional Census Bureau API key (increases rate limits)
+            data_gateway: Optional DataGateway for temporal isolation
+            gateway_context: Optional context for DataGateway requests
         """
         self.api_key = api_key
         self.base_url = CENSUS_API_BASE
         self.timeout = httpx.Timeout(30.0)
+        self.data_gateway = data_gateway
+        self.gateway_context = gateway_context
+
+    def with_gateway(
+        self,
+        data_gateway: DataGateway,
+        gateway_context: DataGatewayContext,
+    ) -> "CensusDataService":
+        """
+        Return a new CensusDataService configured with DataGateway.
+
+        Args:
+            data_gateway: DataGateway instance
+            gateway_context: Context for DataGateway requests
+
+        Returns:
+            New CensusDataService with DataGateway configured
+        """
+        return CensusDataService(
+            api_key=self.api_key,
+            data_gateway=data_gateway,
+            gateway_context=gateway_context,
+        )
+
+    def _is_gateway_mode(self) -> bool:
+        """Check if DataGateway mode is enabled."""
+        return self.data_gateway is not None and self.gateway_context is not None
+
+    async def _fetch_direct(
+        self,
+        url: str,
+        params: dict[str, Any],
+    ) -> Any:
+        """
+        Fetch data directly via httpx (non-DataGateway mode).
+        """
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            return response.json()
 
     async def fetch_census_data(
         self,
@@ -185,6 +259,8 @@ class CensusDataService:
         """
         Fetch data from Census Bureau API.
 
+        Routes through DataGateway if configured (for temporal isolation).
+
         Args:
             variables: List of census variable IDs
             year: Survey year
@@ -192,7 +268,10 @@ class CensusDataService:
             county: County FIPS code (optional, requires state)
 
         Returns:
-            Raw census data response
+            Raw census data response (with optional metadata in gateway mode)
+
+        Raises:
+            SourceBlockedError: If source is blocked at current isolation level
         """
         # Build the API URL
         url = f"{self.base_url}/{year}/{ACS_5_YEAR}"
@@ -214,14 +293,75 @@ class CensusDataService:
         if self.api_key:
             params["key"] = self.api_key
 
+        # Route through DataGateway if configured
+        if self._is_gateway_mode():
+            return await self._fetch_via_gateway(
+                endpoint=f"/{year}/{ACS_5_YEAR}",
+                params={
+                    "variables": variables,
+                    "year": year,
+                    "state": state,
+                    "county": county,
+                    "geo": geo,
+                },
+                url=url,
+                raw_params=params,
+            )
+
+        # Direct fetch mode
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(url, params=params)
-                response.raise_for_status()
-                return response.json()
+            return await self._fetch_direct(url, params)
         except httpx.HTTPError as e:
             logger.error(f"Census API error: {e}")
             raise
+
+    async def _fetch_via_gateway(
+        self,
+        endpoint: str,
+        params: dict[str, Any],
+        url: str,
+        raw_params: dict[str, Any],
+    ) -> dict[str, Any]:
+        """
+        Fetch census data through DataGateway with temporal isolation.
+
+        Args:
+            endpoint: Logical endpoint identifier
+            params: Normalized params for manifest
+            url: Actual Census API URL
+            raw_params: Raw query parameters
+
+        Returns:
+            Census data with gateway metadata
+
+        Raises:
+            SourceBlockedError: If source is blocked at isolation level
+        """
+        # Define the actual data fetcher
+        async def data_fetcher():
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.get(url, params=raw_params)
+                response.raise_for_status()
+                return response.json()
+
+        # Route through DataGateway
+        gateway_response: DataGatewayResponse = await self.data_gateway.request(
+            source_name=CENSUS_SOURCE_NAME,
+            endpoint=endpoint,
+            params=params,
+            context=self.gateway_context,
+            data_fetcher=data_fetcher,
+            timestamp_field="year",  # Census data keyed by year
+        )
+
+        logger.info(
+            f"CENSUS via DataGateway: endpoint={endpoint} "
+            f"records={gateway_response.record_count} "
+            f"hash={gateway_response.payload_hash[:16]}..."
+        )
+
+        # Return raw data (metadata accessible via gateway)
+        return gateway_response.data
 
     def _aggregate_age_groups(self, raw_data: dict[str, int]) -> dict[str, float]:
         """
@@ -397,7 +537,7 @@ class CensusDataService:
 
         variables = list(variable_map[category].keys())
 
-        # Fetch raw data
+        # Fetch raw data (routes through DataGateway if configured)
         raw_response = await self.fetch_census_data(
             variables=variables,
             year=year,
@@ -441,13 +581,23 @@ class CensusDataService:
             if total > 0:
                 distribution = {k: round(v / total, 4) for k, v in distribution.items()}
 
-        return DemographicDistribution(
+        result = DemographicDistribution(
             category=category,
             distribution=distribution,
             total_population=sum(raw_data.values()),
             source_year=year,
             source_survey=f"ACS 5-Year ({year})",
         )
+
+        # Add manifest metadata if in gateway mode
+        if self._is_gateway_mode() and self.data_gateway:
+            entries = self.data_gateway.get_manifest_entries()
+            if entries:
+                latest = entries[-1]
+                result.payload_hash = latest.payload_hash
+                result.manifest_entry_id = latest.id
+
+        return result
 
     async def get_full_demographic_profile(
         self,
@@ -591,6 +741,16 @@ class CensusDataService:
 
         return regional_profile
 
+    def get_manifest_entries(self) -> list:
+        """
+        Get manifest entries from DataGateway (if in gateway mode).
+
+        Returns empty list if not in gateway mode.
+        """
+        if self._is_gateway_mode() and self.data_gateway:
+            return self.data_gateway.get_manifest_entries()
+        return []
+
 
 # US State FIPS Codes for reference
 US_STATE_FIPS = {
@@ -608,6 +768,72 @@ US_STATE_FIPS = {
 }
 
 
-def get_census_service(api_key: Optional[str] = None) -> CensusDataService:
-    """Factory function to create CensusDataService."""
-    return CensusDataService(api_key=api_key)
+def get_census_service(
+    api_key: Optional[str] = None,
+    data_gateway: Optional[DataGateway] = None,
+    gateway_context: Optional[DataGatewayContext] = None,
+) -> CensusDataService:
+    """
+    Factory function to create CensusDataService.
+
+    Args:
+        api_key: Optional Census Bureau API key
+        data_gateway: Optional DataGateway for temporal isolation
+        gateway_context: Optional context for DataGateway requests
+
+    Returns:
+        CensusDataService instance
+    """
+    return CensusDataService(
+        api_key=api_key,
+        data_gateway=data_gateway,
+        gateway_context=gateway_context,
+    )
+
+
+def create_census_service_with_gateway(
+    db: AsyncSession,
+    tenant_id: str,
+    project_id: Optional[str] = None,
+    run_id: Optional[str] = None,
+    cutoff_time: Optional[datetime] = None,
+    isolation_level: int = 1,
+    temporal_mode: str = "live",
+    api_key: Optional[str] = None,
+) -> CensusDataService:
+    """
+    Factory function to create CensusDataService with DataGateway configured.
+
+    Convenience function for creating a census service ready for backtest mode.
+
+    Args:
+        db: Database session
+        tenant_id: Tenant UUID
+        project_id: Optional project UUID
+        run_id: Optional run UUID
+        cutoff_time: Optional cutoff timestamp for backtest
+        isolation_level: Isolation level (1-3)
+        temporal_mode: 'live' or 'backtest'
+        api_key: Optional Census Bureau API key
+
+    Returns:
+        CensusDataService configured with DataGateway
+    """
+    from app.services.data_gateway import create_data_gateway
+
+    context = DataGatewayContext(
+        tenant_id=tenant_id,
+        project_id=project_id,
+        run_id=run_id,
+        cutoff_time=cutoff_time,
+        isolation_level=isolation_level,
+        temporal_mode=temporal_mode,
+    )
+
+    gateway = create_data_gateway(db, context)
+
+    return CensusDataService(
+        api_key=api_key,
+        data_gateway=gateway,
+        gateway_context=context,
+    )

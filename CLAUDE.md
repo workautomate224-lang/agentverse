@@ -5,9 +5,11 @@ Future Predictive AI Platform with reversible, on-demand simulations producing a
 ## Tech Stack
 
 **Frontend:** Next.js 14, TypeScript, React Query, Tailwind CSS, Radix UI
-**Backend:** FastAPI, Python 3.11+, SQLAlchemy, Pydantic, Celery
+**Backend:** FastAPI, Python 3.12+, SQLAlchemy, Pydantic, Celery
 **Database:** PostgreSQL (Supabase), Redis (Upstash)
 **LLM:** OpenRouter API (routed through LLMRouter service)
+
+> **Full Tech Stack Reference:** See `docs/techstack.md` for comprehensive technology details, versions, and configurations.
 
 ## Project Structure
 
@@ -125,3 +127,25 @@ These constraints are non-negotiable:
 ### Implementation
 All OpenRouter calls go through Next.js API routes (e.g., `/api/ask/generate`).
 See `apps/web/CLAUDE.md` for detailed usage patterns.
+
+---
+
+## Documentation Maintenance (Claude Auto-Update)
+
+**IMPORTANT:** When making changes that affect the tech stack or project structure, Claude must automatically update the relevant documentation:
+
+1. **Tech Stack Changes** (new libraries, version upgrades, removed dependencies):
+   - Update `docs/techstack.md` with the changes
+   - Update the "Tech Stack" section in this file if it's a major component
+
+2. **Project Structure Changes** (new directories, reorganized folders, new apps/packages):
+   - Update the "Project Structure" section in this file
+   - Update `docs/techstack.md` Architecture section if applicable
+
+3. **New Key Files** (important new services, configs, or entry points):
+   - Add to the "Key Files" table in this file
+
+4. **Deployment Changes** (new services, URL changes, infrastructure updates):
+   - Update the "Deployment Stack" section in this file
+
+This ensures documentation stays in sync with the codebase automatically.
