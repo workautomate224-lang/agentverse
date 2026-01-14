@@ -102,12 +102,12 @@ BACKEND_API_URL=http://localhost:8000      # Backend URL for server-side calls
 OPENROUTER_API_KEY=sk-or-v1-xxx            # OpenRouter API key for AI features
 ```
 
-### Production (Vercel Dashboard)
-Configure these in Vercel project settings (NOT in vercel.json):
-- `BACKEND_API_URL` - Production backend API URL
+### Production (Railway Dashboard)
+Configure these in Railway project environment variables:
+- `BACKEND_API_URL` - Production backend API URL (https://agentverse-api-staging-production.up.railway.app)
 - `NEXT_PUBLIC_WS_URL` - WebSocket URL for real-time updates
 - `NEXTAUTH_SECRET` - Strong production secret (use `openssl rand -base64 32`)
-- `NEXTAUTH_URL` - Production URL (e.g., https://your-domain.vercel.app)
+- `NEXTAUTH_URL` - Production URL (https://agentverse-web-staging-production.up.railway.app)
 - `OPENROUTER_API_KEY` - OpenRouter API key for AI features
 
 ## OpenRouter API Configuration (IMPORTANT - DO NOT FORGET!)
@@ -118,7 +118,7 @@ Configure these in Vercel project settings (NOT in vercel.json):
 The OpenRouter API key is stored in:
 1. **Local Development**: `apps/web/.env.local` → `OPENROUTER_API_KEY`
 2. **Railway Staging**: Environment variable `OPENROUTER_API_KEY` (already configured)
-3. **Production**: Must be set in Vercel/Railway environment variables
+3. **Production**: Must be set in Railway environment variables
 
 ### Features Using OpenRouter
 - **Event Lab** (`/p/:id/event-lab`): Scenario generation from what-if questions
@@ -193,10 +193,10 @@ The application runs in Docker with the following configuration:
 ### Security
 
 - No hardcoded secrets or IP addresses in code
-- Environment variables for all sensitive data (via Vercel dashboard)
+- Environment variables for all sensitive data (via Railway dashboard)
 - NextAuth secret required in production
 - API tokens stored securely in JWT (not localStorage)
-- Security headers configured in vercel.json:
+- Security headers configured in next.config.js:
   - `X-Content-Type-Options: nosniff`
   - `X-Frame-Options: DENY`
   - `X-XSS-Protection: 1; mode=block`

@@ -89,6 +89,19 @@ These constraints are non-negotiable:
 | Simulation engine | `apps/api/app/engine/` |
 | DB migrations | `apps/api/alembic/versions/` |
 
+## Deployment Stack
+
+**All services are deployed on Railway:**
+
+| Service | Railway Service | URL |
+|---------|----------------|-----|
+| Frontend | `agentverse-web-staging` | https://agentverse-web-staging-production.up.railway.app |
+| Backend API | `agentverse-api-staging` | https://agentverse-api-staging-production.up.railway.app |
+| Worker | `agentverse-worker-staging` | Internal |
+| Database | `postgres-staging` | Internal |
+| Cache | `redis-staging` | Internal |
+| Storage | `minio-staging` | Internal |
+
 ## OpenRouter API Configuration (CRITICAL - DO NOT FORGET!)
 
 **OpenRouter API Key** is required for ALL AI-powered features.
@@ -98,7 +111,7 @@ These constraints are non-negotiable:
 |-------------|----------|--------|
 | Local Dev | `apps/web/.env.local` → `OPENROUTER_API_KEY` | ✅ Configured |
 | Railway Staging | Environment variable `OPENROUTER_API_KEY` | ✅ Configured |
-| Production | Vercel/Railway env vars | Must be set |
+| Production | Railway env vars | ✅ Configured |
 
 ### Features Using OpenRouter
 - Event Lab scenario generation (`/p/:id/event-lab`)

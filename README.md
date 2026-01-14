@@ -34,7 +34,19 @@ AgentVerse is an enterprise-grade platform for running AI-powered human behavior
 - **PostgreSQL 16** for data persistence
 - **Redis 7** for caching and pub/sub
 - **Docker Compose** for local development
+- **Railway** for production deployment
 - **GitHub Actions** for CI/CD
+
+### Deployment (Railway)
+All services are deployed on Railway:
+| Service | Railway Service | URL |
+|---------|----------------|-----|
+| Frontend | `agentverse-web-staging` | https://agentverse-web-staging-production.up.railway.app |
+| Backend API | `agentverse-api-staging` | https://agentverse-api-staging-production.up.railway.app |
+| Worker | `agentverse-worker-staging` | Internal |
+| Database | `postgres-staging` | Internal |
+| Cache | `redis-staging` | Internal |
+| Storage | `minio-staging` | Internal |
 
 ## Quick Start
 
