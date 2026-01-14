@@ -28,6 +28,7 @@ import {
   ScrollText,
   FileSearch,
   X,
+  Clock,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -61,6 +62,7 @@ const navigation: NavItem[] = [
 ];
 
 const secondaryNavigation: NavItem[] = [
+  { name: 'Temporal Test', href: '/dashboard/temporal-test', icon: Clock },
   { name: 'Guide', href: '/dashboard/guide', icon: BookOpen },
   { name: 'Settings', href: '/dashboard/settings', icon: Settings },
 ];
