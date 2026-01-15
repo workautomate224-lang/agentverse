@@ -26,7 +26,7 @@ import logging
 import time
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -71,6 +71,9 @@ class LLMRouterResponse(BaseModel):
     cache_hit: bool
     profile_key: str
     call_id: Optional[str] = None
+    # Advanced feature outputs
+    reasoning: Optional[str] = None  # Thinking mode reasoning output
+    web_search_results: Optional[List[Dict[str, Any]]] = None  # Web search results
 
 
 class LLMRouterContext(BaseModel):
@@ -87,6 +90,11 @@ class LLMRouterContext(BaseModel):
     cutoff_time: Optional[datetime] = None  # as_of_datetime for backtest
     isolation_level: int = 1  # 1=Basic, 2=Strict, 3=Audit-First
     timezone: str = "UTC"  # Timezone for cutoff
+    # Advanced LLM Features (OpenRouter)
+    web_search: bool = False  # Enable web search for up-to-date information
+    web_search_max_results: int = 5  # Max number of web results (1-10)
+    thinking_mode: bool = False  # Enable extended thinking/reasoning
+    thinking_budget_tokens: Optional[int] = None  # Max tokens for reasoning
 
 
 class LLMRouter:
@@ -204,6 +212,10 @@ class LLMRouter:
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
+            web_search=context.web_search,
+            web_search_max_results=context.web_search_max_results,
+            thinking_mode=context.thinking_mode,
+            thinking_budget_tokens=context.thinking_budget_tokens,
             **kwargs,
         )
 
@@ -285,6 +297,8 @@ class LLMRouter:
             cache_hit=False,
             profile_key=profile_key,
             call_id=str(call_id),
+            reasoning=response.reasoning,
+            web_search_results=response.web_search_results,
         )
 
     async def batch_complete(
@@ -444,10 +458,24 @@ class LLMRouter:
         messages: List[Dict[str, str]],
         temperature: float,
         max_tokens: int,
+        web_search: bool = False,
+        web_search_max_results: int = 5,
+        thinking_mode: bool = False,
+        thinking_budget_tokens: Optional[int] = None,
         **kwargs,
-    ) -> tuple[Optional[CompletionResponse], str, int, Optional[str]]:
+    ) -> Tuple[Optional[CompletionResponse], str, int, Optional[str]]:
         """
         Make the LLM call with fallback support.
+
+        Args:
+            profile: LLM profile configuration
+            messages: Chat messages
+            temperature: Sampling temperature
+            max_tokens: Max output tokens
+            web_search: Enable web search for up-to-date information
+            web_search_max_results: Max number of web results (1-10)
+            thinking_mode: Enable extended thinking/reasoning mode
+            thinking_budget_tokens: Max tokens for reasoning
 
         Returns:
             (response, model_used, fallback_attempts, error_message)
@@ -466,6 +494,10 @@ class LLMRouter:
                     model=model,
                     temperature=temperature,
                     max_tokens=max_tokens,
+                    web_search=web_search,
+                    web_search_max_results=web_search_max_results,
+                    thinking_mode=thinking_mode,
+                    thinking_budget_tokens=thinking_budget_tokens,
                     **kwargs,
                 )
                 return response, model, fallback_attempts, None

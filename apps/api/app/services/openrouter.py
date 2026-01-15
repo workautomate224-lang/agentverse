@@ -5,7 +5,7 @@ Provides access to multiple LLM providers through a unified API.
 
 import asyncio
 import time
-from typing import Any, Optional
+from typing import Any, Optional, List
 
 import httpx
 from pydantic import BaseModel
@@ -113,6 +113,9 @@ class CompletionResponse(BaseModel):
     total_tokens: int
     response_time_ms: int
     cost_usd: float
+    # Extended fields for advanced features
+    reasoning: Optional[str] = None  # Thinking mode reasoning output
+    web_search_results: Optional[list] = None  # Web search results if used
 
 
 class OpenRouterService:
@@ -136,6 +139,10 @@ class OpenRouterService:
         model: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 1000,
+        web_search: bool = False,
+        web_search_max_results: int = 5,
+        thinking_mode: bool = False,
+        thinking_budget_tokens: Optional[int] = None,
         **kwargs,
     ) -> CompletionResponse:
         """
@@ -146,12 +153,46 @@ class OpenRouterService:
             model: Model identifier (e.g., 'openai/gpt-4o-mini')
             temperature: Sampling temperature (0-2)
             max_tokens: Maximum tokens in response
+            web_search: Enable web search for up-to-date information
+            web_search_max_results: Maximum number of web search results (1-10)
+            thinking_mode: Enable extended thinking/reasoning mode
+            thinking_budget_tokens: Max tokens for thinking (default: auto)
 
         Returns:
             CompletionResponse with content and usage metrics
         """
         model = model or self.default_model
         start_time = time.time()
+
+        # Build request payload
+        request_payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+
+        # Add web search plugin if enabled
+        # Reference: https://openrouter.ai/docs/guides/features/plugins/web-search
+        if web_search:
+            request_payload["plugins"] = [
+                {
+                    "id": "web",
+                    "max_results": min(max(web_search_max_results, 1), 10)  # Clamp 1-10
+                }
+            ]
+
+        # Add thinking/reasoning mode if enabled
+        # Reference: https://openrouter.ai/docs/guides/routing/model-variants/thinking
+        if thinking_mode:
+            request_payload["include_reasoning"] = True
+            if thinking_budget_tokens:
+                request_payload["reasoning"] = {
+                    "max_tokens": thinking_budget_tokens
+                }
+
+        # Merge any additional kwargs
+        request_payload.update(kwargs)
 
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -162,14 +203,8 @@ class OpenRouterService:
                     "X-Title": "AgentVerse Simulation",
                     "Content-Type": "application/json",
                 },
-                json={
-                    "model": model,
-                    "messages": messages,
-                    "temperature": temperature,
-                    "max_tokens": max_tokens,
-                    **kwargs,
-                },
-                timeout=60.0,
+                json=request_payload,
+                timeout=120.0 if thinking_mode else 60.0,  # Longer timeout for thinking mode
             )
 
             response.raise_for_status()
@@ -189,14 +224,41 @@ class OpenRouterService:
             (output_tokens / 1000) * model_config.cost_per_1k_output_tokens
         )
 
+        # Add web search cost if used ($4 per 1000 results via Exa.ai)
+        if web_search:
+            cost_usd += 0.004 * web_search_max_results  # Approximate cost
+
+        # Extract reasoning/thinking output if present
+        reasoning_output = None
+        choice = data["choices"][0]
+        message = choice.get("message", {})
+
+        # Reasoning can be in message.reasoning or message.reasoning_content
+        if "reasoning" in message:
+            reasoning_output = message["reasoning"]
+        elif "reasoning_content" in message:
+            reasoning_output = message["reasoning_content"]
+
+        # Extract web search results if present (in annotations or plugin_data)
+        web_results = None
+        if web_search:
+            annotations = message.get("annotations", [])
+            if annotations:
+                web_results = [
+                    {"url": a.get("url"), "title": a.get("title")}
+                    for a in annotations if a.get("type") == "url_citation"
+                ]
+
         return CompletionResponse(
-            content=data["choices"][0]["message"]["content"],
+            content=message.get("content", ""),
             model=model,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             total_tokens=input_tokens + output_tokens,
             response_time_ms=response_time_ms,
             cost_usd=cost_usd,
+            reasoning=reasoning_output,
+            web_search_results=web_results,
         )
 
     async def batch_complete(

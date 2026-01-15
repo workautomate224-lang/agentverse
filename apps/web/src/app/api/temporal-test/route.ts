@@ -88,6 +88,9 @@ IMPORTANT: Never give brief, dismissive, or superficial answers. Every response 
  * POST /api/temporal-test
  *
  * Test temporal knowledge isolation with a question and cutoff date.
+ * Also supports advanced features:
+ * - web_search: Enable web search for up-to-date information
+ * - thinking_mode: Enable extended thinking/reasoning mode
  */
 export async function POST(request: Request) {
   try {
@@ -96,7 +99,12 @@ export async function POST(request: Request) {
       as_of_datetime,
       question,
       isolation_level = 2,
-      enable_isolation = true
+      enable_isolation = true,
+      // Advanced features (only available in non-isolated/live mode)
+      web_search = false,
+      web_search_max_results = 5,
+      thinking_mode = false,
+      thinking_budget_tokens = null,
     } = body;
 
     if (!question) {
@@ -144,7 +152,38 @@ export async function POST(request: Request) {
     // Call OpenRouter with different settings based on mode:
     // - Isolation mode: Lower max_tokens (500) for concise responses, saves tokens
     // - Non-isolation mode: Higher max_tokens (2000) for comprehensive responses
-    const maxTokens = enable_isolation ? 500 : 2000;
+    const maxTokens = enable_isolation ? 500 : (thinking_mode ? 4000 : 2000);
+
+    // Build request payload
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const requestPayload: Record<string, any> = {
+      model: 'openai/gpt-5.2',  // Upgraded from gpt-4o-mini for better accuracy
+      messages,
+      temperature: 0.3,  // Balanced for comprehensive yet consistent responses
+      max_tokens: maxTokens,
+    };
+
+    // Add web search plugin if enabled (only in non-isolated mode)
+    // Reference: https://openrouter.ai/docs/guides/features/plugins/web-search
+    if (web_search && !enable_isolation) {
+      requestPayload.plugins = [
+        {
+          id: 'web',
+          max_results: Math.min(Math.max(web_search_max_results, 1), 10)  // Clamp 1-10
+        }
+      ];
+    }
+
+    // Add thinking/reasoning mode if enabled (only in non-isolated mode)
+    // Reference: https://openrouter.ai/docs/guides/routing/model-variants/thinking
+    if (thinking_mode && !enable_isolation) {
+      requestPayload.include_reasoning = true;
+      if (thinking_budget_tokens) {
+        requestPayload.reasoning = {
+          max_tokens: thinking_budget_tokens
+        };
+      }
+    }
 
     const response = await fetch(OPENROUTER_URL, {
       method: 'POST',
@@ -154,12 +193,7 @@ export async function POST(request: Request) {
         'HTTP-Referer': process.env.NEXTAUTH_URL || 'https://agentverse.io',
         'X-Title': 'AgentVerse Temporal Test',
       },
-      body: JSON.stringify({
-        model: 'openai/gpt-5.2',  // Upgraded from gpt-4o-mini for better accuracy
-        messages,
-        temperature: 0.3,  // Balanced for comprehensive yet consistent responses
-        max_tokens: maxTokens,
-      }),
+      body: JSON.stringify(requestPayload),
     });
 
     if (!response.ok) {
@@ -179,7 +213,27 @@ export async function POST(request: Request) {
       );
     }
 
-    const answer = data.choices[0].message?.content || 'No response generated';
+    const message = data.choices[0].message;
+    const answer = message?.content || 'No response generated';
+
+    // Extract reasoning output if present (thinking mode)
+    let reasoning = null;
+    if (message?.reasoning) {
+      reasoning = message.reasoning;
+    } else if (message?.reasoning_content) {
+      reasoning = message.reasoning_content;
+    }
+
+    // Extract web search results if present (from annotations)
+    let webSearchResults = null;
+    if (web_search && message?.annotations) {
+      webSearchResults = message.annotations
+        .filter((a: { type: string }) => a.type === 'url_citation')
+        .map((a: { url?: string; title?: string }) => ({
+          url: a.url,
+          title: a.title
+        }));
+    }
 
     return NextResponse.json({
       answer,
@@ -189,6 +243,11 @@ export async function POST(request: Request) {
       model: 'openai/gpt-5.2',
       policy_text: enable_isolation ? policyText : null,
       usage: data.usage,
+      // Advanced features output
+      web_search_enabled: web_search && !enable_isolation,
+      thinking_mode_enabled: thinking_mode && !enable_isolation,
+      reasoning: reasoning,
+      web_search_results: webSearchResults,
     });
 
   } catch (error) {
