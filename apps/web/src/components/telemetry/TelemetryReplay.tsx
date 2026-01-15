@@ -111,21 +111,22 @@ export const TelemetryReplay = memo(function TelemetryReplay({
   // Calculate total ticks from telemetry summary
   const totalTicks = useMemo(() => {
     if (!telemetrySummary) return 0;
-    // Use tick_count from summary, or calculate from events
+    // Use total_ticks from summary, or calculate from events
     const maxEventTick = telemetryEvents.length > 0
       ? Math.max(...telemetryEvents.map((e) => e.end_tick ?? e.start_tick), 0)
       : 0;
-    return Math.max(telemetrySummary.tick_count, maxEventTick);
+    return Math.max(telemetrySummary.total_ticks, maxEventTick);
   }, [telemetrySummary, telemetryEvents]);
 
   // Convert events to component format
   const convertedEvents = useMemo(() => convertEvents(telemetryEvents), [telemetryEvents]);
 
-  // Generate placeholder metrics from available_metrics
+  // Generate placeholder metrics from key_metrics
   // In production, this would fetch actual metric data using useTelemetryMetric
   const metrics = useMemo(() => {
     if (!telemetrySummary) return [];
-    return telemetrySummary.available_metrics.map((metricName, index) => ({
+    const metricKeys = Object.keys(telemetrySummary.key_metrics || {});
+    return metricKeys.map((metricName, index) => ({
       id: metricName,
       name: metricName.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
       color: ['#06b6d4', '#22c55e', '#eab308', '#ef4444', '#a855f7'][index % 5],

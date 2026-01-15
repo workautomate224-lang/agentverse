@@ -1155,17 +1155,17 @@ export default function DataPersonasPage() {
                     </div>
                   </div>
                   <div className="space-y-1">
-                    {persona.demographics?.age && (
+                    {persona.demographics?.age ? (
                       <p className="text-xs font-mono text-white/40">
                         <span className="text-white/60">Age:</span> {String(persona.demographics.age)}
-                        {persona.demographics?.gender && <> • {String(persona.demographics.gender)}</>}
+                        {persona.demographics?.gender ? <> • {String(persona.demographics.gender)}</> : null}
                       </p>
-                    )}
-                    {persona.demographics?.location && (
+                    ) : null}
+                    {persona.demographics?.location ? (
                       <p className="text-xs font-mono text-white/40">
                         <span className="text-white/60">Location:</span> {String(persona.demographics.location)}
                       </p>
-                    )}
+                    ) : null}
                   </div>
                 </div>
               ))}

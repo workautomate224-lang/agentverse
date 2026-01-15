@@ -46,7 +46,7 @@ import {
   useTelemetryEvents,
 } from '@/hooks/useApi';
 import { cn } from '@/lib/utils';
-import type { TelemetrySummary, TelemetrySlice, MetricTimeSeries, EventOccurrence } from '@/lib/api';
+import type { TelemetrySummary, TelemetrySlice, TelemetryKeyframe, TelemetryDeltaItem, TelemetryIndex, EventOccurrence } from '@/lib/api';
 
 // Playback speeds
 const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8];
@@ -80,14 +80,14 @@ export default function TelemetryPage() {
   // Fetch selected metric
   const { data: metricData } = useTelemetryMetric(
     runId,
-    selectedMetric || (index?.available_metrics?.[0] || ''),
-    { start_tick: 0, end_tick: summary?.tick_count || 100 }
+    selectedMetric || (index?.metric_keys?.[0] || ''),
+    { start_tick: 0, end_tick: summary?.total_ticks || 100 }
   );
 
   // Set default metric when index loads
   useEffect(() => {
-    if (index?.available_metrics && index.available_metrics.length > 0 && !selectedMetric) {
-      setSelectedMetric(index.available_metrics[0]);
+    if (index?.metric_keys && index.metric_keys.length > 0 && !selectedMetric) {
+      setSelectedMetric(index.metric_keys[0]);
     }
   }, [index, selectedMetric]);
 
@@ -97,7 +97,7 @@ export default function TelemetryPage() {
 
     const interval = setInterval(() => {
       setCurrentTick((prev) => {
-        if (prev >= summary.tick_count - 1) {
+        if (prev >= summary.total_ticks - 1) {
           setIsPlaying(false);
           return prev;
         }
@@ -113,7 +113,7 @@ export default function TelemetryPage() {
   const handleSkipStart = useCallback(() => { setCurrentTick(0); setIsPlaying(false); }, []);
   const handleSkipEnd = useCallback(() => {
     if (summary) {
-      setCurrentTick(summary.tick_count - 1);
+      setCurrentTick(summary.total_ticks - 1);
       setIsPlaying(false);
     }
   }, [summary]);
@@ -129,7 +129,7 @@ export default function TelemetryPage() {
   }, []);
 
   // Calculate progress
-  const progress = summary ? (currentTick / (summary.tick_count - 1)) * 100 : 0;
+  const progress = summary ? (currentTick / (summary.total_ticks - 1)) * 100 : 0;
 
   // Loading state
   const isLoading = runLoading || summaryLoading;
@@ -218,7 +218,7 @@ export default function TelemetryPage() {
               <span className="text-xs font-mono text-white/40">Ticks</span>
             </div>
             <span className="text-xl font-mono font-bold text-white">
-              {summary.tick_count}
+              {summary.total_ticks}
             </span>
           </div>
 
@@ -228,17 +228,17 @@ export default function TelemetryPage() {
               <span className="text-xs font-mono text-white/40">Keyframes</span>
             </div>
             <span className="text-xl font-mono font-bold text-white">
-              {summary.keyframe_count}
+              {index?.keyframe_ticks?.length || 0}
             </span>
           </div>
 
           <div className="bg-white/5 border border-white/10 p-4">
             <div className="flex items-center gap-2 mb-2">
               <Zap className="w-4 h-4 text-yellow-400" />
-              <span className="text-xs font-mono text-white/40">Deltas</span>
+              <span className="text-xs font-mono text-white/40">Events</span>
             </div>
             <span className="text-xl font-mono font-bold text-white">
-              {summary.delta_count}
+              {summary.total_events}
             </span>
           </div>
 
@@ -248,7 +248,7 @@ export default function TelemetryPage() {
               <span className="text-xs font-mono text-white/40">Agents</span>
             </div>
             <span className="text-xl font-mono font-bold text-white">
-              {summary.tracked_agents}
+              {summary.total_agents}
             </span>
           </div>
 
@@ -258,7 +258,7 @@ export default function TelemetryPage() {
               <span className="text-xs font-mono text-white/40">Metrics</span>
             </div>
             <span className="text-xl font-mono font-bold text-white">
-              {summary.available_metrics?.length || 0}
+              {index?.metric_keys?.length || 0}
             </span>
           </div>
 
@@ -268,7 +268,7 @@ export default function TelemetryPage() {
               <span className="text-xs font-mono text-white/40">Size</span>
             </div>
             <span className="text-xl font-mono font-bold text-white">
-              {(summary.size_bytes / 1024).toFixed(1)} KB
+              {((index?.storage_ref?.size_bytes || 0) / 1024).toFixed(1)} KB
             </span>
           </div>
         </div>
@@ -297,7 +297,7 @@ export default function TelemetryPage() {
               variant="secondary"
               size="icon-sm"
               onClick={handleSkipEnd}
-              disabled={currentTick >= (summary?.tick_count || 1) - 1}
+              disabled={currentTick >= (summary?.total_ticks || 1) - 1}
             >
               <SkipForward className="w-4 h-4" />
             </Button>
@@ -317,7 +317,7 @@ export default function TelemetryPage() {
             <input
               type="range"
               min={0}
-              max={(summary?.tick_count || 1) - 1}
+              max={(summary?.total_ticks || 1) - 1}
               value={currentTick}
               onChange={(e) => setCurrentTick(parseInt(e.target.value))}
               className="w-full h-2 bg-white/10 appearance-none cursor-pointer"
@@ -325,7 +325,7 @@ export default function TelemetryPage() {
           </div>
 
           <div className="text-sm font-mono text-white/60 min-w-[100px] text-right">
-            Tick {currentTick} / {(summary?.tick_count || 1) - 1}
+            Tick {currentTick} / {(summary?.total_ticks || 1) - 1}
           </div>
         </div>
 
@@ -342,62 +342,45 @@ export default function TelemetryPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column: Slice Data */}
         <div className="lg:col-span-2 space-y-6">
-          {/* World State */}
-          {slice?.world_keyframe && (
+          {/* Current Keyframe State */}
+          {slice?.keyframes && slice.keyframes.length > 0 && (
             <div className="bg-white/5 border border-white/10 p-6">
               <div className="flex items-center gap-2 mb-4">
                 <Target className="w-5 h-5 text-cyan-400" />
                 <span className="text-lg font-mono font-bold text-white">
-                  World State @ Tick {slice.tick}
+                  State @ Tick {slice.keyframes[0].tick}
                 </span>
-                {slice.is_interpolated && (
-                  <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-400 text-[10px] font-mono uppercase">
-                    Interpolated
-                  </span>
-                )}
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                {/* Agent Counts */}
+                {/* Agent Count */}
                 <div className="bg-black/30 p-4">
-                  <span className="text-xs font-mono text-white/40 block mb-2">Total Agents</span>
+                  <span className="text-xs font-mono text-white/40 block mb-2">Agents in Frame</span>
                   <span className="text-2xl font-mono font-bold text-white">
-                    {slice.world_keyframe.agent_counts.total}
-                  </span>
-                  <span className="text-xs font-mono text-green-400 ml-2">
-                    ({slice.world_keyframe.agent_counts.active} active)
+                    {Object.keys(slice.keyframes[0].agent_states || {}).length}
                   </span>
                 </div>
 
-                {/* Global Metrics */}
-                {Object.entries(slice.world_keyframe.global_metrics).slice(0, 5).map(([key, value]) => (
+                {/* Event Count */}
+                <div className="bg-black/30 p-4">
+                  <span className="text-xs font-mono text-white/40 block mb-2">Events</span>
+                  <span className="text-2xl font-mono font-bold text-white">
+                    {slice.keyframes[0].event_count || 0}
+                  </span>
+                </div>
+
+                {/* Metrics if available */}
+                {slice.keyframes[0].metrics && Object.entries(slice.keyframes[0].metrics).slice(0, 4).map(([key, value]) => (
                   <div key={key} className="bg-black/30 p-4">
                     <span className="text-xs font-mono text-white/40 block mb-2 truncate">
                       {key}
                     </span>
                     <span className="text-2xl font-mono font-bold text-white">
-                      {typeof value === 'number' ? value.toFixed(2) : value}
+                      {typeof value === 'number' ? value.toFixed(2) : String(value)}
                     </span>
                   </div>
                 ))}
               </div>
-
-              {/* Active Events */}
-              {slice.world_keyframe.active_events.length > 0 && (
-                <div className="mt-4 pt-4 border-t border-white/10">
-                  <span className="text-xs font-mono text-white/40 block mb-2">Active Events</span>
-                  <div className="flex flex-wrap gap-2">
-                    {slice.world_keyframe.active_events.map((event, index) => (
-                      <span
-                        key={index}
-                        className="px-2 py-1 bg-orange-500/20 text-orange-400 text-xs font-mono"
-                      >
-                        {event}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
@@ -424,22 +407,29 @@ export default function TelemetryPage() {
               <div className="border-t border-white/10 max-h-80 overflow-y-auto">
                 {slice.deltas.map((delta, index) => (
                   <div
-                    key={delta.delta_id || index}
+                    key={index}
                     className="px-4 py-3 border-b border-white/5 hover:bg-white/5"
                   >
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-xs font-mono text-cyan-400">
-                        {delta.delta_type}
+                        Tick {delta.tick}
                       </span>
-                      {delta.target_id && (
-                        <span className="text-[10px] font-mono text-white/30">
-                          Target: {delta.target_id.slice(0, 8)}
-                        </span>
-                      )}
+                      <span className="text-[10px] font-mono text-white/30">
+                        {delta.agent_updates?.length || 0} updates
+                      </span>
                     </div>
-                    {delta.field_path && (
-                      <p className="text-xs font-mono text-white/60">
-                        {delta.field_path}: {JSON.stringify(delta.old_value)} → {JSON.stringify(delta.new_value)}
+                    {delta.events_triggered && delta.events_triggered.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {delta.events_triggered.map((evt, i) => (
+                          <span key={i} className="px-1.5 py-0.5 bg-orange-500/20 text-orange-400 text-[10px] font-mono">
+                            {evt}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {delta.metrics && (
+                      <p className="text-xs font-mono text-white/60 mt-1">
+                        Active: {delta.metrics.active_agents} / {delta.metrics.total_agents}
                       </p>
                     )}
                   </div>
@@ -458,13 +448,13 @@ export default function TelemetryPage() {
                     Metric: {selectedMetric}
                   </span>
                 </div>
-                {index?.available_metrics && (
+                {index?.metric_keys && (
                   <select
                     value={selectedMetric}
                     onChange={(e) => setSelectedMetric(e.target.value)}
                     className="px-3 py-1.5 bg-black border border-white/10 text-xs font-mono text-white appearance-none focus:outline-none focus:border-cyan-500/50"
                   >
-                    {index.available_metrics.map((metric) => (
+                    {index.metric_keys.map((metric) => (
                       <option key={metric} value={metric}>
                         {metric}
                       </option>
@@ -524,12 +514,12 @@ export default function TelemetryPage() {
 
             {expandedSections.events && events && events.length > 0 && (
               <div className="border-t border-white/10 max-h-60 overflow-y-auto">
-                {events.map((event: EventOccurrence, index) => {
+                {events.map((event: EventOccurrence, idx: number) => {
                   const isActive = event.start_tick <= currentTick &&
                     (!event.end_tick || event.end_tick >= currentTick);
                   return (
                     <div
-                      key={event.event_id || index}
+                      key={event.event_id || idx}
                       className={cn(
                         'px-4 py-3 border-b border-white/5',
                         isActive && 'bg-orange-500/10'
@@ -552,7 +542,7 @@ export default function TelemetryPage() {
                         Ticks: {event.start_tick} - {event.end_tick || 'ongoing'}
                       </p>
                       <p className="text-[10px] font-mono text-white/30">
-                        {event.affected_agent_count} agents affected
+                        Affected: {event.affected_agent_count || 0} agents | Intensity: {event.peak_intensity?.toFixed(2) || '-'}
                       </p>
                     </div>
                   );
@@ -562,7 +552,7 @@ export default function TelemetryPage() {
           </div>
 
           {/* Available Metrics */}
-          {index?.available_metrics && (
+          {index?.metric_keys && (
             <div className="bg-white/5 border border-white/10 p-4">
               <div className="flex items-center gap-2 mb-3">
                 <Activity className="w-4 h-4 text-white/40" />
@@ -571,7 +561,7 @@ export default function TelemetryPage() {
                 </span>
               </div>
               <div className="space-y-1 max-h-40 overflow-y-auto">
-                {index.available_metrics.map((metric) => (
+                {index.metric_keys.map((metric) => (
                   <button
                     key={metric}
                     onClick={() => setSelectedMetric(metric)}
@@ -589,34 +579,29 @@ export default function TelemetryPage() {
             </div>
           )}
 
-          {/* Segment Breakdown */}
-          {slice?.world_keyframe?.agent_counts?.by_segment && (
+          {/* Agent IDs */}
+          {index?.agent_ids && index.agent_ids.length > 0 && (
             <div className="bg-white/5 border border-white/10 p-4">
               <div className="flex items-center gap-2 mb-3">
                 <Users className="w-4 h-4 text-white/40" />
                 <span className="text-xs font-mono text-white/40 uppercase">
-                  Agents by Segment
+                  Tracked Agents ({index.agent_ids.length})
                 </span>
               </div>
-              <div className="space-y-2">
-                {Object.entries(slice.world_keyframe.agent_counts.by_segment).map(([segment, count]) => {
-                  const total = slice.world_keyframe?.agent_counts?.total || 1;
-                  const percent = ((count as number) / total) * 100;
-                  return (
-                    <div key={segment}>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-mono text-white/60">{segment}</span>
-                        <span className="text-xs font-mono text-white">{count as number}</span>
-                      </div>
-                      <div className="w-full bg-white/10 h-1">
-                        <div
-                          className="h-1 bg-green-500"
-                          style={{ width: `${percent}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
+              <div className="space-y-1 max-h-40 overflow-y-auto">
+                {index.agent_ids.slice(0, 20).map((agentId) => (
+                  <div
+                    key={agentId}
+                    className="text-xs font-mono text-white/60 px-2 py-1 hover:bg-white/5"
+                  >
+                    {agentId.slice(0, 24)}...
+                  </div>
+                ))}
+                {index.agent_ids.length > 20 && (
+                  <div className="text-xs font-mono text-white/30 px-2 py-1">
+                    +{index.agent_ids.length - 20} more
+                  </div>
+                )}
               </div>
             </div>
           )}

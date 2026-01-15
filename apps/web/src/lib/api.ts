@@ -672,6 +672,13 @@ export interface EventOccurrence {
   attributed_outcome_delta?: Record<string, number>;
 }
 
+// Telemetry Capabilities (Phase 5)
+export interface TelemetryCapabilities {
+  has_spatial: boolean;
+  has_events: boolean;
+  has_metrics: boolean;
+}
+
 // Telemetry Index
 export interface TelemetryIndex {
   run_id: string;
@@ -688,6 +695,12 @@ export interface TelemetryIndex {
     compression?: string;
     created_at: string;
   };
+  // Phase 5 additions
+  capabilities?: TelemetryCapabilities;
+  telemetry_schema_version?: string;
+  total_agents?: number;
+  total_events?: number;
+  metric_keys?: string[];
 }
 
 // Telemetry Summary
@@ -701,6 +714,9 @@ export interface TelemetrySummary {
     by_tick?: { active_agents: number; total_agents: number; activity_rate: number }[];
   };
   duration_seconds?: number;
+  // Phase 5 additions
+  capabilities?: TelemetryCapabilities;
+  telemetry_schema_version?: string;
 }
 
 // Telemetry Keyframe
@@ -746,6 +762,18 @@ export interface TelemetryEvent {
   metadata?: Record<string, unknown>;
 }
 
+// Normalized Position (Phase 5)
+export interface NormalizedPosition {
+  agent_id: string;
+  x: number;
+  y: number;
+  z?: number;
+  rotation?: number;
+  scale?: number;
+  grid_cell?: string;
+  location_id?: string;
+}
+
 // Telemetry Slice (for replay)
 export interface TelemetrySlice {
   run_id: string;
@@ -755,6 +783,10 @@ export interface TelemetrySlice {
   deltas: TelemetryDeltaItem[];
   events: TelemetryEvent[];
   total_events: number;
+  // Phase 5 additions
+  normalized_positions?: NormalizedPosition[];
+  capabilities?: TelemetryCapabilities;
+  telemetry_schema_version?: string;
 }
 
 // Telemetry Playback State
