@@ -33,7 +33,7 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useNodes, useRuns, useProject, useActiveBlueprint, useProjectChecklist, useCreateBlueprint } from '@/hooks/useApi';
+import { useNodes, useRuns, useProjectSpec, useActiveBlueprint, useProjectChecklist, useCreateBlueprint } from '@/hooks/useApi';
 import { ClarifyPanel, BlueprintChecklist, AlignmentScore } from '@/components/pil';
 import { useMemo, useState, useCallback } from 'react';
 
@@ -122,7 +122,7 @@ export default function ProjectOverviewPage() {
   const projectId = params.projectId as string;
 
   // Fetch real data from API
-  const { data: project, isLoading: projectLoading } = useProject(projectId);
+  const { data: project, isLoading: projectLoading } = useProjectSpec(projectId);
   const { data: nodes, isLoading: nodesLoading } = useNodes({ project_id: projectId, limit: 100 });
   const { data: runs, isLoading: runsLoading } = useRuns({ project_id: projectId, limit: 100 });
 
