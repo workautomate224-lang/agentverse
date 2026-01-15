@@ -31,11 +31,21 @@ import { useProjectChecklist, useActiveBlueprint } from '@/hooks/useApi';
 import type { ChecklistItem, AlertState } from '@/lib/api';
 
 // Section configuration for guidance
+// Reference: blueprint_v3.md §4 - All sections requiring GuidancePanel
 const SECTION_CONFIG: Record<string, {
   title: string;
   description: string;
   tips: string[];
 }> = {
+  'overview': {
+    title: 'Project Overview',
+    description: 'Blueprint summary and project health at a glance.',
+    tips: [
+      'Review your blueprint summary to ensure alignment with goals',
+      'Check the alignment score for configuration quality',
+      'Monitor overall project readiness via the checklist',
+    ],
+  },
   'data-personas': {
     title: 'Data & Personas',
     description: 'Configure your simulation population and data sources.',
@@ -54,13 +64,13 @@ const SECTION_CONFIG: Record<string, {
       'Set up rule priorities and conflict resolution',
     ],
   },
-  'event-lab': {
-    title: 'Event Lab',
-    description: 'Create and test scenarios for your simulation.',
+  'run-center': {
+    title: 'Run Center',
+    description: 'Configure and launch simulation runs.',
     tips: [
-      'Use "What if" questions to generate scenarios',
-      'Test edge cases and unexpected events',
-      'Chain multiple scenarios for complex simulations',
+      'Start with a baseline run before testing scenarios',
+      'Monitor running simulations in real-time',
+      'Compare results across different runs',
     ],
   },
   'universe-map': {
@@ -72,13 +82,94 @@ const SECTION_CONFIG: Record<string, {
       'Track how scenarios diverge from baseline',
     ],
   },
-  'run-center': {
-    title: 'Run Center',
-    description: 'Configure and launch simulation runs.',
+  'event-lab': {
+    title: 'Event Lab',
+    description: 'Create and test scenarios for your simulation.',
     tips: [
-      'Start with a baseline run before testing scenarios',
-      'Monitor running simulations in real-time',
-      'Compare results across different runs',
+      'Use "What if" questions to generate scenarios',
+      'Test edge cases and unexpected events',
+      'Chain multiple scenarios for complex simulations',
+    ],
+  },
+  'society': {
+    title: 'Society Simulation',
+    description: 'Configure social dynamics and opinion spread patterns.',
+    tips: [
+      'Define influence networks between persona segments',
+      'Set opinion propagation parameters for realistic spread',
+      'Configure social friction and resistance factors',
+    ],
+  },
+  'target': {
+    title: 'Target Planner',
+    description: 'Define prediction targets and intervention strategies.',
+    tips: [
+      'Set clear outcome targets for your predictions',
+      'Use AI to generate intervention plans',
+      'Test interventions across different scenarios',
+    ],
+  },
+  'reliability': {
+    title: 'Reliability & Calibration',
+    description: 'Validate predictions and improve accuracy.',
+    tips: [
+      'Run calibration against historical data',
+      'Review confidence intervals and uncertainty bounds',
+      'Track prediction accuracy over time',
+    ],
+  },
+  'calibration': {
+    title: 'Calibration Lab',
+    description: 'Fine-tune simulation parameters for accuracy.',
+    tips: [
+      'Compare simulation outputs with historical data',
+      'Adjust model parameters to reduce prediction error',
+      'Run sensitivity analysis on key variables',
+    ],
+  },
+  'replay': {
+    title: 'Telemetry & Replay',
+    description: 'Review simulation telemetry and replay past runs.',
+    tips: [
+      'Replay is read-only—no new simulations triggered',
+      'Analyze decision points and branching events',
+      'Export telemetry data for external analysis',
+    ],
+  },
+  'world': {
+    title: '2D World',
+    description: 'Visualize personas and interactions in 2D space.',
+    tips: [
+      'Zoom and pan to explore different regions',
+      'Click personas to view detailed profiles',
+      'Use filters to focus on specific segments',
+    ],
+  },
+  'world-viewer': {
+    title: '2D World Viewer',
+    description: 'Interactive visualization of simulation state.',
+    tips: [
+      'View real-time persona positions and states',
+      'Filter by attributes to highlight patterns',
+      'Compare across different simulation runs',
+    ],
+  },
+  'reports': {
+    title: 'Reports',
+    description: 'Generate and export simulation reports.',
+    tips: [
+      'Select report templates for different audiences',
+      'Include key metrics and visualizations',
+      'Schedule automated report generation',
+    ],
+  },
+  'settings': {
+    title: 'Project Settings',
+    description: 'Configure project-level settings and preferences.',
+    tips: [
+      'Update project name and description',
+      'Configure notification preferences',
+      'Manage project access and permissions',
     ],
   },
 };

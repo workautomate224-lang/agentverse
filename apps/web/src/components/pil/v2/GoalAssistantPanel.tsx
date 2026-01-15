@@ -1,15 +1,20 @@
 'use client';
 
 /**
- * GoalAssistantPanel - Blueprint v2
+ * GoalAssistantPanel - Blueprint v2/v3
  *
  * This component handles the goal analysis flow in Step 1 of the Create Project wizard.
  * It manages: Analyze Goal → Clarifying Questions → Blueprint Preview
  *
- * Reference: blueprint_v2.md §2.1.1
+ * Reference: blueprint_v3.md §2.1.1
+ *
+ * PHASE 2 (blueprint_v3): Job deduplication
+ * - Uses useRef to track request-in-progress and prevent duplicate clicks
+ * - AbortController for cleanup on unmount or new request
+ * - Buttons disabled while processing
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Sparkles,
@@ -21,13 +26,58 @@ import {
   Info,
   Brain,
   FileText,
+  Save,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ExitConfirmationModal, useExitConfirmation } from '@/components/pil/ExitConfirmationModal';
+import { SaveDraftIndicator, SaveStatus } from '@/components/pil/SaveDraftIndicator';
 import type {
   ClarifyingQuestion,
   GoalAnalysisResult,
   BlueprintDraft,
 } from '@/types/blueprint-v2';
+
+// PHASE 3 (blueprint_v3): Local storage key for wizard state persistence
+const WIZARD_STATE_KEY = 'agentverse_wizard_state';
+
+// PHASE 3: Interface for persisted wizard state
+interface PersistedWizardState {
+  goalText: string;
+  stage: Stage;
+  analysisResult: GoalAnalysisResult | null;
+  answers: Record<string, string | string[]>;
+  blueprintDraft: BlueprintDraft | null;
+  savedAt: string;
+}
+
+// PHASE 3: Helper to save wizard state to localStorage
+function saveWizardState(state: PersistedWizardState): void {
+  try {
+    localStorage.setItem(WIZARD_STATE_KEY, JSON.stringify(state));
+  } catch {
+    // Ignore localStorage errors (private browsing, quota exceeded, etc.)
+  }
+}
+
+// PHASE 3: Helper to load wizard state from localStorage
+function loadWizardState(): PersistedWizardState | null {
+  try {
+    const saved = localStorage.getItem(WIZARD_STATE_KEY);
+    if (!saved) return null;
+    return JSON.parse(saved);
+  } catch {
+    return null;
+  }
+}
+
+// PHASE 3: Helper to clear wizard state from localStorage
+function clearWizardState(): void {
+  try {
+    localStorage.removeItem(WIZARD_STATE_KEY);
+  } catch {
+    // Ignore localStorage errors
+  }
+}
 
 interface GoalAssistantPanelProps {
   goalText: string;
@@ -57,12 +107,116 @@ export function GoalAssistantPanel({
   const [error, setError] = useState<string | null>(null);
   const [expandedQuestion, setExpandedQuestion] = useState<string | null>(null);
 
+  // PHASE 3 (blueprint_v3): State persistence
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+  const [showExitModal, setShowExitModal] = useState(false);
+  const [hasRestoredState, setHasRestoredState] = useState(false);
+
+  // PHASE 2 (blueprint_v3): Job deduplication refs
+  // Track if a request is in progress to prevent duplicate clicks
+  const requestInProgressRef = useRef<boolean>(false);
+  // AbortController for cleanup on unmount or when starting a new request
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // PHASE 3: Determine if there are unsaved changes (analysis in progress or clarifying)
+  const hasUnsavedChanges = useMemo(() => {
+    return stage === 'analyzing' || stage === 'clarifying' || stage === 'generating_blueprint';
+  }, [stage]);
+
+  // PHASE 3: Use exit confirmation hook for browser navigation
+  useExitConfirmation({ hasUnsavedChanges });
+
+  // PHASE 3: Restore state from localStorage on mount
+  useEffect(() => {
+    if (hasRestoredState) return;
+
+    const saved = loadWizardState();
+    if (saved && saved.goalText === goalText) {
+      // Restore only if the goal text matches (same session)
+      // Don't restore 'analyzing' or 'generating_blueprint' stages - restart those
+      if (saved.stage === 'clarifying' || saved.stage === 'preview') {
+        setStage(saved.stage);
+        setAnalysisResult(saved.analysisResult);
+        setAnswers(saved.answers);
+        setBlueprintDraft(saved.blueprintDraft);
+        setLastSavedAt(new Date(saved.savedAt));
+        setSaveStatus('saved');
+
+        // If we restored a completed blueprint, notify parent
+        if (saved.blueprintDraft && saved.stage === 'preview') {
+          onBlueprintReady(saved.blueprintDraft);
+        }
+      }
+    }
+    setHasRestoredState(true);
+  }, [goalText, hasRestoredState, onBlueprintReady]);
+
+  // PHASE 3: Auto-save state when it changes
+  useEffect(() => {
+    // Don't save during transitions (analyzing, generating)
+    if (stage === 'idle' || stage === 'analyzing' || stage === 'generating_blueprint') {
+      return;
+    }
+
+    // Debounce save by 500ms
+    const timer = setTimeout(() => {
+      setSaveStatus('saving');
+      const state: PersistedWizardState = {
+        goalText,
+        stage,
+        analysisResult,
+        answers,
+        blueprintDraft,
+        savedAt: new Date().toISOString(),
+      };
+      saveWizardState(state);
+      setLastSavedAt(new Date());
+      setSaveStatus('saved');
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [goalText, stage, analysisResult, answers, blueprintDraft]);
+
+  // PHASE 3: Clear state when blueprint is finalized (preview stage)
+  useEffect(() => {
+    if (stage === 'preview' && blueprintDraft) {
+      // Clear saved state since blueprint is ready
+      clearWizardState();
+    }
+  }, [stage, blueprintDraft]);
+
+  // Cleanup abort controller on unmount
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
+
   // Analyze goal
+  // PHASE 2 (blueprint_v3): Added deduplication to prevent duplicate clicks
   const handleAnalyzeGoal = useCallback(async () => {
     if (!goalText || goalText.trim().length < 10) {
       setError('Please enter at least 10 characters for your goal');
       return;
     }
+
+    // PHASE 2: Prevent duplicate requests
+    if (requestInProgressRef.current) {
+      return; // Already processing, ignore click
+    }
+
+    // Abort any previous request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    // Create new abort controller for this request
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    requestInProgressRef.current = true;
 
     setStage('analyzing');
     setError(null);
@@ -73,6 +227,7 @@ export function GoalAssistantPanel({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ goal_text: goalText }),
+        signal: abortController.signal,
       });
 
       if (!response.ok) {
@@ -89,13 +244,35 @@ export function GoalAssistantPanel({
         await generateBlueprint(result, {});
       }
     } catch (err) {
+      // Don't show error if request was aborted
+      if (err instanceof Error && err.name === 'AbortError') {
+        return;
+      }
       setError(err instanceof Error ? err.message : 'Analysis failed');
       setStage('idle');
+    } finally {
+      requestInProgressRef.current = false;
     }
   }, [goalText, onAnalysisStart]);
 
   // Skip clarification and generate blueprint directly
+  // PHASE 2 (blueprint_v3): Added deduplication to prevent duplicate clicks
   const handleSkipClarify = useCallback(async () => {
+    // PHASE 2: Prevent duplicate requests
+    if (requestInProgressRef.current) {
+      return; // Already processing, ignore click
+    }
+
+    // Abort any previous request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    // Create new abort controller for this request
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    requestInProgressRef.current = true;
+
     setStage('generating_blueprint');
     setError(null);
 
@@ -104,6 +281,7 @@ export function GoalAssistantPanel({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ goal_text: goalText, skip_clarification: true }),
+        signal: abortController.signal,
       });
 
       if (!response.ok) {
@@ -113,17 +291,31 @@ export function GoalAssistantPanel({
       const result: GoalAnalysisResult = await response.json();
       await generateBlueprint(result, {});
     } catch (err) {
+      // Don't show error if request was aborted
+      if (err instanceof Error && err.name === 'AbortError') {
+        return;
+      }
       setError(err instanceof Error ? err.message : 'Failed to generate blueprint');
       setStage('idle');
+    } finally {
+      requestInProgressRef.current = false;
     }
   }, [goalText]);
 
   // Generate blueprint from analysis + answers
+  // PHASE 2 (blueprint_v3): Uses shared abort controller for request cleanup
   const generateBlueprint = useCallback(async (
     analysis: GoalAnalysisResult,
     clarificationAnswers: Record<string, string | string[]>
   ) => {
     setStage('generating_blueprint');
+
+    // Use existing abort controller if set (from outer function)
+    // or create a new one if called directly
+    const abortController = abortControllerRef.current || new AbortController();
+    if (!abortControllerRef.current) {
+      abortControllerRef.current = abortController;
+    }
 
     try {
       const response = await fetch('/api/blueprint-draft', {
@@ -135,6 +327,7 @@ export function GoalAssistantPanel({
           domain_guess: analysis.domain_guess,
           clarification_answers: clarificationAnswers,
         }),
+        signal: abortController.signal,
       });
 
       if (!response.ok) {
@@ -146,6 +339,10 @@ export function GoalAssistantPanel({
       setStage('preview');
       onBlueprintReady(blueprint);
     } catch (err) {
+      // Don't show error if request was aborted
+      if (err instanceof Error && err.name === 'AbortError') {
+        return;
+      }
       setError(err instanceof Error ? err.message : 'Blueprint generation failed');
       setStage('clarifying');
     }
@@ -157,9 +354,30 @@ export function GoalAssistantPanel({
   }, []);
 
   // Submit clarification answers
+  // PHASE 2 (blueprint_v3): Added deduplication to prevent duplicate submissions
   const handleSubmitAnswers = useCallback(async () => {
     if (!analysisResult) return;
-    await generateBlueprint(analysisResult, answers);
+
+    // PHASE 2: Prevent duplicate requests
+    if (requestInProgressRef.current) {
+      return; // Already processing, ignore click
+    }
+
+    // Abort any previous request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    // Create new abort controller for this request
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    requestInProgressRef.current = true;
+
+    try {
+      await generateBlueprint(analysisResult, answers);
+    } finally {
+      requestInProgressRef.current = false;
+    }
   }, [analysisResult, answers, generateBlueprint]);
 
   // Check if all required questions are answered
@@ -176,6 +394,17 @@ export function GoalAssistantPanel({
       <div className="px-4 py-3 border-b border-white/10 flex items-center gap-2">
         <Brain className="w-4 h-4 text-cyan-400" />
         <span className="text-sm font-mono font-bold text-white">Goal Assistant</span>
+
+        {/* PHASE 3: Save status indicator */}
+        {stage === 'clarifying' && (
+          <SaveDraftIndicator
+            status={saveStatus}
+            lastSavedAt={lastSavedAt}
+            compact
+            className="ml-2"
+          />
+        )}
+
         {stage !== 'idle' && (
           <span className="ml-auto text-[10px] font-mono text-white/40 uppercase">
             {stage === 'analyzing' && 'Analyzing...'}
@@ -185,6 +414,22 @@ export function GoalAssistantPanel({
           </span>
         )}
       </div>
+
+      {/* PHASE 3: Exit confirmation modal */}
+      <ExitConfirmationModal
+        open={showExitModal}
+        onOpenChange={setShowExitModal}
+        onConfirmExit={() => {
+          clearWizardState();
+          setShowExitModal(false);
+        }}
+        onSaveAndExit={() => {
+          // Save is auto-done, just close
+          setShowExitModal(false);
+        }}
+        title="Analysis in Progress"
+        description="You have an analysis in progress. Your answers have been auto-saved and will be restored when you return."
+      />
 
       {/* Content */}
       <div className="p-4">

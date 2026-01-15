@@ -29,6 +29,7 @@ import {
   useCreateBranchFromUserPlan,
 } from '@/hooks/useApi';
 import type { InterventionStep, PlanConstraints, TargetPlanSource, RunSummary, NodeSummary } from '@/lib/api';
+import { GuidancePanel } from '@/components/pil';
 import {
   Crosshair,
   ArrowLeft,
@@ -387,6 +388,15 @@ export default function TargetPlannerPage() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* Guidance Panel - Blueprint-driven guidance */}
+      <div className="max-w-6xl mb-6">
+        <GuidancePanel
+          projectId={projectId}
+          sectionId="target"
+          className="mb-0"
+        />
       </div>
 
       <div className="max-w-6xl grid grid-cols-1 lg:grid-cols-4 gap-6">

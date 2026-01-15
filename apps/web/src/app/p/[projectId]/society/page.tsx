@@ -45,6 +45,7 @@ import {
   useNode,
 } from '@/hooks/useApi';
 import type { RunSummary, TelemetrySummary, TelemetrySlice, TelemetryKeyframe } from '@/lib/api';
+import { GuidancePanel } from '@/components/pil';
 
 // =============================================================================
 // Types
@@ -657,6 +658,15 @@ export default function SocietySimulationPage() {
         <p className="text-xs md:text-sm font-mono text-white/50 mt-1">
           Macro-level metrics and analysis for simulation runs
         </p>
+        {/* Guidance Panel - Blueprint-driven guidance */}
+        <div className="mt-4">
+          <GuidancePanel
+            projectId={projectId}
+            sectionId="society"
+            compact={true}
+            className="mb-0"
+          />
+        </div>
       </div>
 
       {/* Main Content */}

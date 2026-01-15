@@ -45,6 +45,7 @@ import {
   useNode,
 } from '@/hooks/useApi';
 import type { RunSummary, TelemetryIndex, TelemetrySummary, TelemetrySlice, TelemetryKeyframe } from '@/lib/api';
+import { GuidancePanel } from '@/components/pil';
 
 // =============================================================================
 // Types
@@ -723,6 +724,15 @@ export default function WorldViewerPage() {
             <span className="text-[10px] font-mono text-white/40 uppercase tracking-wider">World Viewer</span>
           </div>
           <h1 className="text-lg font-mono font-bold text-white">2D World Viewer</h1>
+          {/* Guidance Panel - Blueprint-driven guidance */}
+          <div className="mt-3">
+            <GuidancePanel
+              projectId={projectId}
+              sectionId="world-viewer"
+              compact={true}
+              className="mb-0"
+            />
+          </div>
         </div>
 
         {/* Run Selector */}
