@@ -66,30 +66,44 @@
 
 ---
 
-## Phase D — Blueprint-Driven Guidance Across ALL Sections
+## Phase D — Blueprint-Driven Guidance Across ALL Sections ✅ MOSTLY COMPLETE
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Guidance Panel component used in every section | PENDING | |
-| Section tasks come from blueprint section map | PENDING | |
-| Checklist updates reflect real artifacts | PENDING | |
+| Guidance Panel component used in every section | ✅ DONE | `apps/web/src/components/pil/v2/GuidancePanel.tsx` |
+| Section tasks come from blueprint section map | ✅ DONE | Uses `useActiveBlueprint` + filters by `section_id` |
+| Checklist updates reflect real artifacts | ✅ DONE | Status colors: ready=green, blocked=red, needs_attention=yellow |
 
-**Sections to implement guidance:**
-- [ ] Overview
-- [ ] Data & Personas (Inputs)
-- [ ] Rules & Assumptions
-- [ ] Run Center
-- [ ] Universe Map
-- [ ] Event Lab
-- [ ] Society Simulation
-- [ ] Target Planner
-- [ ] Reliability
-- [ ] Telemetry & Replay
-- [ ] 2D World Viewer
-- [ ] Reports
-- [ ] Settings
-- [ ] Library (Personas Library, Templates, Rulesets, Evidence Source)
-- [ ] Calibration Lab
+**Sections implemented with GuidancePanel:**
+- [x] Overview - `/projects/[id]/page.tsx` (section="overview")
+- [x] Data & Personas (Inputs) - `/projects/[id]/personas/page.tsx` (section="inputs")
+- [x] Run Center / Hybrid Mode - `/projects/[id]/hybrid-mode/page.tsx` (section="runs")
+- [x] Universe Map - `/projects/[id]/universe-map/page.tsx` (section="universe")
+- [x] Society Simulation - `/projects/[id]/society-mode/page.tsx` (section="society")
+- [x] Target Planner - `/projects/[id]/target-mode/page.tsx` (section="target")
+- [x] Reliability - `/projects/[id]/reliability/page.tsx` (section="reliability")
+- [x] Telemetry & Replay - `/projects/[id]/replay/page.tsx` (section="telemetry")
+- [x] Reports / Exports - `/projects/[id]/exports/page.tsx` (section="reports")
+- [x] Settings - `/projects/[id]/settings/page.tsx` (section="settings")
+- [ ] Event Lab (scenarios) - Not a dedicated page, handled within scenarios flow
+- [ ] Rules & Assumptions - Not a dedicated page yet
+- [ ] 2D World Viewer - Embedded in replay/universe components
+- [ ] Library pages - Separate from project context
+- [ ] Calibration Lab - Separate from project context
+
+**Files Modified in Phase D:**
+- `apps/web/src/components/pil/v2/GuidancePanel.tsx` - NEW
+- `apps/web/src/components/pil/v2/index.ts` - MODIFIED (added export)
+- `apps/web/src/app/dashboard/projects/[id]/page.tsx` - MODIFIED
+- `apps/web/src/app/dashboard/projects/[id]/personas/page.tsx` - MODIFIED
+- `apps/web/src/app/dashboard/projects/[id]/hybrid-mode/page.tsx` - MODIFIED
+- `apps/web/src/app/dashboard/projects/[id]/universe-map/page.tsx` - MODIFIED
+- `apps/web/src/app/dashboard/projects/[id]/society-mode/page.tsx` - MODIFIED
+- `apps/web/src/app/dashboard/projects/[id]/target-mode/page.tsx` - MODIFIED
+- `apps/web/src/app/dashboard/projects/[id]/reliability/page.tsx` - MODIFIED
+- `apps/web/src/app/dashboard/projects/[id]/replay/page.tsx` - MODIFIED
+- `apps/web/src/app/dashboard/projects/[id]/exports/page.tsx` - MODIFIED
+- `apps/web/src/app/dashboard/projects/[id]/settings/page.tsx` - MODIFIED
 
 ---
 

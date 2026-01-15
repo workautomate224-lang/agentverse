@@ -31,6 +31,7 @@ import { cn } from '@/lib/utils';
 import { InfiniteScroll } from '@/components/ui/virtualized-list';
 import { SkeletonList } from '@/components/ui/skeleton';
 import { useProject } from '@/components/project/ProjectContext';
+import { GuidancePanel } from '@/components/pil/v2/GuidancePanel';
 
 // Source types with icons
 const sourceConfig: Record<string, { icon: React.ReactNode; label: string; color: string }> = {
@@ -339,8 +340,17 @@ export default function ProjectPersonasPage() {
           </div>
         </div>
 
+        {/* Blueprint Guidance */}
+        <div className="px-3 md:px-4 pt-3 md:pt-4">
+          <GuidancePanel
+            projectId={projectId}
+            section="inputs"
+            className="mb-3 md:mb-4"
+          />
+        </div>
+
         {/* Content Area */}
-        <div className="flex-1 overflow-auto p-3 md:p-4">
+        <div className="flex-1 overflow-auto p-3 md:p-4 pt-0">
           {templatesLoading ? (
             <SkeletonList items={6} />
           ) : !templates || templates.length === 0 ? (

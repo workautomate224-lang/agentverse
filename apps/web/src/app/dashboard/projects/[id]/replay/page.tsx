@@ -13,6 +13,7 @@ import dynamic from 'next/dynamic';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useProject } from '@/components/project/ProjectContext';
 import { PageLoading } from '@/components/ui/page-loading';
+import { GuidancePanel } from '@/components/pil/v2/GuidancePanel';
 
 // Dynamic import for heavy canvas/PixiJS component
 const ReplayPlayer = dynamic(
@@ -183,18 +184,23 @@ export default function ReplayPage() {
   }, [timeline]);
 
   return (
-    <div className="h-full">
-      <ReplayPlayer
-        timeline={timelineData}
-        worldState={worldState}
-        isLoading={isTimelineLoading || isStateLoading}
-        error={errorMessage}
-        storageRef={storageRef}
-        onSeekToTick={handleSeekToTick}
-        onOpenNode={handleOpenNode}
-        onOpenReliability={handleOpenReliability}
-        onRetry={handleRetry}
-      />
+    <div className="h-full flex flex-col">
+      <div className="px-4 pt-4 flex-shrink-0">
+        <GuidancePanel projectId={projectId} section="telemetry" className="mb-4" />
+      </div>
+      <div className="flex-1 min-h-0">
+        <ReplayPlayer
+          timeline={timelineData}
+          worldState={worldState}
+          isLoading={isTimelineLoading || isStateLoading}
+          error={errorMessage}
+          storageRef={storageRef}
+          onSeekToTick={handleSeekToTick}
+          onOpenNode={handleOpenNode}
+          onOpenReliability={handleOpenReliability}
+          onRetry={handleRetry}
+        />
+      </div>
     </div>
   );
 }
