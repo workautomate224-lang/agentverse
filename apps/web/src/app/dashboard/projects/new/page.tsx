@@ -44,6 +44,9 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useCreateProjectSpec, useCreateBlueprint } from '@/hooks/useApi';
+import { isFeatureEnabled } from '@/lib/feature-flags';
+import { GoalAssistantPanel } from '@/components/pil/v2/GoalAssistantPanel';
+import type { BlueprintDraft } from '@/types/blueprint-v2';
 
 // Wizard step definitions - 4-step flow per temporal.md §3
 const STEPS = [
@@ -218,7 +221,13 @@ export default function CreateProjectWizardPage() {
   const createProjectMutation = useCreateProjectSpec();
   const createBlueprintMutation = useCreateBlueprint();
 
+  // Feature flag for v2 wizard
+  const isV2WizardEnabled = isFeatureEnabled('BLUEPRINT_V2_WIZARD');
+
   const [currentStep, setCurrentStep] = useState<StepId>('goal');
+  // Blueprint draft state for v2 flow
+  const [blueprintDraft, setBlueprintDraft] = useState<BlueprintDraft | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [formData, setFormData] = useState<WizardFormData>({
     goal: '',
     // Temporal defaults per temporal.md §3
@@ -271,10 +280,24 @@ export default function CreateProjectWizardPage() {
     }
   };
 
+  // Callback for when blueprint is ready in v2 flow
+  const handleBlueprintReady = useCallback((blueprint: BlueprintDraft) => {
+    setBlueprintDraft(blueprint);
+    // Auto-set core type from blueprint strategy
+    if (blueprint.strategy.chosen_core) {
+      setFormData(prev => ({ ...prev, coreType: blueprint.strategy.chosen_core }));
+    }
+  }, []);
+
   // Validation per step
   const isStepValid = (stepId: StepId): boolean => {
     switch (stepId) {
       case 'goal':
+        // V2: Requires blueprint to be generated
+        if (isV2WizardEnabled) {
+          return formData.goal.trim().length >= 10 && blueprintDraft !== null;
+        }
+        // V1: Just needs goal text
         return formData.goal.trim().length >= 10;
       case 'temporal':
         // Live mode: always valid (no temporal constraints)
@@ -372,18 +395,23 @@ export default function CreateProjectWizardPage() {
         ...(temporalContext && { temporal_context: temporalContext }),
       });
 
-      // Create Blueprint and trigger Goal Analysis job (blueprint.md §4)
-      // This will analyze the goal and generate clarifying questions
+      // Create Blueprint (V2 vs V1 flow)
+      // V2: We already have blueprintDraft from Step 1 - skip clarification
+      // V1: Trigger goal analysis to generate blueprint on overview
       try {
+        // Both v1 and v2 use the same API, but v2 skips clarification
+        // since it was already done in Step 1
         await createBlueprintMutation.mutateAsync({
           project_id: project.id,
           goal_text: formData.goal,
-          skip_clarification: false, // Trigger goal analysis
+          // V2: Skip clarification (already done), V1: Trigger goal analysis
+          skip_clarification: isV2WizardEnabled && blueprintDraft !== null,
         });
-      } catch (blueprintError) {
+        // Note: In v2 flow, blueprintDraft state can be used by overview for initial display
+        // until the backend blueprint is fully processed
+      } catch {
         // Blueprint creation failed, but project was created
         // Continue to overview - user can retry blueprint creation there
-        console.error('Blueprint creation failed:', blueprintError);
       }
 
       // Navigate to the project workspace using real UUID from backend
@@ -509,6 +537,26 @@ export default function CreateProjectWizardPage() {
                   ))}
                 </div>
               </div>
+
+              {/* V2 Goal Assistant Panel - Analyze Goal, Clarify, Blueprint Preview */}
+              {isV2WizardEnabled && formData.goal.trim().length >= 10 && (
+                <GoalAssistantPanel
+                  goalText={formData.goal}
+                  onBlueprintReady={handleBlueprintReady}
+                  onAnalysisStart={() => setIsAnalyzing(true)}
+                  className="mt-4"
+                />
+              )}
+
+              {/* V2 Mode Indicator */}
+              {isV2WizardEnabled && (
+                <div className="flex items-center gap-2 pt-4 border-t border-white/10 mt-4">
+                  <div className="w-2 h-2 bg-cyan-400 animate-pulse" />
+                  <span className="text-[10px] font-mono text-white/40">
+                    BLUEPRINT V2 MODE — {blueprintDraft ? 'Blueprint Ready' : 'Analyze goal to continue'}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         )}
