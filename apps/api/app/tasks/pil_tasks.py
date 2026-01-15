@@ -1324,11 +1324,12 @@ async def _slot_alignment_scoring_async(task, job_id: str, context: dict):
             )
             blueprint = bp_result.scalar_one_or_none()
 
-            # Get slot requirements
+            # Get slot requirements (slot_id is the UUID of the slot)
+            from uuid import UUID as UUIDType
             slot_result = await session.execute(
                 select(BlueprintSlot).where(
                     BlueprintSlot.blueprint_id == job.blueprint_id,
-                    BlueprintSlot.slot_id == slot_id
+                    BlueprintSlot.id == UUIDType(slot_id)
                 )
             )
             slot = slot_result.scalar_one_or_none()
@@ -1479,11 +1480,12 @@ async def _slot_compilation_async(task, job_id: str, context: dict):
                 stage_name="Loading slot data"
             )
 
-            # Get slot for derived artifacts config
+            # Get slot for derived artifacts config (slot_id is the UUID of the slot)
+            from uuid import UUID as UUIDType
             slot_result = await session.execute(
                 select(BlueprintSlot).where(
                     BlueprintSlot.blueprint_id == job.blueprint_id,
-                    BlueprintSlot.slot_id == slot_id
+                    BlueprintSlot.id == UUIDType(slot_id)
                 )
             )
             slot = slot_result.scalar_one_or_none()

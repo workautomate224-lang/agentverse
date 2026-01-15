@@ -188,7 +188,6 @@ class FulfilledByRef(BaseModel):
 
 class BlueprintSlotBase(BaseModel):
     """Base slot schema"""
-    slot_id: str = Field(..., min_length=1, max_length=100)
     slot_name: str = Field(..., min_length=1, max_length=255)
     slot_type: SlotType = SlotType.TABLE
     required_level: RequiredLevel = RequiredLevel.REQUIRED
@@ -220,6 +219,7 @@ class BlueprintSlotResponse(BlueprintSlotBase):
     """Schema for slot response"""
     id: UUID
     blueprint_id: UUID
+    sort_order: int = 0
     schema_requirements: Optional[Dict[str, Any]] = None
     temporal_requirements: Optional[Dict[str, Any]] = None
     quality_requirements: Optional[Dict[str, Any]] = None
@@ -259,8 +259,7 @@ class AlertConfig(BaseModel):
 
 class BlueprintTaskBase(BaseModel):
     """Base task schema"""
-    task_id: str = Field(..., min_length=1, max_length=100)
-    section_id: str = Field(..., min_length=1, max_length=100)
+    section_id: str = Field(..., min_length=1, max_length=50)
     sort_order: int = 0
     title: str = Field(..., min_length=1, max_length=255)
 
@@ -279,8 +278,7 @@ class BlueprintTaskUpdate(BaseModel):
     """Schema for updating a task"""
     status: Optional[AlertState] = None
     status_reason: Optional[str] = None
-    last_summary_ref: Optional[UUID] = None
-    last_validation_ref: Optional[UUID] = None
+    last_summary_ref: Optional[str] = None
 
 
 class BlueprintTaskResponse(BlueprintTaskBase):
@@ -295,8 +293,7 @@ class BlueprintTaskResponse(BlueprintTaskBase):
     alert_config: Optional[Dict[str, Any]] = None
     status: AlertState = AlertState.NOT_STARTED
     status_reason: Optional[str] = None
-    last_summary_ref: Optional[UUID] = None
-    last_validation_ref: Optional[UUID] = None
+    last_summary_ref: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

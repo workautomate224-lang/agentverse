@@ -334,9 +334,6 @@ class BlueprintSlot(Base):
     - AI Generation (synthetic, with explicit labeling)
     """
     __tablename__ = "blueprint_slots"
-    __table_args__ = (
-        UniqueConstraint('blueprint_id', 'slot_id', name='uq_slot_blueprint'),
-    )
 
     # Identity
     id: Mapped[uuid.UUID] = mapped_column(
@@ -350,10 +347,10 @@ class BlueprintSlot(Base):
         nullable=False,
         index=True
     )
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     # Note: tenant_id is inherited from parent blueprint (no direct column needed)
 
     # Slot definition
-    slot_id: Mapped[str] = mapped_column(String(100), nullable=False)
     slot_name: Mapped[str] = mapped_column(String(255), nullable=False)
     slot_type: Mapped[str] = mapped_column(
         String(50), default=SlotType.TABLE.value, nullable=False
@@ -400,13 +397,8 @@ class BlueprintSlot(Base):
     )  # Reference to data source/artifact that fulfills this slot
     fulfillment_method: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
-    # AI artifacts (blueprint.md §6.3)
-    validation_artifact_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), nullable=True
-    )
-    summary_artifact_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), nullable=True
-    )
+    # AI scoring (blueprint.md §6.3)
+    # Note: validation_artifact_id and summary_artifact_id to be added in future migration
     alignment_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     alignment_reasons: Mapped[Optional[List[str]]] = mapped_column(
         JSONB, nullable=True
@@ -428,14 +420,14 @@ class BlueprintSlot(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<BlueprintSlot {self.slot_id} type={self.slot_type}>"
+        return f"<BlueprintSlot {self.id} name={self.slot_name} type={self.slot_type}>"
 
     def to_dict(self) -> Dict[str, Any]:
         """Return dictionary representation."""
         return {
             "id": str(self.id),
             "blueprint_id": str(self.blueprint_id),
-            "slot_id": self.slot_id,
+            "sort_order": self.sort_order,
             "slot_name": self.slot_name,
             "slot_type": self.slot_type,
             "required_level": self.required_level,
@@ -476,9 +468,6 @@ class BlueprintTask(Base):
     - alerts
     """
     __tablename__ = "blueprint_tasks"
-    __table_args__ = (
-        UniqueConstraint('blueprint_id', 'task_id', name='uq_task_blueprint'),
-    )
 
     # Identity
     id: Mapped[uuid.UUID] = mapped_column(
@@ -492,12 +481,9 @@ class BlueprintTask(Base):
         nullable=False,
         index=True
     )
-    # Note: tenant_id is inherited from parent blueprint (no direct column needed)
-
-    # Task identification
-    task_id: Mapped[str] = mapped_column(String(100), nullable=False)
-    section_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    section_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Note: tenant_id is inherited from parent blueprint (no direct column needed)
 
     # Task content (blueprint.md §3.1.D)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -531,12 +517,10 @@ class BlueprintTask(Base):
     status_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # AI artifacts
-    last_summary_ref: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), nullable=True
+    last_summary_ref: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True
     )
-    last_validation_ref: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), nullable=True
-    )
+    # Note: last_validation_ref to be added in future migration
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
@@ -554,14 +538,13 @@ class BlueprintTask(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<BlueprintTask {self.task_id} section={self.section_id}>"
+        return f"<BlueprintTask {self.id} section={self.section_id} title={self.title}>"
 
     def to_dict(self) -> Dict[str, Any]:
         """Return dictionary representation."""
         return {
             "id": str(self.id),
             "blueprint_id": str(self.blueprint_id),
-            "task_id": self.task_id,
             "section_id": self.section_id,
             "sort_order": self.sort_order,
             "title": self.title,
@@ -573,7 +556,7 @@ class BlueprintTask(Base):
             "alert_config": self.alert_config,
             "status": self.status,
             "status_reason": self.status_reason,
-            "last_summary_ref": str(self.last_summary_ref) if self.last_summary_ref else None,
+            "last_summary_ref": self.last_summary_ref,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
