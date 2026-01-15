@@ -4192,6 +4192,144 @@ class ApiClient {
       body: JSON.stringify(data),
     });
   }
+
+  // ========== Blueprint Endpoints (blueprint.md §3, §4) ==========
+
+  /**
+   * Get active blueprint for a project.
+   */
+  async getActiveBlueprint(projectId: string): Promise<Blueprint | null> {
+    try {
+      return await this.request<Blueprint>(`/api/v1/blueprints/project/${projectId}/active`);
+    } catch (error) {
+      // Return null if no active blueprint exists
+      if (error instanceof Error && error.message.includes('404')) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Get a specific blueprint by ID.
+   */
+  async getBlueprint(blueprintId: string): Promise<Blueprint> {
+    return this.request<Blueprint>(`/api/v1/blueprints/${blueprintId}`);
+  }
+
+  /**
+   * Create a new blueprint for a project.
+   */
+  async createBlueprint(data: BlueprintCreate): Promise<Blueprint> {
+    return this.request<Blueprint>('/api/v1/blueprints/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Update a blueprint.
+   */
+  async updateBlueprint(blueprintId: string, data: BlueprintUpdate): Promise<Blueprint> {
+    return this.request<Blueprint>(`/api/v1/blueprints/${blueprintId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Submit clarification answers and trigger blueprint build.
+   */
+  async submitClarificationAnswers(
+    blueprintId: string,
+    data: SubmitClarificationAnswers
+  ): Promise<{ blueprint: Blueprint; job_id: string }> {
+    return this.request<{ blueprint: Blueprint; job_id: string }>(
+      `/api/v1/blueprints/${blueprintId}/clarify`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+  }
+
+  /**
+   * Get slots for a blueprint.
+   */
+  async getBlueprintSlots(blueprintId: string): Promise<BlueprintSlot[]> {
+    return this.request<BlueprintSlot[]>(`/api/v1/blueprints/${blueprintId}/slots`);
+  }
+
+  /**
+   * Update a slot.
+   */
+  async updateBlueprintSlot(
+    blueprintId: string,
+    slotId: string,
+    data: BlueprintSlotUpdate
+  ): Promise<BlueprintSlot> {
+    return this.request<BlueprintSlot>(`/api/v1/blueprints/${blueprintId}/slots/${slotId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Get tasks for a blueprint.
+   */
+  async getBlueprintTasks(blueprintId: string): Promise<BlueprintTask[]> {
+    return this.request<BlueprintTask[]>(`/api/v1/blueprints/${blueprintId}/tasks`);
+  }
+
+  /**
+   * Update a task.
+   */
+  async updateBlueprintTask(
+    blueprintId: string,
+    taskId: string,
+    data: BlueprintTaskUpdate
+  ): Promise<BlueprintTask> {
+    return this.request<BlueprintTask>(`/api/v1/blueprints/${blueprintId}/tasks/${taskId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Get project checklist.
+   */
+  async getProjectChecklist(projectId: string): Promise<ProjectChecklist> {
+    return this.request<ProjectChecklist>(`/api/v1/blueprints/project/${projectId}/checklist`);
+  }
+
+  /**
+   * Get guidance panel for a section.
+   */
+  async getGuidancePanel(projectId: string, sectionId: string): Promise<GuidancePanel> {
+    return this.request<GuidancePanel>(
+      `/api/v1/blueprints/project/${projectId}/guidance/${sectionId}`
+    );
+  }
+
+  /**
+   * Get goal analysis result from a PIL job artifact.
+   */
+  async getGoalAnalysisResult(projectId: string): Promise<GoalAnalysisResult | null> {
+    try {
+      // Get artifacts filtered by goal_analysis type
+      const artifacts = await this.listPILArtifacts({
+        project_id: projectId,
+        artifact_type: 'clarifying_questions',
+        limit: 1,
+      });
+      if (artifacts.length > 0 && artifacts[0].content) {
+        return artifacts[0].content as unknown as GoalAnalysisResult;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
 }
 
 // Data Source Types
@@ -6594,6 +6732,273 @@ export interface PILJobNotification {
   message: string;
   artifact_ids: string[];
   timestamp: string;
+}
+
+// =============================================================================
+// Blueprint Types (blueprint.md §3, §4 - Project Intelligence Layer)
+// =============================================================================
+
+/** Domain classification for project goals */
+export type DomainGuess =
+  | 'election'
+  | 'market_demand'
+  | 'production_forecast'
+  | 'policy_impact'
+  | 'perception_risk'
+  | 'crime_route'
+  | 'personal_decision'
+  | 'generic';
+
+/** Output types required */
+export type TargetOutput =
+  | 'distribution'
+  | 'point_estimate'
+  | 'ranked_outcomes'
+  | 'paths'
+  | 'recommendations';
+
+/** Slot types */
+export type SlotType =
+  | 'TimeSeries'
+  | 'Table'
+  | 'EntitySet'
+  | 'Graph'
+  | 'TextCorpus'
+  | 'Labels'
+  | 'Ruleset'
+  | 'AssumptionSet'
+  | 'PersonaSet'
+  | 'EventScriptSet';
+
+/** Requirement level for slots */
+export type RequiredLevel = 'required' | 'recommended' | 'optional';
+
+/** Alert states for checklist items */
+export type AlertState = 'ready' | 'needs_attention' | 'blocked' | 'not_started';
+
+/** Available task actions */
+export type TaskAction = 'ai_generate' | 'ai_research' | 'manual_add' | 'connect_source';
+
+/** Acquisition methods for slots */
+export type AcquisitionMethod =
+  | 'manual_upload'
+  | 'connect_api'
+  | 'ai_research'
+  | 'ai_generation'
+  | 'snapshot_import';
+
+/** Clarifying question types */
+export type ClarifyingQuestionType = 'single_select' | 'multi_select' | 'short_input' | 'long_input';
+
+/** Clarifying question from goal analysis */
+export interface ClarifyingQuestion {
+  id: string;
+  question: string;
+  reason: string;
+  type: ClarifyingQuestionType;
+  options?: string[];
+  required: boolean;
+}
+
+/** Blueprint slot response */
+export interface BlueprintSlot {
+  id: string;
+  blueprint_id: string;
+  slot_id: string;
+  slot_name: string;
+  slot_type: SlotType;
+  required_level: RequiredLevel;
+  description: string | null;
+  schema_requirements: Record<string, unknown> | null;
+  temporal_requirements: Record<string, unknown> | null;
+  quality_requirements: Record<string, unknown> | null;
+  allowed_acquisition_methods: AcquisitionMethod[] | null;
+  validation_plan: Record<string, unknown> | null;
+  derived_artifacts: string[] | null;
+  status: AlertState;
+  status_reason: string | null;
+  fulfilled: boolean;
+  fulfilled_by: Record<string, unknown> | null;
+  fulfillment_method: AcquisitionMethod | null;
+  alignment_score: number | null;
+  alignment_reasons: string[] | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Blueprint task response */
+export interface BlueprintTask {
+  id: string;
+  blueprint_id: string;
+  task_id: string;
+  section_id: string;
+  sort_order: number;
+  title: string;
+  description: string | null;
+  why_it_matters: string | null;
+  linked_slot_ids: string[] | null;
+  available_actions: TaskAction[] | null;
+  completion_criteria: Record<string, unknown> | null;
+  alert_config: Record<string, unknown> | null;
+  status: AlertState;
+  status_reason: string | null;
+  last_summary_ref: string | null;
+  last_validation_ref: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Blueprint response */
+export interface Blueprint {
+  id: string;
+  project_id: string;
+  tenant_id: string;
+  version: number;
+  policy_version: string;
+  is_active: boolean;
+  goal_text: string;
+  goal_summary: string | null;
+  domain_guess: DomainGuess;
+  target_outputs: TargetOutput[] | null;
+  horizon: Record<string, unknown> | null;
+  scope: Record<string, unknown> | null;
+  success_metrics: Record<string, unknown> | null;
+  recommended_core: string;
+  primary_drivers: string[] | null;
+  required_modules: string[] | null;
+  calibration_plan: Record<string, unknown> | null;
+  branching_plan: Record<string, unknown> | null;
+  clarification_answers: Record<string, string> | null;
+  constraints_applied: string[] | null;
+  risk_notes: string[] | null;
+  created_by: string | null;
+  is_draft: boolean;
+  created_at: string;
+  updated_at: string;
+  slots: BlueprintSlot[];
+  tasks: BlueprintTask[];
+}
+
+/** Blueprint summary for lists */
+export interface BlueprintSummary {
+  id: string;
+  project_id: string;
+  version: number;
+  is_active: boolean;
+  goal_summary: string | null;
+  domain_guess: DomainGuess;
+  is_draft: boolean;
+  created_at: string;
+  slots_ready: number;
+  slots_total: number;
+  tasks_ready: number;
+  tasks_total: number;
+}
+
+/** Goal analysis result */
+export interface GoalAnalysisResult {
+  goal_summary: string;
+  domain_guess: DomainGuess;
+  clarifying_questions: ClarifyingQuestion[];
+  blueprint_preview: Record<string, unknown>;
+  risk_notes: string[];
+}
+
+/** Create blueprint request */
+export interface BlueprintCreate {
+  project_id: string;
+  goal_text: string;
+  skip_clarification?: boolean;
+}
+
+/** Update blueprint request */
+export interface BlueprintUpdate {
+  goal_summary?: string;
+  domain_guess?: DomainGuess;
+  target_outputs?: TargetOutput[];
+  horizon?: Record<string, unknown>;
+  scope?: Record<string, unknown>;
+  success_metrics?: Record<string, unknown>;
+  recommended_core?: string;
+  primary_drivers?: string[];
+  required_modules?: string[];
+  calibration_plan?: Record<string, unknown>;
+  branching_plan?: Record<string, unknown>;
+  clarification_answers?: Record<string, string>;
+  constraints_applied?: string[];
+  risk_notes?: string[];
+  is_draft?: boolean;
+}
+
+/** Update slot request */
+export interface BlueprintSlotUpdate {
+  status?: AlertState;
+  status_reason?: string;
+  fulfilled?: boolean;
+  fulfilled_by?: Record<string, unknown>;
+  fulfillment_method?: AcquisitionMethod;
+  alignment_score?: number;
+  alignment_reasons?: string[];
+}
+
+/** Update task request */
+export interface BlueprintTaskUpdate {
+  status?: AlertState;
+  status_reason?: string;
+  last_summary_ref?: string;
+  last_validation_ref?: string;
+}
+
+/** Submit clarification answers request */
+export interface SubmitClarificationAnswers {
+  clarification_answers: Record<string, string>;
+}
+
+/** Checklist item */
+export interface ChecklistItem {
+  id: string;
+  title: string;
+  section_id: string;
+  status: AlertState;
+  status_reason: string | null;
+  why_it_matters: string | null;
+  missing_items: string[] | null;
+  next_action: Record<string, string> | null;
+  latest_summary: string | null;
+  match_score: number | null;
+}
+
+/** Project checklist */
+export interface ProjectChecklist {
+  project_id: string;
+  blueprint_id: string;
+  blueprint_version: number;
+  items: ChecklistItem[];
+  ready_count: number;
+  needs_attention_count: number;
+  blocked_count: number;
+  not_started_count: number;
+  overall_readiness: string;
+}
+
+/** Next suggested action */
+export interface NextAction {
+  action: TaskAction;
+  target_slot_id: string | null;
+  target_task_id: string | null;
+  reason: string;
+}
+
+/** Guidance panel for a section */
+export interface GuidancePanel {
+  section_id: string;
+  project_id: string;
+  blueprint_version: number;
+  tasks: BlueprintTask[];
+  required_slots: BlueprintSlot[];
+  recommended_slots: BlueprintSlot[];
+  overall_status: AlertState;
+  next_suggested_action: NextAction | null;
 }
 
 export const api = new ApiClient(API_URL);

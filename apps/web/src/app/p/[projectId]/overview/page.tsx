@@ -3,6 +3,7 @@
 /**
  * Project Overview Page
  * Shows project header, setup checklist, real stats, and quick action CTAs
+ * Reference: blueprint.md §4, §7
  */
 
 import { useParams } from 'next/navigation';
@@ -29,9 +30,11 @@ import {
   Loader2,
   XCircle,
   AlertCircle,
+  HelpCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useNodes, useRuns, useProject } from '@/hooks/useApi';
+import { useNodes, useRuns, useProject, useActiveBlueprint } from '@/hooks/useApi';
+import { ClarifyPanel } from '@/components/pil';
 import { useMemo } from 'react';
 
 // Core type styling
@@ -123,7 +126,10 @@ export default function ProjectOverviewPage() {
   const { data: nodes, isLoading: nodesLoading } = useNodes({ project_id: projectId, limit: 100 });
   const { data: runs, isLoading: runsLoading } = useRuns({ project_id: projectId, limit: 100 });
 
-  const isLoading = projectLoading || nodesLoading || runsLoading;
+  // Blueprint data for Clarify Panel (blueprint.md §4, §7)
+  const { data: blueprint, isLoading: blueprintLoading } = useActiveBlueprint(projectId);
+
+  const isLoading = projectLoading || nodesLoading || runsLoading || blueprintLoading;
 
   // Calculate stats from real data
   const stats = useMemo(() => {
@@ -264,6 +270,13 @@ export default function ProjectOverviewPage() {
                   <ArrowRight className="w-4 h-4 text-cyan-400 group-hover:translate-x-1 transition-transform" />
                 </div>
               </Link>
+            </div>
+          )}
+
+          {/* Clarify Panel - shows when blueprint is draft and needs clarification (blueprint.md §4) */}
+          {blueprint && blueprint.is_draft && (
+            <div className="max-w-2xl mb-6">
+              <ClarifyPanel projectId={projectId} />
             </div>
           )}
 

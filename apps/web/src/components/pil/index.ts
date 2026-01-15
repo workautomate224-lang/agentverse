@@ -7,3 +7,4 @@
 
 export { PILJobProgress, ActiveJobsIndicator } from './PILJobProgress';
 export { ActiveJobsBanner } from './ActiveJobsBanner';
+export { ClarifyPanel } from './ClarifyPanel';

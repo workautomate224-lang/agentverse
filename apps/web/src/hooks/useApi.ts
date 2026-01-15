@@ -167,6 +167,19 @@ import api, {
   PILArtifactCreate,
   PILArtifactType,
   PILJobStats,
+  // Blueprint types (blueprint.md §3, §4)
+  Blueprint,
+  BlueprintCreate,
+  BlueprintUpdate,
+  BlueprintSlot,
+  BlueprintSlotUpdate,
+  BlueprintTask,
+  BlueprintTaskUpdate,
+  SubmitClarificationAnswers,
+  ProjectChecklist,
+  GuidancePanel,
+  GoalAnalysisResult,
+  ClarifyingQuestion,
 } from '@/lib/api';
 
 // Extended session user type for type safety
@@ -3731,5 +3744,207 @@ export function useCreatePILArtifact() {
         queryClient.invalidateQueries({ queryKey: ['pil-jobs', artifact.job_id, 'artifacts'] });
       }
     },
+  });
+}
+
+// =============================================================================
+// Blueprint Hooks (blueprint.md §3, §4)
+// =============================================================================
+
+/**
+ * Get active blueprint for a project.
+ */
+export function useActiveBlueprint(projectId: string | undefined) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['blueprints', 'active', projectId],
+    queryFn: () => api.getActiveBlueprint(projectId!),
+    enabled: isReady && !!projectId,
+    staleTime: CACHE_TIMES.MEDIUM,
+  });
+}
+
+/**
+ * Get a specific blueprint by ID.
+ */
+export function useBlueprint(blueprintId: string | undefined) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['blueprints', blueprintId],
+    queryFn: () => api.getBlueprint(blueprintId!),
+    enabled: isReady && !!blueprintId,
+    staleTime: CACHE_TIMES.MEDIUM,
+  });
+}
+
+/**
+ * Create a new blueprint.
+ */
+export function useCreateBlueprint() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: (data: BlueprintCreate) => api.createBlueprint(data),
+    onSuccess: (blueprint) => {
+      queryClient.invalidateQueries({ queryKey: ['blueprints'] });
+      queryClient.invalidateQueries({ queryKey: ['pil-jobs'] });
+    },
+  });
+}
+
+/**
+ * Update a blueprint.
+ */
+export function useUpdateBlueprint() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: ({ blueprintId, data }: { blueprintId: string; data: BlueprintUpdate }) =>
+      api.updateBlueprint(blueprintId, data),
+    onSuccess: (blueprint) => {
+      queryClient.invalidateQueries({ queryKey: ['blueprints'] });
+    },
+  });
+}
+
+/**
+ * Submit clarification answers and trigger blueprint build.
+ */
+export function useSubmitClarificationAnswers() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: ({
+      blueprintId,
+      data,
+    }: {
+      blueprintId: string;
+      data: SubmitClarificationAnswers;
+    }) => api.submitClarificationAnswers(blueprintId, data),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['blueprints'] });
+      queryClient.invalidateQueries({ queryKey: ['pil-jobs'] });
+    },
+  });
+}
+
+/**
+ * Get slots for a blueprint.
+ */
+export function useBlueprintSlots(blueprintId: string | undefined) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['blueprints', blueprintId, 'slots'],
+    queryFn: () => api.getBlueprintSlots(blueprintId!),
+    enabled: isReady && !!blueprintId,
+    staleTime: CACHE_TIMES.MEDIUM,
+  });
+}
+
+/**
+ * Update a slot.
+ */
+export function useUpdateBlueprintSlot() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: ({
+      blueprintId,
+      slotId,
+      data,
+    }: {
+      blueprintId: string;
+      slotId: string;
+      data: BlueprintSlotUpdate;
+    }) => api.updateBlueprintSlot(blueprintId, slotId, data),
+    onSuccess: (slot) => {
+      queryClient.invalidateQueries({ queryKey: ['blueprints'] });
+    },
+  });
+}
+
+/**
+ * Get tasks for a blueprint.
+ */
+export function useBlueprintTasks(blueprintId: string | undefined) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['blueprints', blueprintId, 'tasks'],
+    queryFn: () => api.getBlueprintTasks(blueprintId!),
+    enabled: isReady && !!blueprintId,
+    staleTime: CACHE_TIMES.MEDIUM,
+  });
+}
+
+/**
+ * Update a task.
+ */
+export function useUpdateBlueprintTask() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: ({
+      blueprintId,
+      taskId,
+      data,
+    }: {
+      blueprintId: string;
+      taskId: string;
+      data: BlueprintTaskUpdate;
+    }) => api.updateBlueprintTask(blueprintId, taskId, data),
+    onSuccess: (task) => {
+      queryClient.invalidateQueries({ queryKey: ['blueprints'] });
+    },
+  });
+}
+
+/**
+ * Get project checklist.
+ */
+export function useProjectChecklist(projectId: string | undefined) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['project-checklist', projectId],
+    queryFn: () => api.getProjectChecklist(projectId!),
+    enabled: isReady && !!projectId,
+    staleTime: CACHE_TIMES.SHORT,
+  });
+}
+
+/**
+ * Get guidance panel for a section.
+ */
+export function useGuidancePanel(projectId: string | undefined, sectionId: string | undefined) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['guidance-panel', projectId, sectionId],
+    queryFn: () => api.getGuidancePanel(projectId!, sectionId!),
+    enabled: isReady && !!projectId && !!sectionId,
+    staleTime: CACHE_TIMES.MEDIUM,
+  });
+}
+
+/**
+ * Get goal analysis result from artifacts.
+ */
+export function useGoalAnalysisResult(projectId: string | undefined) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['goal-analysis-result', projectId],
+    queryFn: () => api.getGoalAnalysisResult(projectId!),
+    enabled: isReady && !!projectId,
+    staleTime: CACHE_TIMES.MEDIUM,
   });
 }
