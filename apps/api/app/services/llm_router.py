@@ -381,10 +381,10 @@ class LLMRouter:
         context: LLMRouterContext,
     ) -> List[Dict[str, str]]:
         """
-        Inject professional response standards and backtest policy into system prompt.
+        Inject appropriate policy into system prompt based on mode.
 
-        Always injects professional response standards for comprehensive outputs.
-        Additionally injects backtest policy if running in backtest mode.
+        - Backtest mode: Concise temporal policy (saves tokens, faster responses)
+        - Live mode: Professional response standards (comprehensive outputs)
 
         Reference: temporal.md §8 Phase 4 item 11
 
@@ -395,24 +395,24 @@ class LLMRouter:
         Returns:
             Modified message list with policies injected
         """
-        # Build the policy text - always include professional standards
-        policy_parts = [PROFESSIONAL_RESPONSE_PROMPT]
+        policy_text = None
 
-        # Add backtest policy if in backtest mode
         if context.temporal_mode == "backtest" and context.cutoff_time:
+            # Backtest mode: Use concise temporal policy ONLY (no professional prompt)
+            # This saves tokens and produces faster, more direct responses
             from app.services.llm_data_tools import get_backtest_policy_prompt
 
-            backtest_policy = get_backtest_policy_prompt(
+            policy_text = get_backtest_policy_prompt(
                 as_of_datetime=context.cutoff_time,
                 isolation_level=context.isolation_level,
                 timezone=context.timezone,
             )
-            policy_parts.append(backtest_policy)
             logger.info(
                 f"LLM_ROUTER: Injected backtest policy (as_of={context.cutoff_time}, level={context.isolation_level})"
             )
-
-        policy_text = "\n\n".join(policy_parts)
+        else:
+            # Live mode: Use professional response standards for comprehensive outputs
+            policy_text = PROFESSIONAL_RESPONSE_PROMPT
 
         # Find system message and inject policy
         modified_messages = []
