@@ -6,7 +6,7 @@ or thinking mode should be enabled. It uses LLM-based pre-classification
 to make intelligent decisions without manual intervention.
 
 Key Design:
-- Uses fast, cheap model (gpt-4o-mini) for classification
+- Uses gpt-5.2 for accurate classification
 - Caches classification results for similar prompts
 - Timeout: 3 seconds max with fallback to defaults
 - For multi-agent orchestration: fully automatic (no manual override)
@@ -99,7 +99,7 @@ class SmartClassifier:
         self,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        classifier_model: str = "openai/gpt-4o-mini",
+        classifier_model: str = "openai/gpt-5.2",
         timeout_seconds: float = 3.0,
     ):
         """

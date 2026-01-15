@@ -97,7 +97,7 @@ RULES:
         'X-Title': 'AgentVerse SmartClassifier',
       },
       body: JSON.stringify({
-        model: 'openai/gpt-4o-mini',
+        model: 'openai/gpt-5.2',
         messages: [{ role: 'user', content: classifierPrompt }],
         temperature: 0,
         max_tokens: 150,
