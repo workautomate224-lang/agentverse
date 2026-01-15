@@ -1,6 +1,6 @@
 # AgentVerse Technology Stack
 
-> Last Updated: 2026-01-14
+> Last Updated: 2026-01-15
 
 ## Overview
 
@@ -201,6 +201,82 @@ agentverse/
 
 ---
 
+## Blueprint-Driven Project Orchestration
+
+The Blueprint system provides AI-assisted project configuration and alignment tracking.
+Reference: `docs/blueprint.md` for full specification.
+
+### Core Concepts
+
+| Concept | Description |
+|---------|-------------|
+| Blueprint | AI-generated project plan with Goals, Slots, and Tasks |
+| Goal | High-level simulation objective (e.g., "Test product adoption") |
+| Slot | Configuration point to fill (e.g., "Target demographics") |
+| Task | Actionable item with status tracking |
+| Alignment Score | How well current config matches blueprint requirements |
+
+### Blueprint States
+
+```
+draft → finalized → archived
+```
+
+- **Draft**: Being configured, can be edited
+- **Finalized**: Locked for execution, drives checklist
+- **Archived**: Superseded by newer blueprint
+
+### PIL (Project Intelligence Layer)
+
+PIL provides background job processing and real-time feedback for blueprint operations.
+
+#### PIL Components (`apps/web/src/components/pil/`)
+
+| Component | Purpose |
+|-----------|---------|
+| `PILJobProgress` | Displays individual job progress |
+| `ActiveJobsIndicator` | Header badge showing active job count |
+| `ActiveJobsBanner` | Banner showing all running jobs |
+| `ClarifyPanel` | Structured Q&A for blueprint refinement |
+| `SaveDraftIndicator` | Auto-save status indicator |
+| `ExitConfirmationModal` | Confirms exit with unsaved changes |
+| `BlueprintChecklist` | Dynamic checklist from blueprint requirements |
+| `GuidancePanel` | Section-specific contextual guidance |
+| `AlignmentScore` | Visual alignment score display |
+| `AlignmentBadge` | Compact inline alignment indicator |
+
+#### PIL Job Types
+
+| Job Type | Description | Celery Task |
+|----------|-------------|-------------|
+| `goal_analysis` | Analyze project goals from description | `analyze_project_goals` |
+| `blueprint_generate` | Generate blueprint from goals | `generate_blueprint` |
+| `slot_fill` | AI-assisted slot filling | `fill_blueprint_slot` |
+| `alignment_check` | Calculate alignment score | `check_blueprint_alignment` |
+
+#### Alert States
+
+```typescript
+type AlertState = 'ready' | 'needs_attention' | 'blocked' | 'not_started';
+```
+
+| State | Color | Meaning |
+|-------|-------|---------|
+| `ready` | Green | Fully configured, passes validation |
+| `needs_attention` | Yellow | Partially configured, needs review |
+| `blocked` | Red | Cannot proceed, critical issue |
+| `not_started` | Gray | Not yet configured |
+
+### Architecture Constraints
+
+From `docs/blueprint.md`:
+
+1. **Fork-not-mutate (C1)**: Never modify existing Nodes; create new versions
+2. **On-demand (C2)**: No continuous simulation; execute only when triggered
+3. **LLMs as compilers (C5)**: LLMs plan/compile once; no LLM in tick loops
+
+---
+
 ## Environment Variables
 
 ### Frontend (`apps/web/.env.local`)
@@ -255,6 +331,8 @@ ENVIRONMENT=development
 
 ## File References
 
+### Core Application
+
 | Purpose | Location |
 |---------|----------|
 | API Client | `apps/web/src/lib/api.ts` |
@@ -264,3 +342,16 @@ ENVIRONMENT=development
 | DB Migrations | `apps/api/alembic/versions/` |
 | Auth Config | `apps/web/src/lib/auth.ts` |
 | Backend Config | `apps/api/app/core/config.py` |
+
+### Blueprint & PIL System
+
+| Purpose | Location |
+|---------|----------|
+| PIL Components | `apps/web/src/components/pil/` |
+| PIL Component Index | `apps/web/src/components/pil/index.ts` |
+| Blueprint Model | `apps/api/app/models/blueprint.py` |
+| Blueprint Schemas | `apps/api/app/schemas/blueprint.py` |
+| Blueprint API | `apps/api/app/api/v1/blueprints.py` |
+| PIL Celery Tasks | `apps/api/app/tasks/pil_jobs.py` |
+| Blueprint Contracts | `packages/contracts/src/blueprint.ts` |
+| Blueprint Specification | `docs/blueprint.md` |

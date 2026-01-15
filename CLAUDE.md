@@ -20,6 +20,7 @@ agentverse/
 │   │   └── src/
 │   │       ├── app/           # App router pages
 │   │       ├── components/    # React components
+│   │       │   └── pil/       # PIL (Project Intelligence Layer) components
 │   │       ├── hooks/         # React Query hooks (useApi.ts)
 │   │       └── lib/           # API client, utilities
 │   └── api/                   # FastAPI backend
@@ -35,6 +36,7 @@ agentverse/
 │   └── ui/                    # Shared UI components
 └── docs/
     ├── project.md             # Technical specification
+    ├── blueprint.md           # Blueprint orchestration spec
     └── Interaction_design.md  # UI/UX specification
 ```
 
@@ -90,6 +92,9 @@ These constraints are non-negotiable:
 | LLM gateway | `apps/api/app/services/llm_router.py` |
 | Simulation engine | `apps/api/app/engine/` |
 | DB migrations | `apps/api/alembic/versions/` |
+| PIL components | `apps/web/src/components/pil/` |
+| Blueprint API | `apps/api/app/api/v1/blueprints.py` |
+| Blueprint spec | `docs/blueprint.md` |
 
 ## Deployment Stack
 
@@ -117,7 +122,9 @@ These constraints are non-negotiable:
 
 ### Features Using OpenRouter
 - Event Lab scenario generation (`/p/:id/event-lab`)
-- Future AI-powered analysis features
+- Blueprint goal analysis (PIL jobs)
+- Blueprint slot filling (AI-assisted configuration)
+- Alignment scoring and recommendations
 
 ### API Details
 - Provider: OpenRouter (https://openrouter.ai)
