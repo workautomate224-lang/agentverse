@@ -59,6 +59,7 @@
 
 **Files Created/Modified in Phase C:**
 - `apps/web/src/app/dashboard/runs/page.tsx` - MODIFIED (transformed to Job Center with tabs)
+- `apps/web/src/app/dashboard/layout.tsx` - MODIFIED (added ActiveJobsBanner to layout)
 - Uses existing: `apps/web/src/components/pil/PILJobProgress.tsx` (inline progress)
 - Uses existing: `apps/web/src/components/pil/ActiveJobsBanner.tsx` (global banner)
 - Uses existing: `apps/web/src/hooks/useApi.ts` (usePILJobs, useActivePILJobs hooks)
