@@ -55,6 +55,8 @@ from app.models.blueprint import (
     TaskAction,
     PLATFORM_SECTIONS,
 )
+from app.models.llm import LLMProfileKey
+from app.services.llm_router import LLMRouter, LLMRouterContext
 
 
 def get_async_session():
@@ -246,17 +248,22 @@ async def _goal_analysis_async(task, job_id: str, context: dict):
 
             goal_text = job.input_params.get("goal_text", "")
 
-            # Stage 1: Parse goal (20%)
+            # Create LLMRouter context
+            llm_context = LLMRouterContext(
+                tenant_id=str(job.tenant_id),
+                project_id=str(job.project_id),
+                phase="compilation",  # C5 tracking - LLM used for planning
+            )
+
+            # Stage 1: Parse goal and classify domain (20%)
             await update_job_progress(
                 session, job_uuid, 20,
-                stage_name="Parsing goal text",
+                stage_name="Analyzing goal and domain",
                 stages_completed=1
             )
 
-            # Simulate LLM call for goal analysis
-            # In production, this calls LLMRouter
-            goal_summary = _generate_goal_summary(goal_text)
-            domain_guess = _classify_domain(goal_text)
+            # Use LLM for goal analysis and domain classification
+            goal_summary, domain_guess = await _llm_analyze_goal(session, goal_text, llm_context)
 
             # Stage 2: Generate clarifying questions (50%)
             await update_job_progress(
@@ -265,17 +272,19 @@ async def _goal_analysis_async(task, job_id: str, context: dict):
                 stages_completed=2
             )
 
-            clarifying_questions = _generate_clarifying_questions(goal_text, domain_guess)
+            clarifying_questions = await _llm_generate_clarifying_questions(
+                session, goal_text, domain_guess, llm_context
+            )
 
-            # Stage 3: Generate blueprint preview (80%)
+            # Stage 3: Generate blueprint preview and assess risks (80%)
             await update_job_progress(
                 session, job_uuid, 80,
                 stage_name="Generating blueprint preview",
                 stages_completed=3
             )
 
-            blueprint_preview = _generate_blueprint_preview(domain_guess)
-            risk_notes = _assess_risks(goal_text, domain_guess)
+            blueprint_preview = await _llm_generate_blueprint_preview(session, domain_guess, llm_context)
+            risk_notes = await _llm_assess_risks(session, goal_text, domain_guess, llm_context)
 
             # Create artifacts
             artifact_ids = []
@@ -364,36 +373,187 @@ async def _goal_analysis_async(task, job_id: str, context: dict):
             raise
 
 
-def _generate_goal_summary(goal_text: str) -> str:
-    """Generate a concise summary of the user's goal."""
-    # Placeholder - in production, use LLMRouter
+# =============================================================================
+# LLM-Powered Analysis Functions
+# =============================================================================
+
+async def _llm_analyze_goal(
+    session: AsyncSession,
+    goal_text: str,
+    context: LLMRouterContext,
+) -> tuple[str, str]:
+    """
+    Use LLM to analyze goal text and classify domain.
+    Returns (goal_summary, domain_guess).
+    """
+    router = LLMRouter(session)
+
+    # Prompt for goal analysis and domain classification
+    system_prompt = """You are an expert project analyst for a predictive AI simulation platform.
+Your task is to analyze a user's project goal and:
+1. Create a concise summary (2-3 sentences) of what they want to predict
+2. Classify the domain into one of these categories:
+   - election: Election outcomes, voting behavior, political forecasting
+   - market_demand: Consumer demand, sales forecasting, market trends
+   - production_forecast: Manufacturing, supply chain, production planning
+   - policy_impact: Government policy effects, regulatory impact analysis
+   - perception_risk: Brand perception, reputation risk, public opinion
+   - generic: General prediction tasks that don't fit above categories
+
+Respond in JSON format:
+{
+  "goal_summary": "concise summary of the prediction goal",
+  "domain": "one of: election, market_demand, production_forecast, policy_impact, perception_risk, generic",
+  "confidence": 0.0-1.0
+}"""
+
+    user_prompt = f"""Analyze this project goal:
+
+"{goal_text}"
+
+Provide the goal summary and domain classification."""
+
+    try:
+        response = await router.complete(
+            profile_key=LLMProfileKey.PIL_GOAL_ANALYSIS.value,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            context=context,
+            temperature_override=0.3,  # Lower temperature for consistency
+            max_tokens_override=500,
+        )
+
+        # Parse JSON response
+        result = json.loads(response.content)
+        goal_summary = result.get("goal_summary", goal_text[:200])
+        domain = result.get("domain", "generic")
+
+        # Map to DomainGuess enum value
+        domain_map = {
+            "election": DomainGuess.ELECTION.value,
+            "market_demand": DomainGuess.MARKET_DEMAND.value,
+            "production_forecast": DomainGuess.PRODUCTION_FORECAST.value,
+            "policy_impact": DomainGuess.POLICY_IMPACT.value,
+            "perception_risk": DomainGuess.PERCEPTION_RISK.value,
+            "generic": DomainGuess.GENERIC.value,
+        }
+        domain_guess = domain_map.get(domain.lower(), DomainGuess.GENERIC.value)
+
+        return goal_summary, domain_guess
+
+    except Exception:
+        # Fallback to simple analysis if LLM fails
+        return _fallback_goal_analysis(goal_text)
+
+
+def _fallback_goal_analysis(goal_text: str) -> tuple[str, str]:
+    """Fallback goal analysis when LLM is unavailable."""
+    # Simple summary
     if len(goal_text) < 100:
-        return goal_text
-    return f"Project aims to {goal_text[:200]}..."
-
-
-def _classify_domain(goal_text: str) -> str:
-    """Classify the domain based on goal text."""
-    # Placeholder - in production, use LLMRouter
-    goal_lower = goal_text.lower()
-
-    if any(word in goal_lower for word in ["election", "vote", "candidate", "political"]):
-        return DomainGuess.ELECTION.value
-    elif any(word in goal_lower for word in ["market", "demand", "sales", "consumer"]):
-        return DomainGuess.MARKET_DEMAND.value
-    elif any(word in goal_lower for word in ["production", "manufacturing", "forecast"]):
-        return DomainGuess.PRODUCTION_FORECAST.value
-    elif any(word in goal_lower for word in ["policy", "regulation", "government"]):
-        return DomainGuess.POLICY_IMPACT.value
-    elif any(word in goal_lower for word in ["risk", "perception", "brand", "reputation"]):
-        return DomainGuess.PERCEPTION_RISK.value
+        goal_summary = goal_text
     else:
-        return DomainGuess.GENERIC.value
+        goal_summary = f"Project aims to {goal_text[:200]}..."
+
+    # Keyword-based domain classification
+    goal_lower = goal_text.lower()
+    if any(word in goal_lower for word in ["election", "vote", "candidate", "political"]):
+        domain = DomainGuess.ELECTION.value
+    elif any(word in goal_lower for word in ["market", "demand", "sales", "consumer"]):
+        domain = DomainGuess.MARKET_DEMAND.value
+    elif any(word in goal_lower for word in ["production", "manufacturing", "forecast"]):
+        domain = DomainGuess.PRODUCTION_FORECAST.value
+    elif any(word in goal_lower for word in ["policy", "regulation", "government"]):
+        domain = DomainGuess.POLICY_IMPACT.value
+    elif any(word in goal_lower for word in ["risk", "perception", "brand", "reputation"]):
+        domain = DomainGuess.PERCEPTION_RISK.value
+    else:
+        domain = DomainGuess.GENERIC.value
+
+    return goal_summary, domain
 
 
-def _generate_clarifying_questions(goal_text: str, domain: str) -> List[Dict]:
-    """Generate clarifying questions based on goal and domain."""
-    # Placeholder - in production, use LLMRouter
+async def _llm_generate_clarifying_questions(
+    session: AsyncSession,
+    goal_text: str,
+    domain: str,
+    context: LLMRouterContext,
+) -> List[Dict]:
+    """
+    Use LLM to generate clarifying questions for the project.
+    """
+    router = LLMRouter(session)
+
+    system_prompt = """You are an expert requirements analyst for a predictive AI simulation platform.
+Generate 3-5 clarifying questions to better understand the user's prediction project.
+
+Each question should:
+1. Help clarify scope, data needs, or success criteria
+2. Be answerable with a short response or selection
+3. Include a reason why this information is needed
+
+The platform runs agent-based simulations with personas representing population segments.
+Questions should help determine: prediction target, time horizon, geographic scope,
+data requirements, validation approach, and specific domain details.
+
+Respond in JSON format:
+{
+  "questions": [
+    {
+      "id": "q1",
+      "question": "The question text",
+      "reason": "Why this is important",
+      "type": "single_select" | "multi_select" | "short_input" | "long_input",
+      "options": ["option1", "option2"] (only for select types),
+      "required": true | false
+    }
+  ]
+}"""
+
+    user_prompt = f"""Generate clarifying questions for this project:
+
+Goal: "{goal_text}"
+Domain: {domain}
+
+Generate 3-5 questions tailored to this specific goal and domain."""
+
+    try:
+        response = await router.complete(
+            profile_key=LLMProfileKey.PIL_CLARIFYING_QUESTIONS.value,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            context=context,
+            temperature_override=0.5,  # Moderate creativity
+            max_tokens_override=1000,
+        )
+
+        result = json.loads(response.content)
+        questions = result.get("questions", [])
+
+        # Ensure required base questions are included
+        question_ids = {q.get("id") for q in questions}
+        if "time_horizon" not in question_ids:
+            questions.insert(0, {
+                "id": "time_horizon",
+                "question": "What time horizon are you targeting for predictions?",
+                "reason": "Affects data requirements and simulation approach",
+                "type": "single_select",
+                "options": ["1 month", "3 months", "6 months", "1 year", "2+ years"],
+                "required": True,
+            })
+
+        return questions
+
+    except Exception:
+        # Fallback to base questions
+        return _fallback_clarifying_questions(domain)
+
+
+def _fallback_clarifying_questions(domain: str) -> List[Dict]:
+    """Fallback questions when LLM is unavailable."""
     base_questions = [
         {
             "id": "q1",
@@ -420,7 +580,6 @@ def _generate_clarifying_questions(goal_text: str, domain: str) -> List[Dict]:
         },
     ]
 
-    # Add domain-specific questions
     if domain == DomainGuess.ELECTION.value:
         base_questions.append({
             "id": "q_election_1",
@@ -441,20 +600,88 @@ def _generate_clarifying_questions(goal_text: str, domain: str) -> List[Dict]:
     return base_questions
 
 
-def _generate_blueprint_preview(domain: str) -> Dict:
-    """Generate a preview of what the blueprint will look like."""
-    # Default required slots based on domain
+async def _llm_generate_blueprint_preview(
+    session: AsyncSession,
+    domain: str,
+    context: LLMRouterContext,
+) -> Dict:
+    """
+    Use LLM to generate a blueprint preview based on domain.
+    """
+    router = LLMRouter(session)
+
+    system_prompt = """You are an expert simulation architect for a predictive AI platform.
+Generate a blueprint preview for a simulation project based on the domain.
+
+The platform supports these input slot types:
+- PersonaSet: Population of agents with demographics and behaviors
+- Table: Structured data (demographics, survey results, etc.)
+- TimeSeries: Time-indexed data (sales, prices, trends)
+- EventScriptSet: External events affecting agent behavior
+- TextCorpus: Unstructured text data (news, social media)
+- Graph: Network/relationship data
+
+The platform has these sections:
+- inputs: Data sources and uploads
+- personas: Agent population configuration
+- rules: Decision rules and behavior models
+- run_params: Simulation parameters and outputs
+- reliability: Calibration and validation
+
+Respond in JSON format:
+{
+  "required_slots": ["slot_type1", "slot_type2"],
+  "recommended_slots": ["slot_type3"],
+  "section_tasks": {
+    "inputs": ["task1", "task2"],
+    "personas": ["task1"],
+    "rules": ["task1"],
+    "run_params": ["task1"],
+    "reliability": ["task1"]
+  },
+  "key_challenges": ["challenge1", "challenge2"]
+}"""
+
+    user_prompt = f"""Generate a blueprint preview for domain: {domain}
+
+What data slots and tasks would be needed for a typical project in this domain?"""
+
+    try:
+        response = await router.complete(
+            profile_key=LLMProfileKey.PIL_BLUEPRINT_GENERATION.value,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            context=context,
+            temperature_override=0.3,
+            max_tokens_override=800,
+        )
+
+        result = json.loads(response.content)
+        return {
+            "required_slots": result.get("required_slots", ["PersonaSet"]),
+            "recommended_slots": result.get("recommended_slots", ["EventScriptSet"]),
+            "section_tasks": result.get("section_tasks", {}),
+            "key_challenges": result.get("key_challenges", []),
+        }
+
+    except Exception:
+        return _fallback_blueprint_preview(domain)
+
+
+def _fallback_blueprint_preview(domain: str) -> Dict:
+    """Fallback blueprint preview when LLM is unavailable."""
     required_slots = ["PersonaSet"]
     recommended_slots = ["TimeSeries", "EventScriptSet"]
 
     if domain == DomainGuess.ELECTION.value:
-        required_slots.extend(["Table"])  # Voter data
-        recommended_slots.extend(["TextCorpus"])  # News/social media
+        required_slots.extend(["Table"])
+        recommended_slots.extend(["TextCorpus"])
     elif domain == DomainGuess.MARKET_DEMAND.value:
-        required_slots.extend(["TimeSeries"])  # Sales history
-        recommended_slots.extend(["Graph"])  # Market relationships
+        required_slots.extend(["TimeSeries"])
+        recommended_slots.extend(["Graph"])
 
-    # Section tasks
     section_tasks = {
         "inputs": ["Upload or connect data sources", "Validate data quality"],
         "personas": ["Create representative agent population", "Validate demographic distribution"],
@@ -470,11 +697,74 @@ def _generate_blueprint_preview(domain: str) -> Dict:
     }
 
 
-def _assess_risks(goal_text: str, domain: str) -> List[str]:
-    """Assess potential risks for the project."""
-    risks = []
+async def _llm_assess_risks(
+    session: AsyncSession,
+    goal_text: str,
+    domain: str,
+    context: LLMRouterContext,
+) -> List[str]:
+    """
+    Use LLM to assess potential risks for the project.
+    """
+    router = LLMRouter(session)
 
-    # Check for common risk patterns
+    system_prompt = """You are a risk analyst for a predictive AI simulation platform.
+Assess potential risks and challenges for a simulation project.
+
+Consider these risk categories:
+1. Data quality and availability risks
+2. Privacy and ethical concerns
+3. Technical feasibility risks
+4. Validation and calibration challenges
+5. Domain-specific pitfalls
+
+Respond in JSON format:
+{
+  "risks": [
+    "Risk description 1",
+    "Risk description 2"
+  ],
+  "recommendations": [
+    "Mitigation recommendation 1"
+  ]
+}
+
+Keep each risk to one clear sentence. Include 2-5 risks."""
+
+    user_prompt = f"""Assess risks for this project:
+
+Goal: "{goal_text}"
+Domain: {domain}
+
+What are the key risks and challenges?"""
+
+    try:
+        response = await router.complete(
+            profile_key=LLMProfileKey.PIL_RISK_ASSESSMENT.value,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            context=context,
+            temperature_override=0.4,
+            max_tokens_override=500,
+        )
+
+        result = json.loads(response.content)
+        risks = result.get("risks", [])
+
+        if not risks:
+            risks = ["No significant risks identified at this stage"]
+
+        return risks
+
+    except Exception:
+        return _fallback_risk_assessment(goal_text, domain)
+
+
+def _fallback_risk_assessment(goal_text: str, domain: str) -> List[str]:
+    """Fallback risk assessment when LLM is unavailable."""
+    risks = []
     goal_lower = goal_text.lower()
 
     if "sensitive" in goal_lower or "personal" in goal_lower:
