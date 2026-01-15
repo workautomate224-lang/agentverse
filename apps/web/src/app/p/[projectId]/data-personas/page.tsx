@@ -38,6 +38,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { GuidancePanel } from '@/components/pil';
 import {
   usePersonaTemplates,
   useGeneratePersonas,
@@ -925,6 +926,15 @@ export default function DataPersonasPage() {
         <p className="text-xs md:text-sm font-mono text-white/50 mt-1">
           Define and configure the agents that will participate in your simulation
         </p>
+      </div>
+
+      {/* Guidance Panel (blueprint.md §7) */}
+      <div className="max-w-3xl mb-6">
+        <GuidancePanel
+          sectionId="data-personas"
+          projectId={projectId}
+          defaultExpanded={false}
+        />
       </div>
 
       {/* Status Banner */}

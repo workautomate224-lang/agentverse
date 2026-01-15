@@ -62,8 +62,7 @@ import {
 import type { RunSummary, SubmitRunInput, NodeSummary, SpecRun, PILJob } from '@/lib/api';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/hooks/use-toast';
-import { ActiveJobsBanner } from '@/components/pil/ActiveJobsBanner';
-import { PILJobProgress } from '@/components/pil/PILJobProgress';
+import { ActiveJobsBanner, PILJobProgress, GuidancePanel } from '@/components/pil';
 
 // Tab types for Job Center
 type JobCenterTab = 'runs' | 'pil-jobs';
@@ -999,6 +998,15 @@ export default function RunCenterPage() {
         <p className="text-xs md:text-sm font-mono text-white/50 mt-1">
           Simulation runs and AI processing jobs for your project
         </p>
+      </div>
+
+      {/* Guidance Panel (blueprint.md §7) */}
+      <div className="max-w-3xl mb-6">
+        <GuidancePanel
+          sectionId="run-center"
+          projectId={projectId}
+          defaultExpanded={false}
+        />
       </div>
 
       {/* Active PIL Jobs Banner */}

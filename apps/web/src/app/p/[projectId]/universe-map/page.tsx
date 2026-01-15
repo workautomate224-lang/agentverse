@@ -78,6 +78,7 @@ import {
   Map as MapIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { GuidancePanel } from '@/components/pil';
 import {
   useUniverseMap,
   useNodes,
@@ -1590,6 +1591,15 @@ function UniverseMapCanvas() {
             </Button>
           </div>
         </div>
+      </div>
+
+      {/* Guidance Panel (blueprint.md §7) - Compact mode for canvas view */}
+      <div className="px-4 py-2">
+        <GuidancePanel
+          sectionId="universe-map"
+          projectId={projectId}
+          compact={true}
+        />
       </div>
 
       {/* Canvas */}

@@ -38,6 +38,7 @@ import {
   Filter,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { GuidancePanel } from '@/components/pil';
 
 // Rule template categories
 const ruleCategories = [
@@ -539,6 +540,15 @@ export default function RulesPage() {
         <p className="text-xs md:text-sm font-mono text-white/50 mt-1">
           Define decision rules and behavioral patterns for your simulation
         </p>
+      </div>
+
+      {/* Guidance Panel (blueprint.md §7) */}
+      <div className="max-w-3xl mb-6">
+        <GuidancePanel
+          sectionId="rules"
+          projectId={projectId}
+          defaultExpanded={false}
+        />
       </div>
 
       {/* Status Banner */}

@@ -30,6 +30,7 @@ import { useForkNode, useUniverseMap } from '@/hooks/useApi';
 import type { AskCandidateScenario, AskCompilationResult } from '@/lib/api';
 import { useMutation } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
+import { GuidancePanel } from '@/components/pil';
 import { toast } from '@/hooks/use-toast';
 
 // Local storage keys
@@ -442,6 +443,15 @@ export default function EventLabPage() {
         <p className="text-xs md:text-sm font-mono text-white/50 mt-1">
           Describe a &quot;what-if&quot; scenario and generate branches for your simulation
         </p>
+      </div>
+
+      {/* Guidance Panel (blueprint.md §7) */}
+      <div className="max-w-4xl mb-6">
+        <GuidancePanel
+          sectionId="event-lab"
+          projectId={projectId}
+          defaultExpanded={false}
+        />
       </div>
 
       <div className="max-w-4xl">
