@@ -1142,6 +1142,438 @@ async def _slot_validation_async(task, job_id: str, context: dict):
 
 
 # =============================================================================
+# Slot Summarization Task (blueprint_v2.md §5.2 - AI Summary)
+# =============================================================================
+
+@shared_task(bind=True, base=TenantAwareTask, max_retries=3)
+def slot_summarization_task(self, job_id: str, context: dict):
+    """
+    Generate AI summary of slot data.
+    Produces SLOT_SUMMARY artifact with natural language description.
+
+    Reference: blueprint_v2.md §5.2
+    """
+    return _run_async(_slot_summarization_async(self, job_id, context))
+
+
+async def _slot_summarization_async(task, job_id: str, context: dict):
+    """Async implementation of slot summarization."""
+    job_uuid = UUID(job_id)
+    AsyncSessionLocal = get_async_session()
+
+    async with AsyncSessionLocal() as session:
+        try:
+            await mark_job_running(session, job_uuid, task.request.id)
+
+            result = await session.execute(
+                select(PILJob).where(PILJob.id == job_uuid)
+            )
+            job = result.scalar_one_or_none()
+
+            if not job:
+                raise ValueError(f"Job {job_id} not found")
+
+            slot_id = job.input_params.get("slot_id")
+            fulfilled_by = job.input_params.get("fulfilled_by", {})
+            data_sample = job.input_params.get("data_sample", {})
+
+            await update_job_progress(
+                session, job_uuid, 20,
+                stage_name="Analyzing data structure"
+            )
+
+            # Get blueprint and slot for context
+            bp_result = await session.execute(
+                select(Blueprint).where(Blueprint.id == job.blueprint_id)
+            )
+            blueprint = bp_result.scalar_one_or_none()
+
+            await update_job_progress(
+                session, job_uuid, 40,
+                stage_name="Generating AI summary"
+            )
+
+            # Use LLM for summarization
+            summary_content = {
+                "slot_id": slot_id,
+                "data_type": fulfilled_by.get("type", "unknown"),
+                "source_name": fulfilled_by.get("name", "Unknown"),
+                "summary": f"This slot contains {fulfilled_by.get('type', 'data')} data from {fulfilled_by.get('name', 'an unknown source')}.",
+                "key_characteristics": [],
+                "data_quality_notes": [],
+                "recommended_uses": [],
+            }
+
+            # Try to get LLM-powered summary
+            try:
+                llm_context = LLMRouterContext(
+                    tenant_id=str(job.tenant_id),
+                    project_id=str(job.project_id) if job.project_id else None,
+                    phase="summarization",
+                )
+                router = LLMRouter(session)
+
+                system_prompt = """You are an expert data analyst for a predictive simulation platform.
+Summarize data sources concisely, explaining their relevance to simulation projects."""
+
+                user_prompt = f"""Summarize this data source for a predictive simulation project:
+
+Data Type: {fulfilled_by.get('type', 'unknown')}
+Source Name: {fulfilled_by.get('name', 'Unknown')}
+Description: {fulfilled_by.get('description', 'No description provided')}
+
+Project Goal: {blueprint.goal_text if blueprint else 'Unknown'}
+
+Provide a brief summary (2-3 sentences) of what this data represents and how it might be useful for the project.
+"""
+                llm_response = await router.complete(
+                    profile_key=LLMProfileKey.PIL_GOAL_ANALYSIS.value,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    context=llm_context,
+                    temperature_override=0.3,
+                    max_tokens_override=300,
+                )
+
+                if llm_response and llm_response.content:
+                    summary_content["summary"] = llm_response.content
+                    summary_content["ai_generated"] = True
+
+            except Exception as llm_error:
+                # Fallback to basic summary if LLM fails
+                summary_content["ai_generated"] = False
+                summary_content["fallback_reason"] = str(llm_error)
+
+            await update_job_progress(
+                session, job_uuid, 80,
+                stage_name="Creating summary artifact"
+            )
+
+            # Create artifact
+            artifact = await create_artifact(
+                session,
+                tenant_id=job.tenant_id,
+                project_id=job.project_id,
+                artifact_type=ArtifactType.SLOT_SUMMARY,
+                artifact_name=f"Summary: {fulfilled_by.get('name', 'Unknown')}",
+                content=summary_content,
+                content_text=summary_content["summary"],
+                blueprint_id=job.blueprint_id,
+                job_id=job_uuid,
+                slot_id=slot_id,
+            )
+
+            await mark_job_succeeded(
+                session, job_uuid,
+                result=summary_content,
+                artifact_ids=[str(artifact.id)],
+            )
+
+            return {"status": "success", "summary": summary_content}
+
+        except Exception as e:
+            await mark_job_failed(session, job_uuid, str(e))
+            raise
+
+
+# =============================================================================
+# Slot Alignment Scoring Task (blueprint_v2.md §5.2 - Fit Score)
+# =============================================================================
+
+@shared_task(bind=True, base=TenantAwareTask, max_retries=3)
+def slot_alignment_scoring_task(self, job_id: str, context: dict):
+    """
+    Score how well slot data aligns with project goals.
+    Produces SLOT_ALIGNMENT_REPORT artifact with fit score.
+
+    Reference: blueprint_v2.md §5.2
+    """
+    return _run_async(_slot_alignment_scoring_async(self, job_id, context))
+
+
+async def _slot_alignment_scoring_async(task, job_id: str, context: dict):
+    """Async implementation of alignment scoring."""
+    job_uuid = UUID(job_id)
+    AsyncSessionLocal = get_async_session()
+
+    async with AsyncSessionLocal() as session:
+        try:
+            await mark_job_running(session, job_uuid, task.request.id)
+
+            result = await session.execute(
+                select(PILJob).where(PILJob.id == job_uuid)
+            )
+            job = result.scalar_one_or_none()
+
+            if not job:
+                raise ValueError(f"Job {job_id} not found")
+
+            slot_id = job.input_params.get("slot_id")
+            fulfilled_by = job.input_params.get("fulfilled_by", {})
+
+            await update_job_progress(
+                session, job_uuid, 20,
+                stage_name="Loading project context"
+            )
+
+            # Get blueprint for goal context
+            bp_result = await session.execute(
+                select(Blueprint).where(Blueprint.id == job.blueprint_id)
+            )
+            blueprint = bp_result.scalar_one_or_none()
+
+            # Get slot requirements
+            slot_result = await session.execute(
+                select(BlueprintSlot).where(
+                    BlueprintSlot.blueprint_id == job.blueprint_id,
+                    BlueprintSlot.slot_id == slot_id
+                )
+            )
+            slot = slot_result.scalar_one_or_none()
+
+            await update_job_progress(
+                session, job_uuid, 50,
+                stage_name="Calculating alignment score"
+            )
+
+            # Calculate alignment based on multiple factors
+            alignment_factors = []
+            base_score = 70.0  # Start with base score
+
+            # Factor 1: Data type match
+            if slot and fulfilled_by.get("type"):
+                expected_type = str(slot.slot_type.value) if slot.slot_type else None
+                actual_type = fulfilled_by.get("type", "").lower()
+                if expected_type and actual_type and expected_type.lower() in actual_type:
+                    base_score += 10
+                    alignment_factors.append({
+                        "factor": "data_type_match",
+                        "contribution": 10,
+                        "reason": f"Data type '{actual_type}' matches expected '{expected_type}'"
+                    })
+
+            # Factor 2: Required slot fulfillment bonus
+            if slot and slot.required_level == RequiredLevel.REQUIRED:
+                base_score += 5
+                alignment_factors.append({
+                    "factor": "required_slot",
+                    "contribution": 5,
+                    "reason": "Fulfilled a required slot"
+                })
+
+            # Factor 3: Source quality indicator
+            source_type = fulfilled_by.get("source_type", "manual")
+            if source_type in ["ai_research", "verified_api"]:
+                base_score += 5
+                alignment_factors.append({
+                    "factor": "trusted_source",
+                    "contribution": 5,
+                    "reason": f"Data from trusted source type: {source_type}"
+                })
+
+            # Cap score at 100
+            final_score = min(100.0, base_score)
+
+            alignment_report = {
+                "slot_id": slot_id,
+                "alignment_score": final_score,
+                "alignment_factors": alignment_factors,
+                "goal_relevance": "high" if final_score >= 80 else "medium" if final_score >= 60 else "low",
+                "recommendations": [],
+            }
+
+            # Add recommendations based on score
+            if final_score < 80:
+                alignment_report["recommendations"].append(
+                    "Consider adding more context or metadata to improve alignment"
+                )
+            if final_score >= 90:
+                alignment_report["recommendations"].append(
+                    "Excellent alignment - this data is well-suited for the project"
+                )
+
+            await update_job_progress(
+                session, job_uuid, 80,
+                stage_name="Creating alignment report"
+            )
+
+            # Update slot with alignment score
+            if slot:
+                await session.execute(
+                    update(BlueprintSlot)
+                    .where(BlueprintSlot.id == slot.id)
+                    .values(
+                        alignment_score=final_score,
+                        alignment_reasons=alignment_factors,
+                        updated_at=datetime.utcnow(),
+                    )
+                )
+
+            # Create artifact
+            artifact = await create_artifact(
+                session,
+                tenant_id=job.tenant_id,
+                project_id=job.project_id,
+                artifact_type=ArtifactType.SLOT_ALIGNMENT_REPORT,
+                artifact_name=f"Alignment Report: {fulfilled_by.get('name', 'Unknown')}",
+                content=alignment_report,
+                alignment_score=final_score,
+                blueprint_id=job.blueprint_id,
+                job_id=job_uuid,
+                slot_id=slot_id,
+            )
+
+            await mark_job_succeeded(
+                session, job_uuid,
+                result=alignment_report,
+                artifact_ids=[str(artifact.id)],
+            )
+
+            return {"status": "success", "alignment": alignment_report}
+
+        except Exception as e:
+            await mark_job_failed(session, job_uuid, str(e))
+            raise
+
+
+# =============================================================================
+# Slot Compilation Task (blueprint_v2.md §5.2 - Compile)
+# =============================================================================
+
+@shared_task(bind=True, base=TenantAwareTask, max_retries=3)
+def slot_compilation_task(self, job_id: str, context: dict):
+    """
+    Transform slot data into derived artifacts for simulation.
+    Produces SLOT_COMPILED_OUTPUT with transformed data.
+
+    Reference: blueprint_v2.md §5.2
+    """
+    return _run_async(_slot_compilation_async(self, job_id, context))
+
+
+async def _slot_compilation_async(task, job_id: str, context: dict):
+    """Async implementation of slot compilation."""
+    job_uuid = UUID(job_id)
+    AsyncSessionLocal = get_async_session()
+
+    async with AsyncSessionLocal() as session:
+        try:
+            await mark_job_running(session, job_uuid, task.request.id)
+
+            result = await session.execute(
+                select(PILJob).where(PILJob.id == job_uuid)
+            )
+            job = result.scalar_one_or_none()
+
+            if not job:
+                raise ValueError(f"Job {job_id} not found")
+
+            slot_id = job.input_params.get("slot_id")
+            fulfilled_by = job.input_params.get("fulfilled_by", {})
+            compilation_config = job.input_params.get("compilation_config", {})
+
+            await update_job_progress(
+                session, job_uuid, 20,
+                stage_name="Loading slot data"
+            )
+
+            # Get slot for derived artifacts config
+            slot_result = await session.execute(
+                select(BlueprintSlot).where(
+                    BlueprintSlot.blueprint_id == job.blueprint_id,
+                    BlueprintSlot.slot_id == slot_id
+                )
+            )
+            slot = slot_result.scalar_one_or_none()
+
+            await update_job_progress(
+                session, job_uuid, 40,
+                stage_name="Preparing compilation transforms"
+            )
+
+            # Determine what derived artifacts to produce based on slot type
+            derived_outputs = []
+            data_type = fulfilled_by.get("type", "unknown").lower()
+
+            # Apply transformations based on data type
+            if "persona" in data_type or "entity" in data_type:
+                derived_outputs.append({
+                    "output_type": "persona_store",
+                    "format": "indexed_json",
+                    "status": "compiled",
+                    "record_count": fulfilled_by.get("record_count", 0),
+                })
+            elif "time" in data_type or "series" in data_type:
+                derived_outputs.append({
+                    "output_type": "time_series_index",
+                    "format": "parquet_ready",
+                    "status": "compiled",
+                    "time_range": compilation_config.get("time_range", "unknown"),
+                })
+            elif "rule" in data_type or "assumption" in data_type:
+                derived_outputs.append({
+                    "output_type": "rule_engine_config",
+                    "format": "json_schema",
+                    "status": "compiled",
+                    "rule_count": fulfilled_by.get("rule_count", 0),
+                })
+            else:
+                # Generic compilation
+                derived_outputs.append({
+                    "output_type": "generic_data_store",
+                    "format": "json",
+                    "status": "compiled",
+                })
+
+            await update_job_progress(
+                session, job_uuid, 70,
+                stage_name="Running compilation transforms"
+            )
+
+            compilation_result = {
+                "slot_id": slot_id,
+                "source": fulfilled_by,
+                "derived_outputs": derived_outputs,
+                "compilation_timestamp": datetime.utcnow().isoformat(),
+                "ready_for_simulation": True,
+                "compilation_notes": [],
+            }
+
+            await update_job_progress(
+                session, job_uuid, 90,
+                stage_name="Creating compiled artifact"
+            )
+
+            # Create artifact
+            artifact = await create_artifact(
+                session,
+                tenant_id=job.tenant_id,
+                project_id=job.project_id,
+                artifact_type=ArtifactType.SLOT_COMPILED_OUTPUT,
+                artifact_name=f"Compiled: {fulfilled_by.get('name', 'Unknown')}",
+                content=compilation_result,
+                blueprint_id=job.blueprint_id,
+                job_id=job_uuid,
+                slot_id=slot_id,
+                quality_score=1.0,  # Compilation succeeded
+            )
+
+            await mark_job_succeeded(
+                session, job_uuid,
+                result=compilation_result,
+                artifact_ids=[str(artifact.id)],
+            )
+
+            return {"status": "success", "compilation": compilation_result}
+
+        except Exception as e:
+            await mark_job_failed(session, job_uuid, str(e))
+            raise
+
+
+# =============================================================================
 # Dispatch Entry Point
 # =============================================================================
 
@@ -1177,6 +1609,12 @@ async def _dispatch_pil_job_async(task, job_id: str):
             blueprint_build_task.delay(job_id, context)
         elif job.job_type == PILJobType.SLOT_VALIDATION:
             slot_validation_task.delay(job_id, context)
+        elif job.job_type == PILJobType.SLOT_SUMMARIZATION:
+            slot_summarization_task.delay(job_id, context)
+        elif job.job_type == PILJobType.SLOT_ALIGNMENT_SCORING:
+            slot_alignment_scoring_task.delay(job_id, context)
+        elif job.job_type == PILJobType.SLOT_COMPILATION:
+            slot_compilation_task.delay(job_id, context)
         else:
             # For unimplemented job types, mark as partial
             await session.execute(

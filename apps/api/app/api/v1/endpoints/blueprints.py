@@ -565,31 +565,47 @@ async def fulfill_slot(
     }
     slot.status = AlertState.READY
 
-    # Trigger slot validation job
+    # Trigger slot pipeline jobs: validate → summarize → score → compile
+    # Reference: blueprint_v2.md §5.2
     from app.models.pil_job import PILJob, PILJobStatus, PILJobType, PILJobPriority
 
-    job = PILJob(
-        tenant_id=current_user.id,
-        project_id=blueprint.project_id,
-        blueprint_id=blueprint_id,
-        job_type=PILJobType.SLOT_VALIDATION,
-        job_name=f"Validate Slot: {slot.slot_name}",
-        priority=PILJobPriority.NORMAL,
-        status=PILJobStatus.QUEUED,
-        slot_id=str(slot_id),
-        input_params={
-            "slot_id": str(slot_id),
-            "fulfilled_by": slot.fulfilled_by,
-        },
-        created_by=str(current_user.id),
-    )
-    db.add(job)
-    await db.flush()
-    await db.refresh(job)
+    pipeline_jobs = [
+        # 1. Validation - check data quality and schema compliance
+        (PILJobType.SLOT_VALIDATION, f"Validate: {slot.slot_name}"),
+        # 2. Summarization - generate AI summary of the data
+        (PILJobType.SLOT_SUMMARIZATION, f"Summarize: {slot.slot_name}"),
+        # 3. Alignment scoring - score fit with project goals
+        (PILJobType.SLOT_ALIGNMENT_SCORING, f"Score Alignment: {slot.slot_name}"),
+        # 4. Compilation - transform data for simulation use
+        (PILJobType.SLOT_COMPILATION, f"Compile: {slot.slot_name}"),
+    ]
+
+    job_ids = []
+    for job_type, job_name in pipeline_jobs:
+        job = PILJob(
+            tenant_id=current_user.id,
+            project_id=blueprint.project_id,
+            blueprint_id=blueprint_id,
+            job_type=job_type,
+            job_name=job_name,
+            priority=PILJobPriority.NORMAL,
+            status=PILJobStatus.QUEUED,
+            slot_id=str(slot_id),
+            input_params={
+                "slot_id": str(slot_id),
+                "fulfilled_by": slot.fulfilled_by,
+            },
+            created_by=str(current_user.id),
+        )
+        db.add(job)
+        await db.flush()
+        job_ids.append(str(job.id))
+
     await db.commit()
 
-    # Dispatch to Celery for background processing
-    dispatch_pil_job.delay(str(job.id))
+    # Dispatch all jobs to Celery for parallel background processing
+    for job_id in job_ids:
+        dispatch_pil_job.delay(job_id)
 
     await db.refresh(slot)
 
