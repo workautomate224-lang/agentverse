@@ -879,16 +879,22 @@ async def get_section_guidance(
 # Active Blueprint Shortcut
 # =============================================================================
 
-@router.get("/project/{project_id}/active", response_model=Optional[BlueprintResponse])
+@router.get(
+    "/project/{project_id}/active",
+    response_model=BlueprintResponse,
+    responses={204: {"description": "No active blueprint found"}}
+)
 async def get_active_blueprint(
     project_id: UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> Optional[Blueprint]:
+):
     """
     Get the active blueprint for a project.
-    Returns null if no active blueprint exists (rather than 404).
+    Returns 204 No Content if no active blueprint exists.
     """
+    from fastapi import Response
+
     result = await db.execute(
         select(Blueprint)
         .where(
@@ -903,20 +909,28 @@ async def get_active_blueprint(
     )
     blueprint = result.scalar_one_or_none()
 
-    # Return None instead of 404 to allow frontend to handle gracefully
+    if not blueprint:
+        return Response(status_code=204)
+
     return blueprint
 
 
-@router.get("/project/{project_id}/checklist", response_model=Optional[ProjectChecklist])
+@router.get(
+    "/project/{project_id}/checklist",
+    response_model=ProjectChecklist,
+    responses={204: {"description": "No active blueprint found"}}
+)
 async def get_project_checklist_by_project(
     project_id: UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> Optional[ProjectChecklist]:
+):
     """
     Get the checklist for the active blueprint of a project.
-    Returns null if no active blueprint exists.
+    Returns 204 No Content if no active blueprint exists.
     """
+    from fastapi import Response
+
     # Find active blueprint for this project
     result = await db.execute(
         select(Blueprint)
@@ -933,7 +947,7 @@ async def get_project_checklist_by_project(
     blueprint = result.scalar_one_or_none()
 
     if not blueprint:
-        return None
+        return Response(status_code=204)
 
     # Build checklist items from slots and tasks
     items = []
