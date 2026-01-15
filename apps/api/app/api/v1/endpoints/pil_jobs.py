@@ -52,7 +52,7 @@ async def list_jobs(
     List PIL jobs for the current tenant.
     Reference: blueprint.md §5.3
     """
-    query = select(PILJob).where(PILJob.tenant_id == current_user.tenant_id)
+    query = select(PILJob).where(PILJob.tenant_id == current_user.id)
 
     if project_id:
         query = query.where(PILJob.project_id == project_id)
@@ -80,7 +80,7 @@ async def list_active_jobs(
     Useful for showing in-progress operations in the UI.
     """
     query = select(PILJob).where(
-        PILJob.tenant_id == current_user.tenant_id,
+        PILJob.tenant_id == current_user.id,
         PILJob.status.in_([PILJobStatus.QUEUED.value, PILJobStatus.RUNNING.value]),
     )
 
@@ -105,7 +105,7 @@ async def get_job(
     result = await db.execute(
         select(PILJob).where(
             PILJob.id == job_id,
-            PILJob.tenant_id == current_user.tenant_id,
+            PILJob.tenant_id == current_user.id,
         )
     )
     job = result.scalar_one_or_none()
@@ -130,7 +130,7 @@ async def create_job(
     Jobs are queued and processed asynchronously by Celery workers.
     """
     job = PILJob(
-        tenant_id=current_user.tenant_id,
+        tenant_id=current_user.id,
         project_id=job_in.project_id,
         blueprint_id=job_in.blueprint_id,
         job_type=job_in.job_type,
@@ -167,7 +167,7 @@ async def update_job(
     result = await db.execute(
         select(PILJob).where(
             PILJob.id == job_id,
-            PILJob.tenant_id == current_user.tenant_id,
+            PILJob.tenant_id == current_user.id,
         )
     )
     job = result.scalar_one_or_none()
@@ -200,7 +200,7 @@ async def cancel_job(
     result = await db.execute(
         select(PILJob).where(
             PILJob.id == job_id,
-            PILJob.tenant_id == current_user.tenant_id,
+            PILJob.tenant_id == current_user.id,
         )
     )
     job = result.scalar_one_or_none()
@@ -243,7 +243,7 @@ async def retry_job(
     result = await db.execute(
         select(PILJob).where(
             PILJob.id == job_id,
-            PILJob.tenant_id == current_user.tenant_id,
+            PILJob.tenant_id == current_user.id,
         )
     )
     job = result.scalar_one_or_none()
@@ -302,7 +302,7 @@ async def list_artifacts(
     List PIL artifacts.
     Reference: blueprint.md §5.6
     """
-    query = select(PILArtifact).where(PILArtifact.tenant_id == current_user.tenant_id)
+    query = select(PILArtifact).where(PILArtifact.tenant_id == current_user.id)
 
     if project_id:
         query = query.where(PILArtifact.project_id == project_id)
@@ -333,7 +333,7 @@ async def get_artifact(
     result = await db.execute(
         select(PILArtifact).where(
             PILArtifact.id == artifact_id,
-            PILArtifact.tenant_id == current_user.tenant_id,
+            PILArtifact.tenant_id == current_user.id,
         )
     )
     artifact = result.scalar_one_or_none()
@@ -358,7 +358,7 @@ async def create_artifact(
     Typically called by job workers when producing output.
     """
     artifact = PILArtifact(
-        tenant_id=current_user.tenant_id,
+        tenant_id=current_user.id,
         project_id=artifact_in.project_id,
         blueprint_id=artifact_in.blueprint_id,
         blueprint_version=artifact_in.blueprint_version,
@@ -394,7 +394,7 @@ async def get_job_stats(
     """
     Get job statistics for the Job Center dashboard.
     """
-    base_query = select(PILJob).where(PILJob.tenant_id == current_user.tenant_id)
+    base_query = select(PILJob).where(PILJob.tenant_id == current_user.id)
 
     if project_id:
         base_query = base_query.where(PILJob.project_id == project_id)
@@ -404,7 +404,7 @@ async def get_job_stats(
     for status_val in PILJobStatus:
         count_result = await db.execute(
             select(func.count(PILJob.id)).where(
-                PILJob.tenant_id == current_user.tenant_id,
+                PILJob.tenant_id == current_user.id,
                 PILJob.status == status_val.value,
                 *([PILJob.project_id == project_id] if project_id else []),
             )
@@ -416,7 +416,7 @@ async def get_job_stats(
     for type_val in PILJobType:
         count_result = await db.execute(
             select(func.count(PILJob.id)).where(
-                PILJob.tenant_id == current_user.tenant_id,
+                PILJob.tenant_id == current_user.id,
                 PILJob.job_type == type_val.value,
                 *([PILJob.project_id == project_id] if project_id else []),
             )
@@ -426,7 +426,7 @@ async def get_job_stats(
     # Total counts
     total_result = await db.execute(
         select(func.count(PILJob.id)).where(
-            PILJob.tenant_id == current_user.tenant_id,
+            PILJob.tenant_id == current_user.id,
             *([PILJob.project_id == project_id] if project_id else []),
         )
     )
@@ -435,7 +435,7 @@ async def get_job_stats(
     # Artifact count
     artifact_result = await db.execute(
         select(func.count(PILArtifact.id)).where(
-            PILArtifact.tenant_id == current_user.tenant_id,
+            PILArtifact.tenant_id == current_user.id,
             *([PILArtifact.project_id == project_id] if project_id else []),
         )
     )
@@ -468,7 +468,7 @@ async def get_job_artifacts(
     job_result = await db.execute(
         select(PILJob).where(
             PILJob.id == job_id,
-            PILJob.tenant_id == current_user.tenant_id,
+            PILJob.tenant_id == current_user.id,
         )
     )
     if not job_result.scalar_one_or_none():

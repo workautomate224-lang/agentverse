@@ -66,7 +66,7 @@ async def list_blueprints(
     """
     List blueprints for the current user's tenant.
     """
-    query = select(Blueprint).where(Blueprint.tenant_id == current_user.tenant_id)
+    query = select(Blueprint).where(Blueprint.tenant_id == current_user.id)
 
     if project_id:
         query = query.where(Blueprint.project_id == project_id)
@@ -155,7 +155,7 @@ async def create_blueprint(
         existing.is_active = False
 
     blueprint = Blueprint(
-        tenant_id=current_user.tenant_id,
+        tenant_id=current_user.id,
         project_id=blueprint_in.project_id,
         version=next_version,
         is_active=True,
@@ -174,7 +174,7 @@ async def create_blueprint(
         from app.models.pil_job import PILJob, PILJobStatus, PILJobType, PILJobPriority
 
         job = PILJob(
-            tenant_id=current_user.tenant_id,
+            tenant_id=current_user.id,
             project_id=blueprint_in.project_id,
             blueprint_id=blueprint.id,
             job_type=PILJobType.GOAL_ANALYSIS,
@@ -212,7 +212,7 @@ async def get_blueprint(
         select(Blueprint)
         .where(
             Blueprint.id == blueprint_id,
-            Blueprint.tenant_id == current_user.tenant_id,
+            Blueprint.tenant_id == current_user.id,
         )
         .options(
             selectinload(Blueprint.slots),
@@ -244,7 +244,7 @@ async def update_blueprint(
     result = await db.execute(
         select(Blueprint).where(
             Blueprint.id == blueprint_id,
-            Blueprint.tenant_id == current_user.tenant_id,
+            Blueprint.tenant_id == current_user.id,
         )
     )
     blueprint = result.scalar_one_or_none()
@@ -285,7 +285,7 @@ async def publish_blueprint(
     result = await db.execute(
         select(Blueprint).where(
             Blueprint.id == blueprint_id,
-            Blueprint.tenant_id == current_user.tenant_id,
+            Blueprint.tenant_id == current_user.id,
         )
     )
     blueprint = result.scalar_one_or_none()
@@ -334,7 +334,7 @@ async def submit_clarification_answers(
     result = await db.execute(
         select(Blueprint).where(
             Blueprint.id == blueprint_id,
-            Blueprint.tenant_id == current_user.tenant_id,
+            Blueprint.tenant_id == current_user.id,
         )
     )
     blueprint = result.scalar_one_or_none()
@@ -360,7 +360,7 @@ async def submit_clarification_answers(
     from app.models.pil_job import PILJob, PILJobStatus, PILJobType, PILJobPriority
 
     job = PILJob(
-        tenant_id=current_user.tenant_id,
+        tenant_id=current_user.id,
         project_id=blueprint.project_id,
         blueprint_id=blueprint.id,
         job_type=PILJobType.BLUEPRINT_BUILD,
@@ -405,7 +405,7 @@ async def list_blueprint_slots(
     bp_result = await db.execute(
         select(Blueprint).where(
             Blueprint.id == blueprint_id,
-            Blueprint.tenant_id == current_user.tenant_id,
+            Blueprint.tenant_id == current_user.id,
         )
     )
     if not bp_result.scalar_one_or_none():
@@ -438,7 +438,7 @@ async def create_slot(
     bp_result = await db.execute(
         select(Blueprint).where(
             Blueprint.id == blueprint_id,
-            Blueprint.tenant_id == current_user.tenant_id,
+            Blueprint.tenant_id == current_user.id,
         )
     )
     blueprint = bp_result.scalar_one_or_none()
@@ -483,7 +483,7 @@ async def update_slot(
     bp_result = await db.execute(
         select(Blueprint).where(
             Blueprint.id == blueprint_id,
-            Blueprint.tenant_id == current_user.tenant_id,
+            Blueprint.tenant_id == current_user.id,
         )
     )
     blueprint = bp_result.scalar_one_or_none()
@@ -530,7 +530,7 @@ async def fulfill_slot(
     bp_result = await db.execute(
         select(Blueprint).where(
             Blueprint.id == blueprint_id,
-            Blueprint.tenant_id == current_user.tenant_id,
+            Blueprint.tenant_id == current_user.id,
         )
     )
     blueprint = bp_result.scalar_one_or_none()
@@ -559,7 +559,7 @@ async def fulfill_slot(
     from app.models.pil_job import PILJob, PILJobStatus, PILJobType, PILJobPriority
 
     job = PILJob(
-        tenant_id=current_user.tenant_id,
+        tenant_id=current_user.id,
         project_id=blueprint.project_id,
         blueprint_id=blueprint_id,
         job_type=PILJobType.SLOT_VALIDATION,
@@ -605,7 +605,7 @@ async def list_blueprint_tasks(
     bp_result = await db.execute(
         select(Blueprint).where(
             Blueprint.id == blueprint_id,
-            Blueprint.tenant_id == current_user.tenant_id,
+            Blueprint.tenant_id == current_user.id,
         )
     )
     if not bp_result.scalar_one_or_none():
@@ -639,7 +639,7 @@ async def update_task(
     bp_result = await db.execute(
         select(Blueprint).where(
             Blueprint.id == blueprint_id,
-            Blueprint.tenant_id == current_user.tenant_id,
+            Blueprint.tenant_id == current_user.id,
         )
     )
     blueprint = bp_result.scalar_one_or_none()
@@ -686,7 +686,7 @@ async def get_project_checklist(
         select(Blueprint)
         .where(
             Blueprint.id == blueprint_id,
-            Blueprint.tenant_id == current_user.tenant_id,
+            Blueprint.tenant_id == current_user.id,
         )
         .options(
             selectinload(Blueprint.slots),
@@ -774,7 +774,7 @@ async def get_section_guidance(
         select(Blueprint)
         .where(
             Blueprint.id == blueprint_id,
-            Blueprint.tenant_id == current_user.tenant_id,
+            Blueprint.tenant_id == current_user.id,
         )
         .options(
             selectinload(Blueprint.slots),
@@ -866,7 +866,7 @@ async def get_active_blueprint(
         select(Blueprint)
         .where(
             Blueprint.project_id == project_id,
-            Blueprint.tenant_id == current_user.tenant_id,
+            Blueprint.tenant_id == current_user.id,
             Blueprint.is_active == True,
         )
         .options(
