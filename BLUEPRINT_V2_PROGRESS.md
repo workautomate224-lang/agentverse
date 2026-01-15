@@ -1,7 +1,7 @@
 # Blueprint v2 Migration Progress
 
 **Started:** 2026-01-16
-**Status:** In Progress (Phase A Complete)
+**Status:** In Progress (Phase A, B, C Complete)
 **Feature Flag:** `BLUEPRINT_V2_WIZARD`
 
 ---
@@ -30,29 +30,38 @@
 
 ---
 
-## Phase B — Draft + Blueprint Models + Versioning
+## Phase B — Draft + Blueprint Models + Versioning ✅ COMPLETE
 
 | Task | Status | Notes |
 |------|--------|-------|
-| DraftProject model: stores goal text, clarification answers, cutoff draft, chosen core draft, blueprint_draft content | IN PROGRESS | Using localStorage for now (B.3) |
+| DraftProject model: stores goal text, clarification answers, cutoff draft, chosen core draft, blueprint_draft content | ✅ DONE | Using localStorage for now (B.3) |
 | Blueprint model: versioned, auditable | ✅ DONE | Existing model at `apps/api/app/models/blueprint.py` |
 | Project links to Blueprint v1 at creation | ✅ DONE | Via `skip_clarification` flag in v2 flow |
 | Exit/cancel confirmation modal with Save Draft/Discard Draft | ✅ DONE | Radix Dialog modal in wizard page |
 | Draft persistence to localStorage | ✅ DONE | Saves on "Save Draft & Exit" |
 | Browser beforeunload warning | ✅ DONE | Warns if unsaved draft state |
 
+**Files Created/Modified in Phase B:**
+- `apps/web/src/app/dashboard/projects/new/page.tsx` - MODIFIED (exit modal, draft persistence)
+
 ---
 
-## Phase C — Background Jobs + Progress + Job Center
+## Phase C — Background Jobs + Progress + Job Center ✅ COMPLETE
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Job queue, job logs, progress reporting | PENDING | Existing PILJob model |
-| Inline loading widget + global notifications | PENDING | |
-| Runs & Jobs becomes Job Center | PENDING | |
-| Jobs persist across refresh | PENDING | |
-| Filter by project works | PENDING | |
-| Artifacts accessible from jobs | PENDING | |
+| Job queue, job logs, progress reporting | ✅ DONE | Existing PILJob model + Celery tasks |
+| Inline loading widget + global notifications | ✅ DONE | PILJobProgress component + toast notifications |
+| Runs & Jobs becomes Job Center | ✅ DONE | Tabbed page at `/dashboard/runs` |
+| Jobs persist across refresh | ✅ DONE | React Query auto-polling every 3s |
+| Filter by project works | ✅ DONE | Project dropdown filter for PIL jobs |
+| Artifacts accessible from jobs | ✅ DONE | View Artifacts button in job rows |
+
+**Files Created/Modified in Phase C:**
+- `apps/web/src/app/dashboard/runs/page.tsx` - MODIFIED (transformed to Job Center with tabs)
+- Uses existing: `apps/web/src/components/pil/PILJobProgress.tsx` (inline progress)
+- Uses existing: `apps/web/src/components/pil/ActiveJobsBanner.tsx` (global banner)
+- Uses existing: `apps/web/src/hooks/useApi.ts` (usePILJobs, useActivePILJobs hooks)
 
 ---
 
