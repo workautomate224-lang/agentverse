@@ -128,6 +128,12 @@ def upgrade():
                 server_default="true",
                 comment="Draft blueprints can be edited"
             ),
+            sa.Column(
+                "draft_expires_at",
+                sa.DateTime(timezone=True),
+                nullable=True,
+                comment="When draft blueprint expires"
+            ),
             # A) Project Profile (blueprint.md §3.1.A)
             sa.Column(
                 "goal_text",
@@ -189,6 +195,20 @@ def upgrade():
                 postgresql.ARRAY(sa.String(100)),
                 nullable=True,
                 comment="List of required simulation modules"
+            ),
+            # C) Input Slots (Contract) - stored as JSON array (blueprint.md §3.1.C)
+            sa.Column(
+                "input_slots",
+                postgresql.JSONB(),
+                nullable=True,
+                comment="List of InputSlot objects"
+            ),
+            # D) Section Task Map - stored as JSON object (blueprint.md §3.1.D)
+            sa.Column(
+                "section_task_map",
+                postgresql.JSONB(),
+                nullable=True,
+                comment="{section_id: [tasks]}"
             ),
             # E) Calibration Plan (blueprint.md §3.1.E)
             sa.Column(
