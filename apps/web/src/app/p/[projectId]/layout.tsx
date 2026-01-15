@@ -33,6 +33,7 @@ import {
   Map,
   FileBarChart,
 } from 'lucide-react';
+import { ActiveJobsBanner } from '@/components/pil';
 
 // Mock project data - in real app this would come from API
 const getMockProject = (projectId: string) => ({
@@ -361,6 +362,10 @@ export default function ProjectWorkspaceLayout({
 
       {/* Main Content */}
       <main className="flex-1 overflow-auto pt-14 md:pt-0">
+        {/* Global Active Jobs Banner - PHASE 6: Loading Architecture */}
+        <div className="px-4 pt-4 md:px-6 md:pt-6">
+          <ActiveJobsBanner projectId={projectId} maxVisible={2} className="mb-0" />
+        </div>
         {children}
       </main>
     </div>
