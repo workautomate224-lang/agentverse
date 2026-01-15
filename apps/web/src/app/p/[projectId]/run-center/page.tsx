@@ -1,8 +1,10 @@
 'use client';
 
 /**
- * Run Center Page
+ * Job Center Page (formerly Run Center)
  * Configure and execute simulation runs with node-aware targeting
+ * Also shows PIL (Project Intelligence Layer) background jobs
+ * Reference: blueprint.md §5
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -41,6 +43,8 @@ import {
   Circle,
   ChevronRight,
   Globe,
+  Sparkles,
+  Cpu,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -52,10 +56,17 @@ import {
   useRunProgress,
   useProjectPersonas,
   useNodes,
+  usePILJobs,
+  usePILJobStats,
 } from '@/hooks/useApi';
-import type { RunSummary, SubmitRunInput, NodeSummary, SpecRun } from '@/lib/api';
+import type { RunSummary, SubmitRunInput, NodeSummary, SpecRun, PILJob } from '@/lib/api';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/hooks/use-toast';
+import { ActiveJobsBanner } from '@/components/pil/ActiveJobsBanner';
+import { PILJobProgress } from '@/components/pil/PILJobProgress';
+
+// Tab types for Job Center
+type JobCenterTab = 'runs' | 'pil-jobs';
 
 // Run configuration options
 const runOptions = [
@@ -707,6 +718,10 @@ export default function RunCenterPage() {
   // Deep-link parameters from URL
   const initialNodeId = searchParams.get('node');
   const initialRunId = searchParams.get('run');
+  const initialTab = (searchParams.get('tab') as JobCenterTab) || 'runs';
+
+  // Tab state for Job Center (runs vs pil-jobs)
+  const [activeTab, setActiveTab] = useState<JobCenterTab>(initialTab);
 
   // Node selection state - read initial value from URL
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(initialNodeId);
@@ -714,6 +729,9 @@ export default function RunCenterPage() {
 
   // Node filter for run history
   const [nodeFilter, setNodeFilter] = useState<'all' | 'baseline' | 'selected'>('all');
+
+  // PIL Jobs filter
+  const [pilJobFilter, setPilJobFilter] = useState<'all' | 'active' | 'completed' | 'failed'>('all');
 
   // Modal states
   const [customRunModalOpen, setCustomRunModalOpen] = useState(false);
@@ -725,13 +743,17 @@ export default function RunCenterPage() {
   // Track active run for progress polling
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
 
-  // API hooks
+  // API hooks - Simulation Runs
   const { data: nodes, isLoading: nodesLoading } = useNodes({ project_id: projectId });
   const { data: runs, isLoading: runsLoading, refetch: refetchRuns } = useRuns({ project_id: projectId, limit: 20 });
   const { data: projectPersonas } = useProjectPersonas(projectId);
   const createRun = useCreateRun();
   const startRun = useStartRun();
   const { data: activeRunProgress } = useRunProgress(activeRunId || undefined);
+
+  // API hooks - PIL Jobs
+  const { data: pilJobs, isLoading: pilJobsLoading, refetch: refetchPilJobs } = usePILJobs({ project_id: projectId, limit: 50 });
+  const { data: pilJobStats } = usePILJobStats(projectId);
 
   // Count DB-persisted personas for this project
   const personaCount = projectPersonas?.length || 0;
@@ -754,8 +776,21 @@ export default function RunCenterPage() {
   // Count completed runs
   const completedRuns = runs?.filter((r) => r.status === 'succeeded').length || 0;
 
+  // Filter PIL jobs based on status filter
+  const filteredPilJobs = pilJobs?.filter((job) => {
+    if (pilJobFilter === 'all') return true;
+    if (pilJobFilter === 'active') return job.status === 'queued' || job.status === 'running';
+    if (pilJobFilter === 'completed') return job.status === 'succeeded';
+    if (pilJobFilter === 'failed') return job.status === 'failed' || job.status === 'cancelled';
+    return true;
+  });
+
+  // Count PIL jobs by status
+  const activePilJobs = pilJobs?.filter((j) => j.status === 'queued' || j.status === 'running').length || 0;
+  const completedPilJobs = pilJobs?.filter((j) => j.status === 'succeeded').length || 0;
+
   // URL update helper - maintains deep-link state
-  const updateUrl = useCallback((params: { node?: string | null; run?: string | null }) => {
+  const updateUrl = useCallback((params: { node?: string | null; run?: string | null; tab?: JobCenterTab }) => {
     const url = new URL(window.location.href);
 
     if (params.node !== undefined) {
@@ -774,8 +809,22 @@ export default function RunCenterPage() {
       }
     }
 
+    if (params.tab !== undefined) {
+      if (params.tab !== 'runs') {
+        url.searchParams.set('tab', params.tab);
+      } else {
+        url.searchParams.delete('tab');
+      }
+    }
+
     router.replace(url.pathname + url.search, { scroll: false });
   }, [router]);
+
+  // Handle tab change
+  const handleTabChange = (tab: JobCenterTab) => {
+    setActiveTab(tab);
+    updateUrl({ tab });
+  };
 
   // Deep-link: Auto-open run details if run ID in URL
   useEffect(() => {
@@ -941,17 +990,80 @@ export default function RunCenterPage() {
           </Link>
         </div>
         <div className="flex items-center gap-2 mb-1">
-          <Play className="w-3.5 h-3.5 md:w-4 md:h-4 text-green-400" />
+          <Cpu className="w-3.5 h-3.5 md:w-4 md:h-4 text-cyan-400" />
           <span className="text-[10px] md:text-xs font-mono text-white/40 uppercase tracking-wider">
-            Run Center
+            Job Center
           </span>
         </div>
-        <h1 className="text-lg md:text-xl font-mono font-bold text-white">Simulation Runs</h1>
+        <h1 className="text-lg md:text-xl font-mono font-bold text-white">Runs & Background Jobs</h1>
         <p className="text-xs md:text-sm font-mono text-white/50 mt-1">
-          Configure and execute simulation runs for your project
+          Simulation runs and AI processing jobs for your project
         </p>
       </div>
 
+      {/* Active PIL Jobs Banner */}
+      <div className="max-w-3xl mb-6">
+        <ActiveJobsBanner
+          projectId={projectId}
+          maxVisible={2}
+          onJobComplete={(job) => {
+            toast({
+              title: 'Job Complete',
+              description: `${job.job_name || job.job_type} finished successfully.`,
+            });
+            refetchPilJobs();
+          }}
+        />
+      </div>
+
+      {/* Tab Navigation */}
+      <div className="max-w-3xl mb-6">
+        <div className="flex items-center gap-1 p-1 bg-white/5 border border-white/10">
+          <button
+            onClick={() => handleTabChange('runs')}
+            className={cn(
+              'flex items-center gap-2 px-4 py-2 text-xs font-mono transition-all',
+              activeTab === 'runs'
+                ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
+                : 'text-white/60 hover:text-white hover:bg-white/5'
+            )}
+          >
+            <Play className="w-3.5 h-3.5" />
+            <span>Simulation Runs</span>
+            {runs && runs.length > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 bg-white/10 text-[10px]">
+                {runs.length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => handleTabChange('pil-jobs')}
+            className={cn(
+              'flex items-center gap-2 px-4 py-2 text-xs font-mono transition-all',
+              activeTab === 'pil-jobs'
+                ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                : 'text-white/60 hover:text-white hover:bg-white/5'
+            )}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>AI Jobs</span>
+            {activePilJobs > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 bg-cyan-500/20 text-cyan-400 text-[10px] animate-pulse">
+                {activePilJobs} active
+              </span>
+            )}
+            {activePilJobs === 0 && pilJobs && pilJobs.length > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 bg-white/10 text-[10px]">
+                {pilJobs.length}
+              </span>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Tab Content: Simulation Runs */}
+      {activeTab === 'runs' && (
+        <>
       {/* Run Context - Node Selection */}
       <div className="max-w-3xl mb-6">
         <div className="bg-white/5 border border-white/10 p-4">
@@ -1296,13 +1408,181 @@ export default function RunCenterPage() {
           </Link>
         </div>
       </div>
+        </>
+      )}
+
+      {/* Tab Content: PIL Jobs */}
+      {activeTab === 'pil-jobs' && (
+        <>
+          {/* PIL Job Stats */}
+          <div className="max-w-3xl mb-8">
+            <h2 className="text-xs font-mono text-white/40 uppercase tracking-wider mb-4">
+              AI Job Statistics
+            </h2>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-white/5 border border-white/10 p-4">
+                <div className="flex items-center gap-2 text-white/40 mb-2">
+                  <Loader2 className="w-3.5 h-3.5" />
+                  <span className="text-[10px] font-mono uppercase">Active</span>
+                </div>
+                <p className="text-lg font-mono font-bold text-cyan-400">{activePilJobs}</p>
+                <p className="text-[10px] font-mono text-white/40">processing</p>
+              </div>
+              <div className="bg-white/5 border border-white/10 p-4">
+                <div className="flex items-center gap-2 text-white/40 mb-2">
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  <span className="text-[10px] font-mono uppercase">Completed</span>
+                </div>
+                <p className="text-lg font-mono font-bold text-green-400">{completedPilJobs}</p>
+                <p className="text-[10px] font-mono text-white/40">successful</p>
+              </div>
+              <div className="bg-white/5 border border-white/10 p-4">
+                <div className="flex items-center gap-2 text-white/40 mb-2">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  <span className="text-[10px] font-mono uppercase">Failed</span>
+                </div>
+                <p className="text-lg font-mono font-bold text-red-400">
+                  {pilJobs?.filter((j) => j.status === 'failed').length || 0}
+                </p>
+                <p className="text-[10px] font-mono text-white/40">errors</p>
+              </div>
+              <div className="bg-white/5 border border-white/10 p-4">
+                <div className="flex items-center gap-2 text-white/40 mb-2">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span className="text-[10px] font-mono uppercase">Total</span>
+                </div>
+                <p className="text-lg font-mono font-bold text-white">{pilJobs?.length || 0}</p>
+                <p className="text-[10px] font-mono text-white/40">all time</p>
+              </div>
+            </div>
+          </div>
+
+          {/* PIL Job List */}
+          <div className="max-w-3xl mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-4">
+                <h2 className="text-xs font-mono text-white/40 uppercase tracking-wider">
+                  Job History
+                </h2>
+                {/* Status Filter */}
+                <select
+                  value={pilJobFilter}
+                  onChange={(e) => setPilJobFilter(e.target.value as typeof pilJobFilter)}
+                  className="bg-white/5 border border-white/10 text-xs font-mono text-white/80 px-2 py-1 focus:outline-none focus:border-cyan-500/50"
+                >
+                  <option value="all">All Jobs</option>
+                  <option value="active">Active</option>
+                  <option value="completed">Completed</option>
+                  <option value="failed">Failed</option>
+                </select>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => refetchPilJobs()}
+                disabled={pilJobsLoading}
+              >
+                <RefreshCw className={cn('w-3 h-3 mr-1', pilJobsLoading && 'animate-spin')} />
+                Refresh
+              </Button>
+            </div>
+
+            {pilJobsLoading ? (
+              <div className="bg-white/5 border border-white/10 p-8 text-center">
+                <Loader2 className="w-8 h-8 text-white/40 animate-spin mx-auto mb-4" />
+                <p className="text-xs font-mono text-white/40">Loading jobs...</p>
+              </div>
+            ) : filteredPilJobs && filteredPilJobs.length > 0 ? (
+              <div className="space-y-2">
+                {filteredPilJobs.map((job) => (
+                  <PILJobProgress
+                    key={job.id}
+                    jobId={job.id}
+                    mode="compact"
+                    showCancel={true}
+                    showRetry={true}
+                    onComplete={() => {
+                      refetchPilJobs();
+                    }}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="bg-white/5 border border-white/10 p-8 text-center">
+                <div className="w-16 h-16 bg-white/5 flex items-center justify-center mx-auto mb-4">
+                  <Sparkles className="w-8 h-8 text-white/20" />
+                </div>
+                <h3 className="text-sm font-mono text-white/60 mb-2">
+                  {pilJobFilter === 'all' ? 'No AI jobs yet' : `No ${pilJobFilter} jobs`}
+                </h3>
+                <p className="text-xs font-mono text-white/40">
+                  AI jobs are created when you use features like Goal Analysis or Blueprint Generation.
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Job Types Info */}
+          <div className="max-w-3xl mb-8">
+            <h2 className="text-xs font-mono text-white/40 uppercase tracking-wider mb-4">
+              Available Job Types
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="bg-white/5 border border-white/10 p-4 flex items-start gap-3">
+                <div className="w-10 h-10 bg-purple-500/20 flex items-center justify-center flex-shrink-0">
+                  <Target className="w-5 h-5 text-purple-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-mono text-white font-bold">Goal Analysis</h3>
+                  <p className="text-[10px] font-mono text-white/40 mt-1">
+                    Analyzes project goals and generates clarifying questions
+                  </p>
+                </div>
+              </div>
+              <div className="bg-white/5 border border-white/10 p-4 flex items-start gap-3">
+                <div className="w-10 h-10 bg-cyan-500/20 flex items-center justify-center flex-shrink-0">
+                  <FileText className="w-5 h-5 text-cyan-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-mono text-white font-bold">Blueprint Build</h3>
+                  <p className="text-[10px] font-mono text-white/40 mt-1">
+                    Generates project blueprint with slots and tasks
+                  </p>
+                </div>
+              </div>
+              <div className="bg-white/5 border border-white/10 p-4 flex items-start gap-3">
+                <div className="w-10 h-10 bg-green-500/20 flex items-center justify-center flex-shrink-0">
+                  <CheckCircle className="w-5 h-5 text-green-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-mono text-white font-bold">Slot Validation</h3>
+                  <p className="text-[10px] font-mono text-white/40 mt-1">
+                    Validates data against slot requirements
+                  </p>
+                </div>
+              </div>
+              <div className="bg-white/5 border border-white/10 p-4 flex items-start gap-3">
+                <div className="w-10 h-10 bg-yellow-500/20 flex items-center justify-center flex-shrink-0">
+                  <Zap className="w-5 h-5 text-yellow-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-mono text-white font-bold">Alignment Scoring</h3>
+                  <p className="text-[10px] font-mono text-white/40 mt-1">
+                    Computes alignment with project goals
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Footer */}
       <div className="mt-8 pt-4 border-t border-white/5 max-w-3xl">
         <div className="flex items-center justify-between text-[10px] font-mono text-white/30">
           <div className="flex items-center gap-1">
             <Terminal className="w-3 h-3" />
-            <span>RUN CENTER</span>
+            <span>JOB CENTER</span>
           </div>
           <span>AGENTVERSE v1.0</span>
         </div>

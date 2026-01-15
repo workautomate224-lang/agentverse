@@ -31,6 +31,14 @@ from app.tasks.maintenance import (
     compute_tenant_usage,
 )
 
+# PIL (Project Intelligence Layer) tasks - blueprint.md §5
+from app.tasks.pil_tasks import (
+    dispatch_pil_job,
+    goal_analysis_task,
+    blueprint_build_task,
+    slot_validation_task,
+)
+
 __all__ = [
     # Base classes
     "JobStatus",
@@ -49,4 +57,9 @@ __all__ = [
     "archive_old_telemetry",
     "prune_cancelled_runs",
     "compute_tenant_usage",
+    # PIL (Project Intelligence Layer)
+    "dispatch_pil_job",
+    "goal_analysis_task",
+    "blueprint_build_task",
+    "slot_validation_task",
 ]

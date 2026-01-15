@@ -157,6 +157,16 @@ import api, {
   BacktestReportsResponse,
   BacktestResetResponse,
   BacktestStartResponse,
+  // PIL Job types (blueprint.md §5)
+  PILJob,
+  PILJobCreate,
+  PILJobUpdate,
+  PILJobStatus,
+  PILJobType,
+  PILArtifact,
+  PILArtifactCreate,
+  PILArtifactType,
+  PILJobStats,
 } from '@/lib/api';
 
 // Extended session user type for type safety
@@ -3523,6 +3533,203 @@ export function useSnapshotBacktestReports() {
     }) => api.snapshotBacktestReports(projectId, backtestId, { metric_key, op, threshold }),
     onSuccess: (_, { projectId, backtestId }) => {
       queryClient.invalidateQueries({ queryKey: ['backtests', projectId, backtestId, 'reports'] });
+    },
+  });
+}
+
+// =============================================================================
+// PIL Job Hooks (blueprint.md §5 - Project Intelligence Layer)
+// =============================================================================
+
+/**
+ * List PIL jobs with optional filters.
+ */
+export function usePILJobs(params?: {
+  project_id?: string;
+  blueprint_id?: string;
+  job_type?: PILJobType;
+  status?: PILJobStatus;
+  skip?: number;
+  limit?: number;
+}) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['pil-jobs', params],
+    queryFn: () => api.listPILJobs(params),
+    enabled: isReady,
+    staleTime: CACHE_TIMES.SHORT,
+    refetchInterval: params?.status === 'running' || params?.status === 'queued' ? 3000 : false,
+  });
+}
+
+/**
+ * List active (queued or running) PIL jobs.
+ * Auto-refreshes every 3 seconds to track progress.
+ */
+export function useActivePILJobs(projectId?: string) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['pil-jobs', 'active', projectId],
+    queryFn: () => api.listActivePILJobs(projectId),
+    enabled: isReady,
+    staleTime: 1000, // 1 second - very fresh for active jobs
+    refetchInterval: 3000, // Poll every 3 seconds for active jobs
+  });
+}
+
+/**
+ * Get a specific PIL job by ID.
+ * Auto-refreshes while job is active.
+ */
+export function usePILJob(jobId: string) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['pil-jobs', jobId],
+    queryFn: () => api.getPILJob(jobId),
+    enabled: isReady && !!jobId,
+    staleTime: CACHE_TIMES.SHORT,
+    refetchInterval: (query) => {
+      const job = query.state.data;
+      // Refresh every 2 seconds while job is active
+      if (job?.status === 'queued' || job?.status === 'running') {
+        return 2000;
+      }
+      return false;
+    },
+  });
+}
+
+/**
+ * Create a new PIL job.
+ */
+export function useCreatePILJob() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: (data: PILJobCreate) => api.createPILJob(data),
+    onSuccess: (job) => {
+      queryClient.invalidateQueries({ queryKey: ['pil-jobs'] });
+      if (job.project_id) {
+        queryClient.invalidateQueries({ queryKey: ['pil-jobs', { project_id: job.project_id }] });
+      }
+    },
+  });
+}
+
+/**
+ * Cancel a PIL job.
+ */
+export function useCancelPILJob() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: (jobId: string) => api.cancelPILJob(jobId),
+    onSuccess: (job) => {
+      queryClient.invalidateQueries({ queryKey: ['pil-jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['pil-jobs', job.id] });
+    },
+  });
+}
+
+/**
+ * Retry a failed PIL job.
+ */
+export function useRetryPILJob() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: (jobId: string) => api.retryPILJob(jobId),
+    onSuccess: (job) => {
+      queryClient.invalidateQueries({ queryKey: ['pil-jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['pil-jobs', job.id] });
+    },
+  });
+}
+
+/**
+ * Get PIL job statistics.
+ */
+export function usePILJobStats(projectId?: string) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['pil-jobs', 'stats', projectId],
+    queryFn: () => api.getPILJobStats(projectId),
+    enabled: isReady,
+    staleTime: CACHE_TIMES.MEDIUM,
+  });
+}
+
+/**
+ * Get artifacts for a specific PIL job.
+ */
+export function usePILJobArtifacts(jobId: string) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['pil-jobs', jobId, 'artifacts'],
+    queryFn: () => api.getPILJobArtifacts(jobId),
+    enabled: isReady && !!jobId,
+    staleTime: CACHE_TIMES.MEDIUM,
+  });
+}
+
+/**
+ * List PIL artifacts with optional filters.
+ */
+export function usePILArtifacts(params?: {
+  project_id?: string;
+  blueprint_id?: string;
+  artifact_type?: PILArtifactType;
+  slot_id?: string;
+  job_id?: string;
+  skip?: number;
+  limit?: number;
+}) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['pil-artifacts', params],
+    queryFn: () => api.listPILArtifacts(params),
+    enabled: isReady,
+    staleTime: CACHE_TIMES.MEDIUM,
+  });
+}
+
+/**
+ * Get a specific PIL artifact by ID.
+ */
+export function usePILArtifact(artifactId: string) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['pil-artifacts', artifactId],
+    queryFn: () => api.getPILArtifact(artifactId),
+    enabled: isReady && !!artifactId,
+    staleTime: CACHE_TIMES.LONG,
+  });
+}
+
+/**
+ * Create a new PIL artifact.
+ */
+export function useCreatePILArtifact() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: (data: PILArtifactCreate) => api.createPILArtifact(data),
+    onSuccess: (artifact) => {
+      queryClient.invalidateQueries({ queryKey: ['pil-artifacts'] });
+      if (artifact.job_id) {
+        queryClient.invalidateQueries({ queryKey: ['pil-jobs', artifact.job_id, 'artifacts'] });
+      }
     },
   });
 }

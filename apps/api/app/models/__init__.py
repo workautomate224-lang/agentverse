@@ -197,6 +197,30 @@ from app.models.source_registry import (
     SourceCapability,
     SourceCapabilityAudit,
 )
+# Blueprint Models (blueprint.md)
+from app.models.blueprint import (
+    Blueprint,
+    BlueprintSlot,
+    BlueprintTask,
+    DomainGuess,
+    TargetOutput,
+    PrimaryDriver,
+    SlotType,
+    RequiredLevel,
+    AcquisitionMethod,
+    AlertState,
+    TaskAction,
+    PLATFORM_SECTIONS,
+)
+# PIL Job Models (blueprint.md §5)
+from app.models.pil_job import (
+    PILJob,
+    PILArtifact,
+    PILJobStatus,
+    PILJobType,
+    PILJobPriority,
+    ArtifactType,
+)
 # STEP 10: Production Readiness Models
 from app.models.production import (
     # Enums
@@ -423,4 +447,24 @@ __all__ = [
     # Temporal Knowledge Isolation Models
     "SourceCapability",
     "SourceCapabilityAudit",
+    # Blueprint Models (blueprint.md)
+    "Blueprint",
+    "BlueprintSlot",
+    "BlueprintTask",
+    "DomainGuess",
+    "TargetOutput",
+    "PrimaryDriver",
+    "SlotType",
+    "RequiredLevel",
+    "AcquisitionMethod",
+    "AlertState",
+    "TaskAction",
+    "PLATFORM_SECTIONS",
+    # PIL Job Models (blueprint.md §5)
+    "PILJob",
+    "PILArtifact",
+    "PILJobStatus",
+    "PILJobType",
+    "PILJobPriority",
+    "ArtifactType",
 ]

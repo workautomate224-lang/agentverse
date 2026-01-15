@@ -65,6 +65,9 @@ from app.api.v1.endpoints import (
     manifests,
     # PHASE 5: Run Audit Report (temporal.md §8)
     run_audit,
+    # Blueprint-Driven Orchestration (blueprint.md)
+    blueprints,
+    pil_jobs,
 )
 
 api_router = APIRouter()
@@ -146,3 +149,7 @@ api_router.include_router(manifests.router, tags=["Run Manifests"])
 
 # PHASE 5: Run Audit Report (temporal.md §8)
 api_router.include_router(run_audit.router, tags=["Run Audit Report"])
+
+# Blueprint-Driven Orchestration (blueprint.md)
+api_router.include_router(blueprints.router, prefix="/blueprints", tags=["Blueprints"])
+api_router.include_router(pil_jobs.router, prefix="/pil-jobs", tags=["PIL Jobs"])

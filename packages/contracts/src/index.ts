@@ -334,6 +334,62 @@ export {
 } from './reliability';
 
 // ============================================================================
+// Blueprint Types (blueprint.md §3)
+// ============================================================================
+
+export {
+  // Enums
+  DomainGuess,
+  TargetOutput,
+  PrimaryDriver,
+  SlotType,
+  RequiredLevel,
+  AcquisitionMethod,
+  AlertState,
+  TaskAction,
+
+  // Blueprint types
+  Horizon,
+  Scope,
+  SuccessMetrics,
+  SchemaRequirements,
+  TemporalRequirements,
+  QualityRequirements,
+  ValidationPlan,
+  BlueprintSlot,
+  BlueprintTask,
+  CalibrationPlan,
+  BranchingPlan,
+  Blueprint,
+  BlueprintSummary,
+
+  // DTOs
+  CreateBlueprintInput,
+  UpdateBlueprintFromClarificationInput,
+  ClarifyingQuestion,
+  GoalAnalysisResult,
+
+  // Job types
+  PILJobStatus,
+  PILJobType,
+  PILJobPriority,
+  PILJob,
+  JobProgressUpdate,
+  JobNotification,
+
+  // Artifact types
+  ArtifactType,
+  PILArtifact,
+
+  // Section types
+  PLATFORM_SECTIONS,
+  PlatformSection,
+  GuidancePanel,
+  ChecklistItem,
+  ProjectChecklist,
+} from './blueprint';
+
+// ============================================================================
 // Versioning Utilities
 // ============================================================================
 

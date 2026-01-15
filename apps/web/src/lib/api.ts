@@ -4057,6 +4057,141 @@ class ApiClient {
   async listAuditResourceTypes(): Promise<string[]> {
     return this.request<string[]>('/api/v1/admin/audit-logs/resource-types');
   }
+
+  // ========== PIL Job Endpoints (blueprint.md §5) ==========
+
+  /**
+   * List PIL jobs with optional filters.
+   */
+  async listPILJobs(params?: {
+    project_id?: string;
+    blueprint_id?: string;
+    job_type?: string;
+    status?: string;
+    skip?: number;
+    limit?: number;
+  }): Promise<PILJob[]> {
+    const searchParams = new URLSearchParams();
+    if (params?.project_id) searchParams.set('project_id', params.project_id);
+    if (params?.blueprint_id) searchParams.set('blueprint_id', params.blueprint_id);
+    if (params?.job_type) searchParams.set('job_type', params.job_type);
+    if (params?.status) searchParams.set('status', params.status);
+    if (params?.skip) searchParams.set('skip', String(params.skip));
+    if (params?.limit) searchParams.set('limit', String(params.limit));
+
+    const query = searchParams.toString();
+    return this.request<PILJob[]>(`/api/v1/pil-jobs/${query ? `?${query}` : ''}`);
+  }
+
+  /**
+   * List active (queued or running) PIL jobs.
+   */
+  async listActivePILJobs(projectId?: string): Promise<PILJob[]> {
+    const query = projectId ? `?project_id=${projectId}` : '';
+    return this.request<PILJob[]>(`/api/v1/pil-jobs/active${query}`);
+  }
+
+  /**
+   * Get a specific PIL job by ID.
+   */
+  async getPILJob(jobId: string): Promise<PILJob> {
+    return this.request<PILJob>(`/api/v1/pil-jobs/${jobId}`);
+  }
+
+  /**
+   * Create a new PIL job.
+   */
+  async createPILJob(data: PILJobCreate): Promise<PILJob> {
+    return this.request<PILJob>('/api/v1/pil-jobs/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Update a PIL job.
+   */
+  async updatePILJob(jobId: string, data: PILJobUpdate): Promise<PILJob> {
+    return this.request<PILJob>(`/api/v1/pil-jobs/${jobId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Cancel a PIL job.
+   */
+  async cancelPILJob(jobId: string): Promise<PILJob> {
+    return this.request<PILJob>(`/api/v1/pil-jobs/${jobId}/cancel`, {
+      method: 'POST',
+    });
+  }
+
+  /**
+   * Retry a failed PIL job.
+   */
+  async retryPILJob(jobId: string): Promise<PILJob> {
+    return this.request<PILJob>(`/api/v1/pil-jobs/${jobId}/retry`, {
+      method: 'POST',
+    });
+  }
+
+  /**
+   * Get PIL job statistics.
+   */
+  async getPILJobStats(projectId?: string): Promise<PILJobStats> {
+    const query = projectId ? `?project_id=${projectId}` : '';
+    return this.request<PILJobStats>(`/api/v1/pil-jobs/stats${query}`);
+  }
+
+  /**
+   * Get artifacts for a specific PIL job.
+   */
+  async getPILJobArtifacts(jobId: string): Promise<PILArtifact[]> {
+    return this.request<PILArtifact[]>(`/api/v1/pil-jobs/${jobId}/artifacts`);
+  }
+
+  /**
+   * List PIL artifacts with optional filters.
+   */
+  async listPILArtifacts(params?: {
+    project_id?: string;
+    blueprint_id?: string;
+    artifact_type?: string;
+    slot_id?: string;
+    job_id?: string;
+    skip?: number;
+    limit?: number;
+  }): Promise<PILArtifact[]> {
+    const searchParams = new URLSearchParams();
+    if (params?.project_id) searchParams.set('project_id', params.project_id);
+    if (params?.blueprint_id) searchParams.set('blueprint_id', params.blueprint_id);
+    if (params?.artifact_type) searchParams.set('artifact_type', params.artifact_type);
+    if (params?.slot_id) searchParams.set('slot_id', params.slot_id);
+    if (params?.job_id) searchParams.set('job_id', params.job_id);
+    if (params?.skip) searchParams.set('skip', String(params.skip));
+    if (params?.limit) searchParams.set('limit', String(params.limit));
+
+    const query = searchParams.toString();
+    return this.request<PILArtifact[]>(`/api/v1/pil-jobs/artifacts/${query ? `?${query}` : ''}`);
+  }
+
+  /**
+   * Get a specific PIL artifact by ID.
+   */
+  async getPILArtifact(artifactId: string): Promise<PILArtifact> {
+    return this.request<PILArtifact>(`/api/v1/pil-jobs/artifacts/${artifactId}`);
+  }
+
+  /**
+   * Create a new PIL artifact.
+   */
+  async createPILArtifact(data: PILArtifactCreate): Promise<PILArtifact> {
+    return this.request<PILArtifact>('/api/v1/pil-jobs/artifacts/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
 }
 
 // Data Source Types
@@ -6338,6 +6473,127 @@ export interface BacktestStartResponse {
   status: BacktestStatus;
   runs_queued: number;
   message: string;
+}
+
+// =============================================================================
+// PIL Job Types (blueprint.md §5 - Project Intelligence Layer)
+// =============================================================================
+
+/** PIL Job status states */
+export type PILJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+
+/** PIL Job types */
+export type PILJobType = 'goal_analysis' | 'blueprint_build' | 'slot_validation' | 'summarization' | 'alignment_scoring';
+
+/** PIL Artifact types */
+export type PILArtifactType = 'clarifying_questions' | 'blueprint' | 'slot_summary' | 'validation_result' | 'alignment_score';
+
+/** PIL Job response */
+export interface PILJob {
+  id: string;
+  tenant_id: string;
+  project_id: string | null;
+  blueprint_id: string | null;
+  job_type: PILJobType;
+  job_name: string;
+  status: PILJobStatus;
+  priority: string;
+  progress_percent: number;
+  stage_name: string | null;
+  stage_message: string | null;
+  input_params: Record<string, unknown>;
+  output_summary: Record<string, unknown> | null;
+  error_message: string | null;
+  retry_count: number;
+  max_retries: number;
+  slot_id: string | null;
+  task_id: string | null;
+  celery_task_id: string | null;
+  created_by: string;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+/** Create PIL Job request */
+export interface PILJobCreate {
+  project_id?: string;
+  blueprint_id?: string;
+  job_type: PILJobType;
+  job_name: string;
+  priority?: string;
+  input_params?: Record<string, unknown>;
+  slot_id?: string;
+  task_id?: string;
+}
+
+/** Update PIL Job request */
+export interface PILJobUpdate {
+  status?: PILJobStatus;
+  progress_percent?: number;
+  stage_name?: string;
+  stage_message?: string;
+  output_summary?: Record<string, unknown>;
+  error_message?: string;
+}
+
+/** PIL Artifact response */
+export interface PILArtifact {
+  id: string;
+  tenant_id: string;
+  project_id: string | null;
+  blueprint_id: string | null;
+  blueprint_version: string | null;
+  artifact_type: PILArtifactType;
+  artifact_name: string;
+  job_id: string | null;
+  slot_id: string | null;
+  task_id: string | null;
+  content: Record<string, unknown>;
+  content_text: string | null;
+  alignment_score: number | null;
+  quality_score: number | null;
+  validation_passed: boolean | null;
+  created_at: string;
+}
+
+/** Create PIL Artifact request */
+export interface PILArtifactCreate {
+  project_id?: string;
+  blueprint_id?: string;
+  blueprint_version?: string;
+  artifact_type: PILArtifactType;
+  artifact_name: string;
+  job_id?: string;
+  slot_id?: string;
+  task_id?: string;
+  content: Record<string, unknown>;
+  content_text?: string;
+  alignment_score?: number;
+  quality_score?: number;
+  validation_passed?: boolean;
+}
+
+/** PIL Job statistics */
+export interface PILJobStats {
+  total_jobs: number;
+  by_status: Record<PILJobStatus, number>;
+  by_type: Record<PILJobType, number>;
+  total_artifacts: number;
+  active_jobs: number;
+  failed_jobs: number;
+  success_rate: number;
+}
+
+/** Job completion notification */
+export interface PILJobNotification {
+  job_id: string;
+  job_type: PILJobType;
+  job_name: string;
+  status: PILJobStatus;
+  message: string;
+  artifact_ids: string[];
+  timestamp: string;
 }
 
 export const api = new ApiClient(API_URL);

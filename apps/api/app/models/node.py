@@ -754,6 +754,19 @@ class Run(Base):
         nullable=False
     )
 
+    # Blueprint reference (blueprint.md §1.1 - every run references blueprint_version)
+    blueprint_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("blueprints.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Blueprint used for this run (blueprint.md §1.1)"
+    )
+    blueprint_version: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True,
+        comment="Blueprint version at time of run creation"
+    )
+
     # Status (STEP 1: Start with CREATED, then transition to QUEUED when submitted)
     status: Mapped[str] = mapped_column(
         String(20), default=RunStatus.CREATED.value, nullable=False, index=True
