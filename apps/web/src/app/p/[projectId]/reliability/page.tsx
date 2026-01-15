@@ -37,6 +37,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useNodes, useRuns, useTelemetryIndex, useTelemetrySummary, usePhase6ReliabilitySummary } from '@/hooks/useApi';
 import type { NodeSummary, RunSummary, TelemetryIndex, TelemetrySummary, SpecRunStatus, Phase6ReliabilitySummaryResponse, Phase6ReliabilityQueryParams } from '@/lib/api';
+import { GuidancePanel } from '@/components/pil';
 import {
   LineChart,
   Line,
@@ -1148,6 +1149,15 @@ export default function ReliabilityPage() {
                 </Link>
               )}
             </div>
+          </div>
+
+          {/* Guidance Panel - Blueprint-driven guidance for reliability section (blueprint.md §7) */}
+          <div className="max-w-6xl mt-6">
+            <GuidancePanel
+              projectId={projectId}
+              sectionId="reliability"
+              className="mb-6"
+            />
           </div>
         </>
       )}

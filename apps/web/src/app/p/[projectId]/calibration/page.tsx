@@ -53,6 +53,7 @@ import {
 } from '@/hooks/useApi';
 import type { NodeSummary, RunSummary } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
+import { GuidancePanel } from '@/components/pil';
 
 // ============ Empty State ============
 
@@ -714,6 +715,15 @@ export default function CalibrationLabPage() {
           )}
         </div>
       )}
+
+      {/* Guidance Panel - Blueprint-driven guidance for calibration section (blueprint.md §7) */}
+      <div className="px-4 py-3">
+        <GuidancePanel
+          projectId={projectId}
+          sectionId="calibration"
+          className="mb-4"
+        />
+      </div>
 
       {/* Footer nav */}
       <div className="p-4 border-t border-white/10 flex items-center justify-between">

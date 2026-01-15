@@ -67,6 +67,7 @@ import type {
   ReportOperator,
   ReportDriftStatus,
 } from '@/lib/api';
+import { GuidancePanel } from '@/components/pil';
 
 // ============================================================================
 // Types
@@ -1933,6 +1934,15 @@ export default function ReportsPage() {
             linkCopied={linkCopied}
           />
         )}
+
+        {/* Guidance Panel - Blueprint-driven guidance for reports section (blueprint.md §7) */}
+        <div className="mt-6">
+          <GuidancePanel
+            projectId={projectId}
+            sectionId="reports"
+            className="mb-6"
+          />
+        </div>
       </div>
 
       {/* Footer */}
