@@ -879,14 +879,15 @@ async def get_section_guidance(
 # Active Blueprint Shortcut
 # =============================================================================
 
-@router.get("/project/{project_id}/active", response_model=BlueprintResponse)
+@router.get("/project/{project_id}/active", response_model=Optional[BlueprintResponse])
 async def get_active_blueprint(
     project_id: UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> Blueprint:
+) -> Optional[Blueprint]:
     """
     Get the active blueprint for a project.
+    Returns null if no active blueprint exists (rather than 404).
     """
     result = await db.execute(
         select(Blueprint)
@@ -902,10 +903,88 @@ async def get_active_blueprint(
     )
     blueprint = result.scalar_one_or_none()
 
-    if not blueprint:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No active blueprint found for this project",
-        )
-
+    # Return None instead of 404 to allow frontend to handle gracefully
     return blueprint
+
+
+@router.get("/project/{project_id}/checklist", response_model=Optional[ProjectChecklist])
+async def get_project_checklist_by_project(
+    project_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Optional[ProjectChecklist]:
+    """
+    Get the checklist for the active blueprint of a project.
+    Returns null if no active blueprint exists.
+    """
+    # Find active blueprint for this project
+    result = await db.execute(
+        select(Blueprint)
+        .where(
+            Blueprint.project_id == project_id,
+            Blueprint.tenant_id == current_user.id,
+            Blueprint.is_active == True,
+        )
+        .options(
+            selectinload(Blueprint.slots),
+            selectinload(Blueprint.tasks),
+        )
+    )
+    blueprint = result.scalar_one_or_none()
+
+    if not blueprint:
+        return None
+
+    # Build checklist items from slots and tasks
+    items = []
+
+    # Add slot-based items
+    for slot in blueprint.slots or []:
+        items.append(ChecklistItem(
+            id=str(slot.id),
+            title=slot.slot_name,
+            section_id="inputs",  # Slots are in inputs section
+            status=slot.status or "not_started",
+            status_reason=slot.status_reason,
+            why_it_matters=slot.description,
+            missing_items=[slot.slot_name] if not slot.fulfilled else None,
+            match_score=slot.alignment_score,
+        ))
+
+    # Add task-based items
+    for task in blueprint.tasks or []:
+        items.append(ChecklistItem(
+            id=str(task.id),
+            title=task.title,
+            section_id=task.section_id,
+            status=task.status or "not_started",
+            status_reason=task.status_reason,
+            why_it_matters=task.why_it_matters,
+            latest_summary=task.last_summary_ref,
+        ))
+
+    # Count by status
+    ready = sum(1 for i in items if i.status == "ready")
+    needs_attention = sum(1 for i in items if i.status == "needs_attention")
+    blocked = sum(1 for i in items if i.status == "blocked")
+    not_started = sum(1 for i in items if i.status == "not_started")
+
+    # Determine overall readiness
+    if blocked > 0:
+        overall = "blocked"
+    elif needs_attention > 0 or not_started > 0:
+        overall = "needs_work"
+    else:
+        overall = "ready"
+
+    return ProjectChecklist(
+        project_id=str(blueprint.project_id),
+        blueprint_id=str(blueprint.id),
+        blueprint_version=blueprint.version,
+        items=items,
+        ready_count=ready,
+        needs_attention_count=needs_attention,
+        blocked_count=blocked,
+        not_started_count=not_started,
+        overall_readiness=overall,
+    )
