@@ -10,9 +10,10 @@
  * Reference: temporal.md §3 - Create Project Flow UI
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import * as Dialog from '@radix-ui/react-dialog';
 import { Button } from '@/components/ui/button';
 import {
   ArrowLeft,
@@ -41,6 +42,8 @@ import {
   ChevronUp,
   AlertTriangle,
   Info,
+  Save,
+  Trash2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useCreateProjectSpec, useCreateBlueprint } from '@/hooks/useApi';
@@ -247,6 +250,73 @@ export default function CreateProjectWizardPage() {
   const [tagInput, setTagInput] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
   const [showSourcesPanel, setShowSourcesPanel] = useState(false);
+  // Exit confirmation modal state (per blueprint_v2.md §2.1.2)
+  const [showExitModal, setShowExitModal] = useState(false);
+
+  // Check if there's unsaved draft state that should trigger exit confirmation
+  const hasDraftState = useCallback(() => {
+    // Has goal text entered
+    const hasGoal = formData.goal.trim().length > 0;
+    // Has blueprint draft generated
+    const hasBlueprintDraft = blueprintDraft !== null;
+    // Is currently analyzing
+    const isRunningAnalysis = isAnalyzing;
+
+    return hasGoal || hasBlueprintDraft || isRunningAnalysis;
+  }, [formData.goal, blueprintDraft, isAnalyzing]);
+
+  // Handle cancel button click - show modal if draft state exists
+  const handleCancelClick = useCallback(() => {
+    if (hasDraftState()) {
+      setShowExitModal(true);
+    } else {
+      router.push('/dashboard/projects');
+    }
+  }, [hasDraftState, router]);
+
+  // Handle discard and exit
+  const handleDiscardExit = useCallback(() => {
+    // Clear all state and navigate away
+    setShowExitModal(false);
+    router.push('/dashboard/projects');
+  }, [router]);
+
+  // Handle save draft and exit (for future implementation)
+  const handleSaveDraftExit = useCallback(() => {
+    // TODO: In Phase B.3, implement localStorage draft persistence
+    // For now, just show a toast and exit
+    setShowExitModal(false);
+    // Store draft to localStorage
+    if (typeof window !== 'undefined') {
+      const draftData = {
+        goal: formData.goal,
+        blueprintDraft,
+        temporalMode: formData.temporalMode,
+        asOfDate: formData.asOfDate,
+        asOfTime: formData.asOfTime,
+        timezone: formData.timezone,
+        isolationLevel: formData.isolationLevel,
+        coreType: formData.coreType,
+        savedAt: new Date().toISOString(),
+      };
+      localStorage.setItem('agentverse_project_draft', JSON.stringify(draftData));
+    }
+    router.push('/dashboard/projects');
+  }, [formData, blueprintDraft, router]);
+
+  // Handle browser back button / navigation away
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasDraftState()) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasDraftState]);
 
   // Get current step index
   const currentStepIndex = STEPS.findIndex(s => s.id === currentStep);
@@ -1143,11 +1213,14 @@ export default function CreateProjectWizardPage() {
             )}
           </div>
           <div className="flex flex-col sm:flex-row gap-2 md:gap-3">
-            <Link href="/dashboard/projects" className="w-full sm:w-auto">
-              <Button variant="outline" size="sm" className="w-full text-xs">
-                CANCEL
-              </Button>
-            </Link>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full sm:w-auto text-xs"
+              onClick={handleCancelClick}
+            >
+              CANCEL
+            </Button>
             {currentStep === 'setup' ? (
               <Button
                 onClick={handleCreate}
@@ -1186,6 +1259,70 @@ export default function CreateProjectWizardPage() {
           </div>
         </div>
       </div>
+
+      {/* Exit Confirmation Modal (per blueprint_v2.md §2.1.2) */}
+      <Dialog.Root open={showExitModal} onOpenChange={setShowExitModal}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/80 z-50" />
+          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-black border border-white/20 p-6 z-50 w-full max-w-md">
+            <Dialog.Title className="flex items-center gap-2 text-lg font-mono font-bold text-white mb-2">
+              <AlertTriangle className="w-5 h-5 text-amber-400" />
+              Leave Setup?
+            </Dialog.Title>
+            <Dialog.Description className="text-sm font-mono text-white/60 mb-6 leading-relaxed">
+              {isAnalyzing ? (
+                <>
+                  A goal analysis is currently running. Leaving now will cancel the analysis
+                  and discard your draft.
+                </>
+              ) : blueprintDraft ? (
+                <>
+                  You have a generated blueprint draft. Your progress will be lost
+                  unless you save it as a draft.
+                </>
+              ) : (
+                <>
+                  You have unsaved changes. Your draft will not be saved unless
+                  you click &quot;Save Draft&quot;.
+                </>
+              )}
+            </Dialog.Description>
+
+            <div className="space-y-3">
+              {/* Save Draft & Exit */}
+              <Button
+                variant="secondary"
+                className="w-full justify-start text-sm"
+                onClick={handleSaveDraftExit}
+              >
+                <Save className="w-4 h-4 mr-2" />
+                Save Draft & Exit
+                <span className="ml-auto text-[10px] text-white/40">Resume later</span>
+              </Button>
+
+              {/* Discard Draft & Exit */}
+              <Button
+                variant="outline"
+                className="w-full justify-start text-sm text-red-400 border-red-500/30 hover:bg-red-500/10"
+                onClick={handleDiscardExit}
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Discard Draft & Exit
+                <span className="ml-auto text-[10px] text-red-400/60">Cannot undo</span>
+              </Button>
+
+              {/* Continue Setup */}
+              <Button
+                className="w-full justify-center text-sm"
+                onClick={() => setShowExitModal(false)}
+              >
+                <ArrowRight className="w-4 h-4 mr-2" />
+                Continue Setup
+              </Button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
 
       {/* Footer */}
       <div className="mt-8 pt-4 border-t border-white/5 max-w-2xl">

@@ -34,10 +34,12 @@
 
 | Task | Status | Notes |
 |------|--------|-------|
-| DraftProject model: stores goal text, clarification answers, cutoff draft, chosen core draft, blueprint_draft content | PENDING | |
-| Blueprint model: versioned, auditable | PENDING | Existing model at `apps/api/app/models/blueprint.py` |
-| Project links to Blueprint v1 at creation | PENDING | |
-| Exit/cancel confirmation modal with Save Draft/Discard Draft | PENDING | |
+| DraftProject model: stores goal text, clarification answers, cutoff draft, chosen core draft, blueprint_draft content | IN PROGRESS | Using localStorage for now (B.3) |
+| Blueprint model: versioned, auditable | ✅ DONE | Existing model at `apps/api/app/models/blueprint.py` |
+| Project links to Blueprint v1 at creation | ✅ DONE | Via `skip_clarification` flag in v2 flow |
+| Exit/cancel confirmation modal with Save Draft/Discard Draft | ✅ DONE | Radix Dialog modal in wizard page |
+| Draft persistence to localStorage | ✅ DONE | Saves on "Save Draft & Exit" |
+| Browser beforeunload warning | ✅ DONE | Warns if unsaved draft state |
 
 ---
 
