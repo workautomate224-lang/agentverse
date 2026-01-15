@@ -33,9 +33,9 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useNodes, useRuns, useProject, useActiveBlueprint, useProjectChecklist } from '@/hooks/useApi';
+import { useNodes, useRuns, useProject, useActiveBlueprint, useProjectChecklist, useCreateBlueprint } from '@/hooks/useApi';
 import { ClarifyPanel, BlueprintChecklist, AlignmentScore } from '@/components/pil';
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 
 // Core type styling
 const coreTypeConfig = {
@@ -127,10 +127,29 @@ export default function ProjectOverviewPage() {
   const { data: runs, isLoading: runsLoading } = useRuns({ project_id: projectId, limit: 100 });
 
   // Blueprint data for Clarify Panel and Checklist (blueprint.md §4, §7)
-  const { data: blueprint, isLoading: blueprintLoading } = useActiveBlueprint(projectId);
+  const { data: blueprint, isLoading: blueprintLoading, refetch: refetchBlueprint } = useActiveBlueprint(projectId);
   const { data: checklist, isLoading: checklistLoading } = useProjectChecklist(projectId);
+  const createBlueprintMutation = useCreateBlueprint();
+  const [blueprintError, setBlueprintError] = useState<string | null>(null);
 
   const isLoading = projectLoading || nodesLoading || runsLoading || blueprintLoading || checklistLoading;
+
+  // Handle initiating goal analysis for projects without blueprints
+  const handleStartGoalAnalysis = useCallback(async () => {
+    if (!project) return;
+    setBlueprintError(null);
+    try {
+      await createBlueprintMutation.mutateAsync({
+        project_id: project.id,
+        goal_text: project.description || project.name,
+        skip_clarification: false,
+      });
+      // Refetch blueprint to show ClarifyPanel
+      refetchBlueprint();
+    } catch (error) {
+      setBlueprintError(error instanceof Error ? error.message : 'Failed to start goal analysis');
+    }
+  }, [project, createBlueprintMutation, refetchBlueprint]);
 
   // Calculate stats from real data
   const stats = useMemo(() => {
@@ -271,6 +290,50 @@ export default function ProjectOverviewPage() {
                   <ArrowRight className="w-4 h-4 text-cyan-400 group-hover:translate-x-1 transition-transform" />
                 </div>
               </Link>
+            </div>
+          )}
+
+          {/* No Blueprint - Prompt to Start Goal Analysis (blueprint.md §4) */}
+          {!blueprint && !blueprintLoading && (
+            <div className="max-w-2xl mb-6 p-6 bg-purple-500/5 border border-purple-500/30">
+              <div className="flex items-start gap-4">
+                <div className="p-2 bg-purple-500/20">
+                  <HelpCircle className="w-5 h-5 text-purple-400" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-sm font-mono font-bold text-white mb-2">
+                    Set Up AI-Powered Project Blueprint
+                  </h3>
+                  <p className="text-xs font-mono text-white/50 mb-4">
+                    Let AI analyze your project goals to generate personalized tasks, data requirements,
+                    and guidance. This will help ensure your simulation is set up correctly.
+                  </p>
+                  {blueprintError && (
+                    <div className="flex items-center gap-2 mb-3 text-red-400">
+                      <AlertCircle className="w-4 h-4" />
+                      <span className="text-xs font-mono">{blueprintError}</span>
+                    </div>
+                  )}
+                  <Button
+                    onClick={handleStartGoalAnalysis}
+                    disabled={createBlueprintMutation.isPending}
+                    size="sm"
+                    className="text-xs font-mono bg-purple-500 hover:bg-purple-400 text-white"
+                  >
+                    {createBlueprintMutation.isPending ? (
+                      <>
+                        <Loader2 className="w-3 h-3 mr-2 animate-spin" />
+                        Analyzing Goals...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-3 h-3 mr-2" />
+                        Start Goal Analysis
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
 

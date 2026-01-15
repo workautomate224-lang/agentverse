@@ -43,7 +43,7 @@ import {
   Info,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useCreateProjectSpec } from '@/hooks/useApi';
+import { useCreateProjectSpec, useCreateBlueprint } from '@/hooks/useApi';
 
 // Wizard step definitions - 4-step flow per temporal.md §3
 const STEPS = [
@@ -216,6 +216,7 @@ function detectDomain(goal: string): 'marketing' | 'political' | 'finance' | 'cu
 export default function CreateProjectWizardPage() {
   const router = useRouter();
   const createProjectMutation = useCreateProjectSpec();
+  const createBlueprintMutation = useCreateBlueprint();
 
   const [currentStep, setCurrentStep] = useState<StepId>('goal');
   const [formData, setFormData] = useState<WizardFormData>({
@@ -371,7 +372,22 @@ export default function CreateProjectWizardPage() {
         ...(temporalContext && { temporal_context: temporalContext }),
       });
 
+      // Create Blueprint and trigger Goal Analysis job (blueprint.md §4)
+      // This will analyze the goal and generate clarifying questions
+      try {
+        await createBlueprintMutation.mutateAsync({
+          project_id: project.id,
+          goal_text: formData.goal,
+          skip_clarification: false, // Trigger goal analysis
+        });
+      } catch (blueprintError) {
+        // Blueprint creation failed, but project was created
+        // Continue to overview - user can retry blueprint creation there
+        console.error('Blueprint creation failed:', blueprintError);
+      }
+
       // Navigate to the project workspace using real UUID from backend
+      // The overview page will show ClarifyPanel if blueprint is in draft state
       router.push(`/p/${project.id}/overview`);
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : 'Failed to create project');
@@ -1087,14 +1103,19 @@ export default function CreateProjectWizardPage() {
             {currentStep === 'setup' ? (
               <Button
                 onClick={handleCreate}
-                disabled={!isStepValid('setup') || createProjectMutation.isPending}
+                disabled={!isStepValid('setup') || createProjectMutation.isPending || createBlueprintMutation.isPending}
                 size="sm"
                 className="w-full sm:w-auto text-xs"
               >
                 {createProjectMutation.isPending ? (
                   <>
                     <Loader2 className="w-3 h-3 mr-2 animate-spin" />
-                    CREATING...
+                    CREATING PROJECT...
+                  </>
+                ) : createBlueprintMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-3 h-3 mr-2 animate-spin" />
+                    ANALYZING GOAL...
                   </>
                 ) : (
                   <>

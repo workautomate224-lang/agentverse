@@ -298,41 +298,66 @@ All evidence must be stored and referenced.
 ---
 
 ## 10) Engineering Tasks Checklist (Implementation Work Breakdown)
-### Phase A — Data Model + Versioning
-- [ ] Add Blueprint storage model: `project_id`, `blueprint_version`, `policy_version`, `content`, `created_at`, `created_by`
-- [ ] Add Blueprint-to-Run linking: every run references `blueprint_version`
-- [ ] Add Slot model (or extend existing): `slot_id`, `slot_type`, `required_level`, `schema`, `status`, `artifacts`
-- [ ] Add Task model: `task_id`, `section_id`, `linked_slots`, `status`, `alerts`, `last_summary_ref`
+### Phase A — Data Model + Versioning ✅ COMPLETE
+- [x] Add Blueprint storage model: `project_id`, `blueprint_version`, `policy_version`, `content`, `created_at`, `created_by`
+  - Created: `apps/api/app/models/blueprint.py`
+- [x] Add Blueprint-to-Run linking: every run references `blueprint_version`
+  - Modified: `apps/api/app/models/node.py` - Added blueprint_id, blueprint_version to Run
+- [x] Add Slot model (or extend existing): `slot_id`, `slot_type`, `required_level`, `schema`, `status`, `artifacts`
+  - Created: BlueprintSlot model in `apps/api/app/models/blueprint.py`
+- [x] Add Task model: `task_id`, `section_id`, `linked_slots`, `status`, `alerts`, `last_summary_ref`
+  - Created: BlueprintTask model in `apps/api/app/models/blueprint.py`
 
-### Phase B — Job System & Loading UI
-- [ ] Implement background job queue for AI work (analysis, summarization, validation, compilation)
-- [ ] Implement job persistence + progress reporting + retry logic
-- [ ] Add inline loading widgets with progress bar on relevant sections
-- [ ] Expand Runs & Jobs into a Job Center (filter/search, logs, artifacts)
+### Phase B — Job System & Loading UI ✅ COMPLETE
+- [x] Implement background job queue for AI work (analysis, summarization, validation, compilation)
+  - Using Celery: `apps/api/app/tasks/pil_tasks.py`
+- [x] Implement job persistence + progress reporting + retry logic
+  - Created: PILJob, PILArtifact models in `apps/api/app/models/pil_job.py`
+- [x] Add inline loading widgets with progress bar on relevant sections
+  - Created: `PILJobProgress.tsx` in `apps/web/src/components/pil/`
+- [x] Expand Runs & Jobs into a Job Center (filter/search, logs, artifacts)
+  - Available in Run Center page with ActiveJobsBanner
 
-### Phase C — Goal Clarification & Blueprint Builder
-- [ ] Add Goal Analysis job triggered on Next
-- [ ] Add Clarify UI panel + structured Q&A
-- [ ] Add “Skip & Generate Blueprint” option
-- [ ] Add “Save Draft” behavior + exit confirmation modal
-- [ ] Implement Blueprint Builder prompt + policy constraints
+### Phase C — Goal Clarification & Blueprint Builder ✅ COMPLETE
+- [x] Add Goal Analysis job triggered on Next
+  - Integrated: Create Project wizard calls useCreateBlueprint after project creation
+  - Fallback: Overview page allows manual "Start Goal Analysis" if no blueprint exists
+- [x] Add Clarify UI panel + structured Q&A
+  - Created: `ClarifyPanel.tsx` - Full Q&A flow with multi-question navigation
+- [x] Add "Skip & Generate Blueprint" option
+  - ClarifyPanel includes skip functionality with unsaved changes check
+- [x] Add "Save Draft" behavior + exit confirmation modal
+  - Created: `SaveDraftIndicator.tsx`, `ExitConfirmationModal.tsx`
+  - Auto-save implemented with 1.5s debounce
+- [x] Implement Blueprint Builder prompt + policy constraints
+  - Implemented: `blueprint_build_task` in pil_tasks.py
 
-### Phase D — Blueprint-driven Sections
-- [ ] Overview checklist becomes blueprint-driven with alert levels
-- [ ] Data & Personas page becomes unified Inputs experience:
-  - show required slots for this project
-  - show personas as one slot among others
-- [ ] Add Guidance Panel to Rules, Run Params, Event Lab, Universe Map, Reliability, Reports
-- [ ] Ensure each slot triggers validation + AI summary + match scoring jobs
+### Phase D — Blueprint-driven Sections ✅ COMPLETE
+- [x] Overview checklist becomes blueprint-driven with alert levels
+  - `BlueprintChecklist.tsx` integrated in overview/page.tsx
+  - Falls back to static checklist when no blueprint exists
+- [x] Data & Personas page becomes unified Inputs experience:
+  - GuidancePanel added to show required slots for project
+  - Personas shown as one slot among others
+- [x] Add Guidance Panel to Rules, Run Params, Event Lab, Universe Map, Reliability, Reports
+  - `GuidancePanel.tsx` added to all section pages
+- [x] Ensure each slot triggers validation + AI summary + match scoring jobs
+  - `slot_validation_task` implemented in pil_tasks.py
 
-### Phase E — Quality, Calibration, and Readiness
-- [ ] Implement alignment scoring (goal match) and show it in UI
-- [ ] Implement minimum backtest plan artifacts (labels required, evaluation metrics)
-- [ ] Implement reliability indicators per project (data completeness, model consistency, drift warnings)
+### Phase E — Quality, Calibration, and Readiness ✅ COMPLETE
+- [x] Implement alignment scoring (goal match) and show it in UI
+  - Created: `AlignmentScore.tsx` - Shows alignment percentage with breakdown
+  - Integrated in overview/page.tsx when blueprint is finalized
+- [x] Implement minimum backtest plan artifacts (labels required, evaluation metrics)
+  - Calibration Lab page includes ground truth input and calibration status
+- [x] Implement reliability indicators per project (data completeness, model consistency, drift warnings)
+  - Reliability page shows comprehensive metrics and warnings
 
-### Phase F — Documentation & Ops
-- [ ] Update docs: where blueprint lives, how to debug job failures
+### Phase F — Documentation & Ops ⏳ PARTIAL
+- [x] Update docs: where blueprint lives, how to debug job failures
+  - This blueprint.md fully documented
 - [ ] Add admin tools: view blueprint versions, roll back blueprint version (audited)
+  - Note: API endpoints exist for versioning, admin UI pending
 
 ---
 
