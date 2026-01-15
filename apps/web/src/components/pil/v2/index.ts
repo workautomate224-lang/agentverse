@@ -7,3 +7,4 @@
  */
 
 export { GoalAssistantPanel } from './GoalAssistantPanel';
+export { GuidancePanel } from './GuidancePanel';

@@ -28,6 +28,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useProjectSpec, useProjectSpecStats, useNodes, useCreateProjectSpecRun } from '@/hooks/useApi';
 import type { NodeSummary } from '@/lib/api';
+import { GuidancePanel } from '@/components/pil/v2/GuidancePanel';
 
 export default function ProjectOverviewPage() {
   const params = useParams();
@@ -121,6 +122,13 @@ export default function ProjectOverviewPage() {
           </div>
         </div>
       </div>
+
+      {/* Blueprint Guidance Panel */}
+      <GuidancePanel
+        projectId={projectId}
+        section="overview"
+        className="mb-4 md:mb-6"
+      />
 
       {/* Top Summary Block */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mb-4 md:mb-6">
