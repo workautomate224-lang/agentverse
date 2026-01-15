@@ -34,7 +34,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNodes, useRuns, useProject, useActiveBlueprint, useProjectChecklist } from '@/hooks/useApi';
-import { ClarifyPanel, BlueprintChecklist } from '@/components/pil';
+import { ClarifyPanel, BlueprintChecklist, AlignmentScore } from '@/components/pil';
 import { useMemo } from 'react';
 
 // Core type styling
@@ -271,6 +271,16 @@ export default function ProjectOverviewPage() {
                   <ArrowRight className="w-4 h-4 text-cyan-400 group-hover:translate-x-1 transition-transform" />
                 </div>
               </Link>
+            </div>
+          )}
+
+          {/* Alignment Score - shows when blueprint is finalized (blueprint.md §6) */}
+          {blueprint && !blueprint.is_draft && (
+            <div className="max-w-2xl mb-6">
+              <AlignmentScore
+                projectId={projectId}
+                showBreakdown={true}
+              />
             </div>
           )}
 

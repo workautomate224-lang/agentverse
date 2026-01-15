@@ -12,3 +12,4 @@ export { SaveDraftIndicator, type SaveStatus } from './SaveDraftIndicator';
 export { ExitConfirmationModal, useExitConfirmation } from './ExitConfirmationModal';
 export { BlueprintChecklist } from './BlueprintChecklist';
 export { GuidancePanel } from './GuidancePanel';
+export { AlignmentScore, AlignmentBadge } from './AlignmentScore';
