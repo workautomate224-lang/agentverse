@@ -350,12 +350,7 @@ class BlueprintSlot(Base):
         nullable=False,
         index=True
     )
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("tenants.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True
-    )
+    # Note: tenant_id is inherited from parent blueprint (no direct column needed)
 
     # Slot definition
     slot_id: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -497,12 +492,7 @@ class BlueprintTask(Base):
         nullable=False,
         index=True
     )
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("tenants.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True
-    )
+    # Note: tenant_id is inherited from parent blueprint (no direct column needed)
 
     # Task identification
     task_id: Mapped[str] = mapped_column(String(100), nullable=False)
