@@ -9,6 +9,7 @@ import { SKIP_LINK_TARGETS } from '@/lib/accessibility';
 import { useSidebarStore } from '@/store/sidebar';
 import { cn } from '@/lib/utils';
 import { Terminal, Loader2, Menu, X } from 'lucide-react';
+import { ActiveJobsBanner } from '@/components/pil/ActiveJobsBanner';
 
 // Loading skeleton for dashboard
 function DashboardSkeleton() {
@@ -175,6 +176,10 @@ export default function DashboardLayout({
         role="main"
         aria-label="Main content"
       >
+        {/* Global active jobs banner - shows all running PIL jobs */}
+        <div className="px-4 pt-4">
+          <ActiveJobsBanner maxVisible={2} className="mb-4" />
+        </div>
         {children}
       </main>
     </div>
