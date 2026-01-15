@@ -10,3 +10,4 @@ export { ActiveJobsBanner } from './ActiveJobsBanner';
 export { ClarifyPanel } from './ClarifyPanel';
 export { SaveDraftIndicator, type SaveStatus } from './SaveDraftIndicator';
 export { ExitConfirmationModal, useExitConfirmation } from './ExitConfirmationModal';
+export { BlueprintChecklist } from './BlueprintChecklist';

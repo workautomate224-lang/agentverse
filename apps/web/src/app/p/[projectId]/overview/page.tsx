@@ -33,8 +33,8 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useNodes, useRuns, useProject, useActiveBlueprint } from '@/hooks/useApi';
-import { ClarifyPanel } from '@/components/pil';
+import { useNodes, useRuns, useProject, useActiveBlueprint, useProjectChecklist } from '@/hooks/useApi';
+import { ClarifyPanel, BlueprintChecklist } from '@/components/pil';
 import { useMemo } from 'react';
 
 // Core type styling
@@ -126,10 +126,11 @@ export default function ProjectOverviewPage() {
   const { data: nodes, isLoading: nodesLoading } = useNodes({ project_id: projectId, limit: 100 });
   const { data: runs, isLoading: runsLoading } = useRuns({ project_id: projectId, limit: 100 });
 
-  // Blueprint data for Clarify Panel (blueprint.md §4, §7)
+  // Blueprint data for Clarify Panel and Checklist (blueprint.md §4, §7)
   const { data: blueprint, isLoading: blueprintLoading } = useActiveBlueprint(projectId);
+  const { data: checklist, isLoading: checklistLoading } = useProjectChecklist(projectId);
 
-  const isLoading = projectLoading || nodesLoading || runsLoading || blueprintLoading;
+  const isLoading = projectLoading || nodesLoading || runsLoading || blueprintLoading || checklistLoading;
 
   // Calculate stats from real data
   const stats = useMemo(() => {
@@ -321,86 +322,97 @@ export default function ProjectOverviewPage() {
             </Link>
           </div>
 
-          {/* Setup Progress */}
+          {/* Setup Progress - Dynamic Blueprint Checklist (blueprint.md §7) */}
           <div className="max-w-2xl mb-6 md:mb-8">
-            <div className="bg-white/5 border border-white/10 p-4 md:p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-cyan-400" />
-                  <h2 className="text-sm md:text-base font-mono font-bold text-white">Setup Checklist</h2>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-20 h-1.5 bg-white/10">
-                    <div
-                      className="h-full bg-cyan-500 transition-all"
-                      style={{ width: `${progressPercent}%` }}
-                    />
+            {/* Show dynamic BlueprintChecklist when blueprint/checklist exists */}
+            {checklist && checklist.items.length > 0 ? (
+              <div className="bg-white/5 border border-white/10 p-4 md:p-6">
+                <BlueprintChecklist
+                  projectId={projectId}
+                  showHeader={true}
+                />
+              </div>
+            ) : (
+              /* Fall back to static checklist when no blueprint exists */
+              <div className="bg-white/5 border border-white/10 p-4 md:p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-cyan-400" />
+                    <h2 className="text-sm md:text-base font-mono font-bold text-white">Setup Checklist</h2>
                   </div>
-                  <span className="text-[10px] font-mono text-white/40">{completedSteps}/{totalSteps}</span>
+                  <div className="flex items-center gap-2">
+                    <div className="w-20 h-1.5 bg-white/10">
+                      <div
+                        className="h-full bg-cyan-500 transition-all"
+                        style={{ width: `${progressPercent}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] font-mono text-white/40">{completedSteps}/{totalSteps}</span>
+                  </div>
+                </div>
+
+                <p className="text-xs font-mono text-white/50 mb-4">
+                  Complete these steps to configure your project before running simulations.
+                </p>
+
+                <div className="space-y-2">
+                  {checklistItems.map((item, index) => {
+                    // Map checklist item id to setupProgress key
+                    const progressKey = item.id === 'data-personas' ? 'dataPersonas'
+                      : item.id === 'run-center' ? 'runCenter'
+                      : item.id === 'universe-map' ? 'universeMap'
+                      : item.id as keyof typeof setupProgress;
+                    const isCompleted = setupProgress[progressKey] ?? false;
+                    const Icon = item.icon;
+
+                    return (
+                      <Link
+                        key={item.id}
+                        href={`/p/${projectId}/${item.href}`}
+                        className={cn(
+                          'flex items-start gap-3 p-3 border transition-all group',
+                          isCompleted
+                            ? 'bg-green-500/5 border-green-500/20'
+                            : 'bg-black border-white/10 hover:border-white/20'
+                        )}
+                      >
+                        <div className={cn(
+                          'w-6 h-6 flex items-center justify-center flex-shrink-0 mt-0.5',
+                          isCompleted ? 'bg-green-500/20' : 'bg-white/5'
+                        )}>
+                          {isCompleted ? (
+                            <CheckCircle className="w-4 h-4 text-green-400" />
+                          ) : (
+                            <span className="text-[10px] font-mono text-white/40">{index + 1}</span>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <Icon className={cn(
+                              'w-3.5 h-3.5',
+                              isCompleted ? 'text-green-400' : 'text-white/40 group-hover:text-white/60'
+                            )} />
+                            <h3 className={cn(
+                              'text-xs md:text-sm font-mono font-bold',
+                              isCompleted ? 'text-green-400' : 'text-white group-hover:text-white'
+                            )}>
+                              {item.name}
+                            </h3>
+                          </div>
+                          <p className="text-[10px] md:text-xs font-mono text-white/40 mt-1">
+                            {item.description}
+                          </p>
+                        </div>
+                        <ArrowRight className={cn(
+                          'w-4 h-4 flex-shrink-0 mt-1 transition-transform',
+                          isCompleted ? 'text-green-400' : 'text-white/20 group-hover:text-white/40 group-hover:translate-x-1'
+                        )} />
+                      </Link>
+                    );
+                  })}
                 </div>
               </div>
-
-              <p className="text-xs font-mono text-white/50 mb-4">
-                Complete these steps to configure your project before running simulations.
-              </p>
-
-              <div className="space-y-2">
-                {checklistItems.map((item, index) => {
-                  // Map checklist item id to setupProgress key
-                  const progressKey = item.id === 'data-personas' ? 'dataPersonas'
-                    : item.id === 'run-center' ? 'runCenter'
-                    : item.id === 'universe-map' ? 'universeMap'
-                    : item.id as keyof typeof setupProgress;
-                  const isCompleted = setupProgress[progressKey] ?? false;
-                  const Icon = item.icon;
-
-                  return (
-                    <Link
-                      key={item.id}
-                      href={`/p/${projectId}/${item.href}`}
-                      className={cn(
-                        'flex items-start gap-3 p-3 border transition-all group',
-                        isCompleted
-                          ? 'bg-green-500/5 border-green-500/20'
-                          : 'bg-black border-white/10 hover:border-white/20'
-                      )}
-                    >
-                      <div className={cn(
-                        'w-6 h-6 flex items-center justify-center flex-shrink-0 mt-0.5',
-                        isCompleted ? 'bg-green-500/20' : 'bg-white/5'
-                      )}>
-                        {isCompleted ? (
-                          <CheckCircle className="w-4 h-4 text-green-400" />
-                        ) : (
-                          <span className="text-[10px] font-mono text-white/40">{index + 1}</span>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <Icon className={cn(
-                            'w-3.5 h-3.5',
-                            isCompleted ? 'text-green-400' : 'text-white/40 group-hover:text-white/60'
-                          )} />
-                          <h3 className={cn(
-                            'text-xs md:text-sm font-mono font-bold',
-                            isCompleted ? 'text-green-400' : 'text-white group-hover:text-white'
-                          )}>
-                            {item.name}
-                          </h3>
-                        </div>
-                        <p className="text-[10px] md:text-xs font-mono text-white/40 mt-1">
-                          {item.description}
-                        </p>
-                      </div>
-                      <ArrowRight className={cn(
-                        'w-4 h-4 flex-shrink-0 mt-1 transition-transform',
-                        isCompleted ? 'text-green-400' : 'text-white/20 group-hover:text-white/40 group-hover:translate-x-1'
-                      )} />
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
+            )}
           </div>
 
           {/* Project Info */}
