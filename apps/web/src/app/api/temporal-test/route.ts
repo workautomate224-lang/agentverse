@@ -5,11 +5,136 @@
  * a backtest policy into LLM system prompts.
  *
  * Reference: temporal.md (Single Source of Truth)
+ *
+ * Smart Auto-Trigger:
+ * - auto_classify: Enable LLM-based pre-classification (default: true)
+ * - web_search: Manual override (null = auto, true/false = force)
+ * - thinking_mode: Manual override (null = auto, true/false = force)
  */
 
 import { NextResponse } from 'next/server';
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+
+/**
+ * Smart Classifier - Quick heuristic check for prompts
+ * Returns classification decision for web_search and thinking_mode
+ */
+interface ClassificationResult {
+  web_search: boolean;
+  thinking_mode: boolean;
+  confidence: number;
+  reasoning: string;
+}
+
+function quickClassify(prompt: string): ClassificationResult {
+  const promptLower = prompt.toLowerCase();
+
+  // Strong web search indicators
+  const webSearchKeywords = [
+    'today', 'latest', 'current', 'now', 'recent',
+    'stock price', 'weather', 'news', 'happening',
+    '2025', '2026', 'right now', 'this week', 'this month',
+    'breaking', 'update', 'score', 'result', 'live'
+  ];
+
+  // Strong thinking mode indicators
+  const thinkingKeywords = [
+    'analyze', 'analyse', 'compare', 'evaluate', 'pros and cons',
+    'step by step', 'explain why', 'reasoning', 'trade-off',
+    'design', 'architect', 'plan', 'strategy', 'decision',
+    'advantages and disadvantages', 'in-depth', 'comprehensive analysis',
+    'impact', 'implications', 'consider'
+  ];
+
+  // Count matches
+  const webSearchScore = webSearchKeywords.filter(kw => promptLower.includes(kw)).length;
+  const thinkingScore = thinkingKeywords.filter(kw => promptLower.includes(kw)).length;
+
+  // Determine classification
+  const needsWebSearch = webSearchScore >= 1;
+  const needsThinking = thinkingScore >= 1;
+
+  const confidence = Math.min(0.9, 0.5 + (webSearchScore + thinkingScore) * 0.1);
+
+  return {
+    web_search: needsWebSearch,
+    thinking_mode: needsThinking,
+    confidence,
+    reasoning: `Detected ${webSearchScore} web search keywords, ${thinkingScore} thinking keywords`
+  };
+}
+
+/**
+ * LLM-based classification for more accurate decisions
+ * Falls back to heuristic if API call fails or times out
+ */
+async function classifyWithLLM(
+  prompt: string,
+  apiKey: string
+): Promise<ClassificationResult> {
+  const classifierPrompt = `You are a prompt classifier. Analyze this prompt and determine capabilities needed.
+
+PROMPT: ${prompt}
+
+OUTPUT FORMAT (JSON only, no markdown):
+{"web_search": true/false, "thinking_mode": true/false, "confidence": 0.0-1.0, "reasoning": "brief explanation"}
+
+RULES:
+- web_search=true if: current events, news, real-time data, stock prices, weather, "today", "latest", "2025", "2026"
+- thinking_mode=true if: analysis, comparison, step-by-step reasoning, pros/cons, complex problems`;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
+
+    const response = await fetch(OPENROUTER_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://agentverse.io',
+        'X-Title': 'AgentVerse SmartClassifier',
+      },
+      body: JSON.stringify({
+        model: 'openai/gpt-4o-mini',
+        messages: [{ role: 'user', content: classifierPrompt }],
+        temperature: 0,
+        max_tokens: 150,
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '';
+
+    // Parse JSON from response
+    let jsonContent = content.trim();
+    if (jsonContent.startsWith('```')) {
+      jsonContent = jsonContent.split('```')[1];
+      if (jsonContent.startsWith('json')) {
+        jsonContent = jsonContent.slice(4);
+      }
+    }
+
+    const result = JSON.parse(jsonContent);
+    return {
+      web_search: result.web_search === true,
+      thinking_mode: result.thinking_mode === true,
+      confidence: typeof result.confidence === 'number' ? result.confidence : 0.7,
+      reasoning: result.reasoning || 'LLM classification',
+    };
+  } catch {
+    // Fallback to heuristic on any error
+    return quickClassify(prompt);
+  }
+}
 
 /**
  * Generate temporal isolation policy for system prompt
@@ -100,10 +225,12 @@ export async function POST(request: Request) {
       question,
       isolation_level = 2,
       enable_isolation = true,
-      // Advanced features (only available in non-isolated/live mode)
-      web_search = false,
+      // Smart Auto-Trigger (enabled by default for user-facing API)
+      auto_classify = true,
+      // Manual overrides: null = auto, true/false = force
+      web_search = null as boolean | null,
       web_search_max_results = 5,
-      thinking_mode = false,
+      thinking_mode = null as boolean | null,
       thinking_budget_tokens = null,
     } = body;
 
@@ -129,6 +256,49 @@ export async function POST(request: Request) {
       );
     }
 
+    // =========================================================================
+    // Smart Auto-Classification
+    // =========================================================================
+    // If auto_classify is enabled and no manual override provided,
+    // classify the prompt to determine if web_search or thinking_mode is needed.
+    // This only applies when NOT in isolation mode (live mode).
+    // =========================================================================
+    let classification: ClassificationResult | null = null;
+    let finalWebSearch = web_search ?? false;
+    let finalThinkingMode = thinking_mode ?? false;
+
+    if (!enable_isolation && auto_classify) {
+      // Check if we need to auto-classify (only if no manual override)
+      const needsClassification = web_search === null || thinking_mode === null;
+
+      if (needsClassification) {
+        // Use LLM classification for better accuracy
+        classification = await classifyWithLLM(question, apiKey);
+
+        // Apply classification results, respecting manual overrides
+        // Priority: manual_override > auto_classification > default(false)
+        if (web_search === null) {
+          finalWebSearch = classification.web_search;
+        } else {
+          finalWebSearch = web_search;
+        }
+
+        if (thinking_mode === null) {
+          finalThinkingMode = classification.thinking_mode;
+        } else {
+          finalThinkingMode = thinking_mode;
+        }
+      } else {
+        // Manual overrides provided, use them directly
+        finalWebSearch = web_search ?? false;
+        finalThinkingMode = thinking_mode ?? false;
+      }
+    } else if (!enable_isolation) {
+      // Auto-classify disabled, use manual values (default to false)
+      finalWebSearch = web_search ?? false;
+      finalThinkingMode = thinking_mode ?? false;
+    }
+
     // Build messages array
     const messages: { role: string; content: string }[] = [];
 
@@ -152,7 +322,7 @@ export async function POST(request: Request) {
     // Call OpenRouter with different settings based on mode:
     // - Isolation mode: Lower max_tokens (500) for concise responses, saves tokens
     // - Non-isolation mode: Higher max_tokens (2000) for comprehensive responses
-    const maxTokens = enable_isolation ? 500 : (thinking_mode ? 4000 : 2000);
+    const maxTokens = enable_isolation ? 500 : (finalThinkingMode ? 4000 : 2000);
 
     // Build request payload
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -165,7 +335,7 @@ export async function POST(request: Request) {
 
     // Add web search plugin if enabled (only in non-isolated mode)
     // Reference: https://openrouter.ai/docs/guides/features/plugins/web-search
-    if (web_search && !enable_isolation) {
+    if (finalWebSearch && !enable_isolation) {
       requestPayload.plugins = [
         {
           id: 'web',
@@ -176,7 +346,7 @@ export async function POST(request: Request) {
 
     // Add thinking/reasoning mode if enabled (only in non-isolated mode)
     // Reference: https://openrouter.ai/docs/guides/routing/model-variants/thinking
-    if (thinking_mode && !enable_isolation) {
+    if (finalThinkingMode && !enable_isolation) {
       requestPayload.include_reasoning = true;
       if (thinking_budget_tokens) {
         requestPayload.reasoning = {
@@ -226,7 +396,7 @@ export async function POST(request: Request) {
 
     // Extract web search results if present (from annotations)
     let webSearchResults = null;
-    if (web_search && message?.annotations) {
+    if (finalWebSearch && message?.annotations) {
       webSearchResults = message.annotations
         .filter((a: { type: string }) => a.type === 'url_citation')
         .map((a: { url?: string; title?: string }) => ({
@@ -243,9 +413,20 @@ export async function POST(request: Request) {
       model: 'openai/gpt-5.2',
       policy_text: enable_isolation ? policyText : null,
       usage: data.usage,
-      // Advanced features output
-      web_search_enabled: web_search && !enable_isolation,
-      thinking_mode_enabled: thinking_mode && !enable_isolation,
+      // Smart Auto-Trigger info
+      auto_classify_enabled: auto_classify && !enable_isolation,
+      classification: classification ? {
+        web_search: classification.web_search,
+        thinking_mode: classification.thinking_mode,
+        confidence: classification.confidence,
+        reasoning: classification.reasoning,
+      } : null,
+      // Manual overrides (null = auto-decided, true/false = manually set)
+      manual_web_search: web_search,
+      manual_thinking_mode: thinking_mode,
+      // Final applied features
+      web_search_enabled: finalWebSearch && !enable_isolation,
+      thinking_mode_enabled: finalThinkingMode && !enable_isolation,
       reasoning: reasoning,
       web_search_results: webSearchResults,
     });

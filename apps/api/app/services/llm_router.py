@@ -41,6 +41,7 @@ from app.models.llm import (
     LLMProfileKey,
 )
 from app.services.openrouter import CompletionResponse, OpenRouterService
+from app.services.llm_smart_classifier import SmartClassifier, ClassificationResult, get_smart_classifier
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,10 @@ class LLMRouterContext(BaseModel):
     web_search_max_results: int = 5  # Max number of web results (1-10)
     thinking_mode: bool = False  # Enable extended thinking/reasoning
     thinking_budget_tokens: Optional[int] = None  # Max tokens for reasoning
+    # Smart Auto-Trigger (LLM-based pre-classification)
+    auto_classify: bool = False  # Enable smart classification of prompts
+    manual_web_search: Optional[bool] = None  # Manual override (None = use auto or default)
+    manual_thinking_mode: Optional[bool] = None  # Manual override (None = use auto or default)
 
 
 class LLMRouter:
@@ -113,6 +118,7 @@ class LLMRouter:
     def __init__(self, db: AsyncSession):
         self.db = db
         self._openrouter = OpenRouterService()
+        self._smart_classifier = get_smart_classifier()
         self._profile_cache: Dict[str, LLMProfile] = {}
         self._profile_cache_time: float = 0
         self._profile_cache_ttl: float = 300  # 5 minutes
@@ -144,6 +150,11 @@ class LLMRouter:
         """
         context = context or LLMRouterContext()
         start_time = time.time()
+
+        # 0. Smart Auto-Classification (if enabled)
+        # This determines if web_search or thinking_mode should be enabled
+        if context.auto_classify:
+            context = await self._auto_classify_context(messages, context)
 
         # 1. Look up profile
         profile = await self._get_profile(profile_key, context.tenant_id)
@@ -451,6 +462,80 @@ class LLMRouter:
             })
 
         return modified_messages
+
+    async def _auto_classify_context(
+        self,
+        messages: List[Dict[str, str]],
+        context: LLMRouterContext,
+    ) -> LLMRouterContext:
+        """
+        Automatically classify the prompt to determine if web_search or
+        thinking_mode should be enabled.
+
+        This implements smart auto-trigger based on LLM pre-classification.
+        Manual overrides are respected if provided.
+
+        Args:
+            messages: The message list (used to extract user prompt)
+            context: The current context with auto_classify settings
+
+        Returns:
+            Updated context with web_search and thinking_mode set appropriately
+        """
+        # Extract user's prompt from messages (last user message)
+        user_prompt = ""
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                user_prompt = msg.get("content", "")
+                break
+
+        if not user_prompt:
+            logger.debug("LLM_ROUTER: No user prompt found for auto-classification")
+            return context
+
+        # Run classification
+        try:
+            classification = await self._smart_classifier.classify(user_prompt)
+
+            logger.info(
+                f"LLM_ROUTER: Auto-classification result: "
+                f"web_search={classification.web_search}, "
+                f"thinking_mode={classification.thinking_mode}, "
+                f"confidence={classification.confidence}, "
+                f"time={classification.classification_time_ms}ms, "
+                f"cache={classification.from_cache}"
+            )
+
+            # Apply classification results, respecting manual overrides
+            # Priority: manual_override > auto_classification > existing_value
+
+            # Web search: manual override wins, then classification, then default
+            if context.manual_web_search is not None:
+                context.web_search = context.manual_web_search
+            else:
+                context.web_search = classification.web_search
+
+            # Thinking mode: manual override wins, then classification, then default
+            if context.manual_thinking_mode is not None:
+                context.thinking_mode = context.manual_thinking_mode
+            else:
+                context.thinking_mode = classification.thinking_mode
+
+            logger.info(
+                f"LLM_ROUTER: Final features: "
+                f"web_search={context.web_search} (manual={context.manual_web_search}), "
+                f"thinking_mode={context.thinking_mode} (manual={context.manual_thinking_mode})"
+            )
+
+        except Exception as e:
+            logger.warning(f"LLM_ROUTER: Auto-classification failed: {e}, using defaults")
+            # On failure, use manual overrides if provided, otherwise keep defaults
+            if context.manual_web_search is not None:
+                context.web_search = context.manual_web_search
+            if context.manual_thinking_mode is not None:
+                context.thinking_mode = context.manual_thinking_mode
+
+        return context
 
     async def _complete_with_fallback(
         self,
