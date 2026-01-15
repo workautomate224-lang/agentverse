@@ -2,13 +2,14 @@
 
 /**
  * Clarify Panel Component
- * Reference: blueprint.md §4.2
+ * Reference: blueprint.md §4.2, §4.3
  *
  * Displays clarifying questions from goal analysis and collects user answers.
  * Submits answers to trigger blueprint build job.
+ * Includes auto-save draft functionality and exit confirmation.
  */
 
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   MessageSquare,
@@ -30,6 +31,7 @@ import {
   useGoalAnalysisResult,
   useSubmitClarificationAnswers,
   useActivePILJobs,
+  useUpdateBlueprint,
 } from '@/hooks/useApi';
 import type {
   ClarifyingQuestion,
@@ -37,6 +39,11 @@ import type {
   Blueprint,
 } from '@/lib/api';
 import { PILJobProgress } from './PILJobProgress';
+import { SaveDraftIndicator, type SaveStatus } from './SaveDraftIndicator';
+import { ExitConfirmationModal, useExitConfirmation } from './ExitConfirmationModal';
+
+// Debounce delay for auto-save (in ms)
+const AUTOSAVE_DELAY = 1500;
 
 // Question type configurations
 const QUESTION_TYPE_CONFIG = {
@@ -81,11 +88,19 @@ export function ClarifyPanel({
   const [submitting, setSubmitting] = useState(false);
   const [buildJobId, setBuildJobId] = useState<string | null>(null);
 
+  // Draft save state
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+  const [savedAnswers, setSavedAnswers] = useState<Record<string, string>>({});
+  const [showExitModal, setShowExitModal] = useState(false);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   // Fetch blueprint and goal analysis data
   const { data: blueprint, isLoading: blueprintLoading } = useActiveBlueprint(projectId);
   const { data: goalAnalysis, isLoading: analysisLoading } = useGoalAnalysisResult(projectId);
   const { data: activeJobs } = useActivePILJobs(projectId);
   const submitMutation = useSubmitClarificationAnswers();
+  const updateBlueprintMutation = useUpdateBlueprint();
 
   // Check if there's an active goal_analysis job
   const activeGoalAnalysisJob = useMemo(() => {
@@ -142,6 +157,122 @@ export function ClarifyPanel({
       return !!answers[q.id]?.trim();
     });
   }, [questions, answers, multiSelectAnswers]);
+
+  // Get merged answers for comparison and saving
+  const getMergedAnswers = useCallback(() => {
+    const merged: Record<string, string> = { ...answers };
+    Object.entries(multiSelectAnswers).forEach(([key, values]) => {
+      if (values.length > 0) {
+        merged[key] = values.join(', ');
+      }
+    });
+    return merged;
+  }, [answers, multiSelectAnswers]);
+
+  // Check if there are unsaved changes
+  const hasUnsavedChanges = useMemo(() => {
+    const current = getMergedAnswers();
+    const currentKeys = Object.keys(current).filter(k => current[k]?.trim());
+    const savedKeys = Object.keys(savedAnswers).filter(k => savedAnswers[k]?.trim());
+
+    if (currentKeys.length !== savedKeys.length) return true;
+    return currentKeys.some(key => current[key] !== savedAnswers[key]);
+  }, [getMergedAnswers, savedAnswers]);
+
+  // Initialize answers from existing blueprint clarification_answers
+  useEffect(() => {
+    if (blueprint?.clarification_answers) {
+      const existing = blueprint.clarification_answers;
+      const newAnswers: Record<string, string> = {};
+      const newMultiSelect: Record<string, string[]> = {};
+
+      questions.forEach((q) => {
+        const value = existing[q.id];
+        if (value) {
+          if (q.type === 'multi_select') {
+            newMultiSelect[q.id] = value.split(', ').filter(Boolean);
+          } else {
+            newAnswers[q.id] = value;
+          }
+        }
+      });
+
+      setAnswers(newAnswers);
+      setMultiSelectAnswers(newMultiSelect);
+      setSavedAnswers(existing);
+      setSaveStatus('saved');
+      setLastSavedAt(new Date(blueprint.updated_at));
+    }
+  }, [blueprint?.id, blueprint?.clarification_answers, questions]);
+
+  // Debounced auto-save draft
+  const saveDraft = useCallback(async () => {
+    if (!blueprint) return;
+
+    const mergedAnswers = getMergedAnswers();
+
+    // Skip if no answers to save
+    if (Object.keys(mergedAnswers).length === 0) return;
+
+    setSaveStatus('saving');
+    try {
+      await updateBlueprintMutation.mutateAsync({
+        blueprintId: blueprint.id,
+        data: { clarification_answers: mergedAnswers },
+      });
+      setSavedAnswers(mergedAnswers);
+      setLastSavedAt(new Date());
+      setSaveStatus('saved');
+    } catch (error) {
+      setSaveStatus('error');
+    }
+  }, [blueprint, getMergedAnswers, updateBlueprintMutation]);
+
+  // Trigger auto-save when answers change
+  useEffect(() => {
+    // Clear existing timeout
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    // Only auto-save if we have unsaved changes
+    if (hasUnsavedChanges && blueprint) {
+      saveTimeoutRef.current = setTimeout(() => {
+        saveDraft();
+      }, AUTOSAVE_DELAY);
+    }
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [answers, multiSelectAnswers, hasUnsavedChanges, blueprint, saveDraft]);
+
+  // Use exit confirmation hook
+  useExitConfirmation({ hasUnsavedChanges });
+
+  // Handle skip with unsaved changes check
+  const handleSkipClick = useCallback(() => {
+    if (hasUnsavedChanges) {
+      setShowExitModal(true);
+    } else {
+      onSkip?.();
+    }
+  }, [hasUnsavedChanges, onSkip]);
+
+  // Handle exit confirmation
+  const handleConfirmExit = useCallback(() => {
+    setShowExitModal(false);
+    onSkip?.();
+  }, [onSkip]);
+
+  // Handle save and exit
+  const handleSaveAndExit = useCallback(async () => {
+    await saveDraft();
+    setShowExitModal(false);
+    onSkip?.();
+  }, [saveDraft, onSkip]);
 
   // Handle single select answer
   const handleSingleSelect = useCallback((questionId: string, value: string) => {
@@ -330,11 +461,18 @@ export function ClarifyPanel({
             </p>
           </div>
         </div>
-        <div className="text-right">
-          <div className="text-xs text-gray-400 font-mono mb-1">
-            {completedCount} of {totalQuestions} answered
+        <div className="flex items-center gap-3">
+          <SaveDraftIndicator
+            status={saveStatus}
+            lastSavedAt={lastSavedAt}
+            compact
+          />
+          <div className="text-right">
+            <div className="text-xs text-gray-400 font-mono mb-1">
+              {completedCount} of {totalQuestions} answered
+            </div>
+            <Progress value={completionPercent} className="w-24 h-1.5" />
           </div>
-          <Progress value={completionPercent} className="w-24 h-1.5" />
         </div>
       </div>
 
@@ -530,7 +668,7 @@ export function ClarifyPanel({
               variant="ghost"
               size="sm"
               className="text-xs font-mono text-gray-500 hover:text-gray-300"
-              onClick={onSkip}
+              onClick={handleSkipClick}
             >
               Skip for now
             </Button>
@@ -588,6 +726,16 @@ export function ClarifyPanel({
           </div>
         </div>
       )}
+
+      {/* Exit confirmation modal */}
+      <ExitConfirmationModal
+        open={showExitModal}
+        onOpenChange={setShowExitModal}
+        onConfirmExit={handleConfirmExit}
+        onSaveAndExit={handleSaveAndExit}
+        isSaving={saveStatus === 'saving'}
+        description="You have unsaved answers. Would you like to save them before leaving?"
+      />
     </div>
   );
 }
