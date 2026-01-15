@@ -41,6 +41,7 @@ celery_app = Celery(
         "app.tasks.maintenance",
         "app.tasks.chaos_tasks",  # Step 3.2: Chaos engineering tasks
         "app.tasks.calibration",  # Phase 4: Calibration background tasks
+        "app.tasks.pil_tasks",  # PIL: Blueprint orchestration tasks
         # Legacy tasks (to be deprecated)
         "app.tasks.world_simulation",
     ],
@@ -123,6 +124,11 @@ celery_app.conf.task_routes = {
     },
     # Phase 4: Calibration tasks - using default queue
     "app.tasks.calibration.*": {
+        "queue": "default",
+        "routing_key": "default",
+    },
+    # PIL: Blueprint orchestration tasks - using default queue
+    "app.tasks.pil_tasks.*": {
         "queue": "default",
         "routing_key": "default",
     },

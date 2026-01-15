@@ -172,6 +172,8 @@ async def create_blueprint(
     if not blueprint_in.skip_clarification:
         # Import here to avoid circular dependency
         from app.models.pil_job import PILJob, PILJobStatus, PILJobType, PILJobPriority
+        import logging
+        logger = logging.getLogger(__name__)
 
         job = PILJob(
             tenant_id=current_user.id,
@@ -190,7 +192,15 @@ async def create_blueprint(
         await db.commit()
 
         # Dispatch to Celery for background processing
-        dispatch_pil_job.delay(str(job.id))
+        # Handle dispatch failure gracefully - blueprint still gets created
+        try:
+            dispatch_pil_job.delay(str(job.id))
+        except Exception as e:
+            logger.error(f"Failed to dispatch PIL job {job.id}: {e}")
+            # Update job status to FAILED so UI can show the error
+            job.status = PILJobStatus.FAILED
+            job.error_message = f"Failed to dispatch job: {str(e)}"
+            await db.commit()
     else:
         await db.commit()
 
