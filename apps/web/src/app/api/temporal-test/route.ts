@@ -123,6 +123,23 @@ This is audit-grade temporal isolation for rigorous industry use.
 }
 
 /**
+ * Base system prompt for comprehensive, professional responses
+ * This ensures all responses match official ChatGPT quality standards
+ */
+const PROFESSIONAL_RESPONSE_PROMPT = `You are a highly knowledgeable AI assistant providing comprehensive, professional-grade responses.
+
+RESPONSE QUALITY STANDARDS:
+1. Be thorough and detailed - provide complete, well-researched answers
+2. Use clear structure with paragraphs, bullet points, or numbered lists when appropriate
+3. Include relevant context, background information, and nuances
+4. Cite specific facts, dates, statistics, and sources when available
+5. Address multiple aspects and perspectives of the question
+6. Use professional, articulate language suitable for business and academic contexts
+7. Provide actionable insights and conclusions when relevant
+
+IMPORTANT: Never give brief, dismissive, or superficial answers. Every response should demonstrate expertise and provide genuine value to the user. If you cannot answer something, explain why in detail and suggest alternatives.`;
+
+/**
  * POST /api/temporal-test
  *
  * Test temporal knowledge isolation with a question and cutoff date.
@@ -162,11 +179,16 @@ export async function POST(request: Request) {
     // Build messages array
     const messages: { role: string; content: string }[] = [];
 
-    // If isolation enabled, inject temporal policy as system message
+    // Always include professional response standards
     let policyText = '';
     if (enable_isolation && as_of_datetime) {
+      // Combine professional standards with temporal policy
       policyText = getTemporalPolicy(as_of_datetime, isolation_level);
-      messages.push({ role: 'system', content: policyText });
+      messages.push({ role: 'system', content: PROFESSIONAL_RESPONSE_PROMPT + '\n\n' + policyText });
+    } else {
+      // Use professional standards alone for non-isolated mode
+      policyText = PROFESSIONAL_RESPONSE_PROMPT;
+      messages.push({ role: 'system', content: PROFESSIONAL_RESPONSE_PROMPT });
     }
 
     // Add user question
@@ -184,8 +206,8 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         model: 'openai/gpt-5.2',  // Upgraded from gpt-4o-mini for better accuracy
         messages,
-        temperature: 0.2,  // Reduced from 0.7 for factual consistency
-        max_tokens: 1000,
+        temperature: 0.3,  // Balanced for comprehensive yet consistent responses
+        max_tokens: 2000,  // Increased for comprehensive professional responses
       }),
     });
 

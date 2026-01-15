@@ -44,6 +44,20 @@ from app.services.openrouter import CompletionResponse, OpenRouterService
 
 logger = logging.getLogger(__name__)
 
+# Professional response standards for comprehensive, high-quality outputs
+PROFESSIONAL_RESPONSE_PROMPT = """You are a highly knowledgeable AI assistant providing comprehensive, professional-grade responses.
+
+RESPONSE QUALITY STANDARDS:
+1. Be thorough and detailed - provide complete, well-researched answers
+2. Use clear structure with paragraphs, bullet points, or numbered lists when appropriate
+3. Include relevant context, background information, and nuances
+4. Cite specific facts, dates, statistics, and sources when available
+5. Address multiple aspects and perspectives of the question
+6. Use professional, articulate language suitable for business and academic contexts
+7. Provide actionable insights and conclusions when relevant
+
+IMPORTANT: Never give brief, dismissive, or superficial answers. Every response should demonstrate expertise and provide genuine value to the user. If you cannot answer something, explain why in detail and suggest alternatives."""
+
 
 class LLMRouterResponse(BaseModel):
     """Response from LLM Router."""
@@ -351,8 +365,8 @@ class LLMRouter:
             profile_key=profile_key,
             label=f"Default {profile_key}",
             model="openai/gpt-4o-mini",
-            temperature=0.7,
-            max_tokens=1000,
+            temperature=0.3,  # Balanced for comprehensive yet consistent responses
+            max_tokens=2000,  # Increased for comprehensive professional responses
             cost_per_1k_input_tokens=0.00015,
             cost_per_1k_output_tokens=0.0006,
             fallback_models=["anthropic/claude-3-haiku-20240307"],
@@ -367,7 +381,10 @@ class LLMRouter:
         context: LLMRouterContext,
     ) -> List[Dict[str, str]]:
         """
-        Inject backtest policy into system prompt if running in backtest mode.
+        Inject professional response standards and backtest policy into system prompt.
+
+        Always injects professional response standards for comprehensive outputs.
+        Additionally injects backtest policy if running in backtest mode.
 
         Reference: temporal.md §8 Phase 4 item 11
 
@@ -376,20 +393,26 @@ class LLMRouter:
             context: LLMRouterContext with temporal settings
 
         Returns:
-            Modified message list with policy injected (if backtest mode)
+            Modified message list with policies injected
         """
-        # Skip if not in backtest mode or no cutoff
-        if context.temporal_mode != "backtest" or not context.cutoff_time:
-            return messages
+        # Build the policy text - always include professional standards
+        policy_parts = [PROFESSIONAL_RESPONSE_PROMPT]
 
-        # Generate policy text
-        from app.services.llm_data_tools import get_backtest_policy_prompt
+        # Add backtest policy if in backtest mode
+        if context.temporal_mode == "backtest" and context.cutoff_time:
+            from app.services.llm_data_tools import get_backtest_policy_prompt
 
-        policy_text = get_backtest_policy_prompt(
-            as_of_datetime=context.cutoff_time,
-            isolation_level=context.isolation_level,
-            timezone=context.timezone,
-        )
+            backtest_policy = get_backtest_policy_prompt(
+                as_of_datetime=context.cutoff_time,
+                isolation_level=context.isolation_level,
+                timezone=context.timezone,
+            )
+            policy_parts.append(backtest_policy)
+            logger.info(
+                f"LLM_ROUTER: Injected backtest policy (as_of={context.cutoff_time}, level={context.isolation_level})"
+            )
+
+        policy_text = "\n\n".join(policy_parts)
 
         # Find system message and inject policy
         modified_messages = []
@@ -406,16 +429,12 @@ class LLMRouter:
             else:
                 modified_messages.append(msg)
 
-        # If no system message, add one with just the policy
+        # If no system message, add one with the policy
         if not policy_injected:
             modified_messages.insert(0, {
                 "role": "system",
                 "content": policy_text
             })
-
-        logger.info(
-            f"LLM_ROUTER: Injected backtest policy (as_of={context.cutoff_time}, level={context.isolation_level})"
-        )
 
         return modified_messages
 
