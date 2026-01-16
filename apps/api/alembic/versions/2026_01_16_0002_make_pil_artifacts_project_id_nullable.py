@@ -1,7 +1,7 @@
 """Make pil_artifacts.project_id nullable for pre-project goal analysis
 
-Revision ID: 20260116_0001
-Revises: 20260115_0004
+Revision ID: pil_artifacts_nullable_001
+Revises: missing_tenants_001
 Create Date: 2026-01-16
 
 Blueprint v2 requires artifacts to be created BEFORE a project exists,
@@ -13,8 +13,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '20260116_0001'
-down_revision = '20260115_0004'
+revision = 'pil_artifacts_nullable_001'
+down_revision = 'missing_tenants_001'
 branch_labels = None
 depends_on = None
 
