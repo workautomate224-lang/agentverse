@@ -3,11 +3,17 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 
 /**
+ * @deprecated This route is DEPRECATED. Use backend PIL jobs instead.
+ *
  * Goal Analysis API Route - Blueprint v2
  *
- * This endpoint analyzes user goals and generates clarifying questions
- * WITHOUT requiring a project_id. This enables the v2 wizard flow where
- * goal analysis happens in Step 1 BEFORE project creation.
+ * DEPRECATION NOTICE (2026-01-17):
+ * This frontend-only route bypasses the backend PIL job system and does NOT
+ * persist results to the database. All goal analysis should now go through:
+ *   - POST /api/v1/pil-jobs/ with job_type="goal_analysis"
+ *
+ * The GoalAssistantPanel.tsx already uses PIL jobs via usePILJob hooks.
+ * This route is kept temporarily for backward compatibility but will be removed.
  *
  * Reference: blueprint_v2.md §2.1.1, §7.1
  */

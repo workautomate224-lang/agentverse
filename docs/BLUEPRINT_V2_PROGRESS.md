@@ -3,7 +3,7 @@
 **Started:** 2026-01-16
 **Status:** ✅ READY FOR PRODUCTION (Phase A, B, C, D, E, F Complete)
 **Feature Flag:** `BLUEPRINT_V2_WIZARD`
-**Last Tested:** 2026-01-16 on staging (agentverse-web-staging-production.up.railway.app)
+**Last Tested:** 2026-01-16 on production (mad2.ai) - Full 4-step wizard flow verified
 
 ---
 
@@ -228,20 +228,50 @@
 
 #### 1. Database Schema Fix (varchar[] → JSONB)
 
-The migration created columns as `postgresql.ARRAY(sa.String(50))` but the SQLAlchemy models defined them as `JSONB`. Fixed by converting all affected columns:
+The migration created columns as `postgresql.ARRAY(sa.String(50))` but the SQLAlchemy models defined them as `JSONB`. Fixed via proper Alembic migrations:
 
-```sql
--- blueprint_slots table
-ALTER TABLE blueprint_slots ALTER COLUMN allowed_acquisition_methods TYPE JSONB USING to_jsonb(allowed_acquisition_methods);
-ALTER TABLE blueprint_slots ALTER COLUMN derived_artifacts TYPE JSONB USING to_jsonb(derived_artifacts);
-ALTER TABLE blueprint_slots ALTER COLUMN alignment_reasons TYPE JSONB USING to_jsonb(alignment_reasons);
+**Alembic Migrations Created:**
 
--- blueprint_tasks table
-ALTER TABLE blueprint_tasks ALTER COLUMN linked_slot_ids TYPE JSONB USING to_jsonb(linked_slot_ids);
-ALTER TABLE blueprint_tasks ALTER COLUMN available_actions TYPE JSONB USING to_jsonb(available_actions);
+| Migration File | Revision | Column Fixed |
+|----------------|----------|--------------|
+| `2026_01_16_0003_pil_artifacts_artifact_ids_jsonb.py` | `pil_jobs_jsonb_001` | `pil_artifacts.artifact_ids` |
+| `2026_01_16_0004_make_blueprints_project_id_nullable.py` | `blueprints_nullable_001` | `blueprints.project_id` (nullable) |
+| `2026_01_16_0005_blueprint_slots_allowed_methods_jsonb.py` | `blueprint_slots_jsonb_001` | `blueprint_slots.allowed_acquisition_methods` |
+| `2026_01_16_0006_blueprint_tasks_available_actions_jsonb.py` | `blueprint_tasks_jsonb_001` | `blueprint_tasks.available_actions` |
+
+**Migration Pattern Used:**
+```python
+def upgrade() -> None:
+    # 1. Drop DEFAULT constraint first (required for type conversion)
+    op.execute("""
+        ALTER TABLE table_name
+        ALTER COLUMN column_name DROP DEFAULT
+    """)
+
+    # 2. Convert VARCHAR[] to JSONB
+    op.execute("""
+        ALTER TABLE table_name
+        ALTER COLUMN column_name
+        TYPE JSONB
+        USING CASE
+            WHEN column_name IS NULL THEN NULL
+            ELSE to_jsonb(column_name)
+        END
+    """)
+
+    # 3. Set new JSONB default if needed
+    op.execute("""
+        ALTER TABLE table_name
+        ALTER COLUMN column_name SET DEFAULT '[]'::jsonb
+    """)
 ```
 
-**Files affected:** Database schema only (no code changes needed - models were already correct)
+**Additional columns fixed via raw SQL (prior to Alembic migrations):**
+- `blueprint_slots.derived_artifacts`
+- `blueprint_slots.alignment_reasons`
+- `blueprint_tasks.linked_slot_ids`
+
+**Files affected:** `apps/api/alembic/versions/` (new migration files)
 
 #### 2. Frontend Null Safety Fixes
 

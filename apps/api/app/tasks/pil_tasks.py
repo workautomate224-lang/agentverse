@@ -354,14 +354,42 @@ async def _goal_analysis_async(task, job_id: str, context: dict):
                     )
                 )
 
-            # Mark job as succeeded
+            # Transform clarifying questions to frontend format
+            # Backend generates: {id, question, reason, type, options: string[], required}
+            # Frontend expects: {id, question, why_we_ask, answer_type, options: {value, label}[], required}
+            transformed_questions = []
+            for q in clarifying_questions:
+                transformed_q = {
+                    "id": q.get("id", ""),
+                    "question": q.get("question", ""),
+                    "why_we_ask": q.get("reason", ""),  # Map reason -> why_we_ask
+                    "answer_type": q.get("type", "short_text"),  # Map type -> answer_type
+                    "required": q.get("required", False),
+                }
+                # Transform options from string[] to {value, label}[]
+                if q.get("options"):
+                    transformed_q["options"] = [
+                        {"value": opt, "label": opt} for opt in q.get("options", [])
+                    ]
+                transformed_questions.append(transformed_q)
+
+            # Extract primary drivers from blueprint preview key_challenges
+            primary_drivers = blueprint_preview.get("key_challenges", [])[:3]
+
+            # Build full GoalAnalysisResult for frontend
+            # Mark job as succeeded with complete result structure
             await mark_job_succeeded(
                 session, job_uuid,
                 result={
                     "goal_summary": goal_summary,
                     "domain_guess": domain_guess,
-                    "clarifying_questions_count": len(clarifying_questions),
-                    "risk_notes_count": len(risk_notes),
+                    "output_type": "distribution",  # Default, can be refined later
+                    "horizon_guess": "6 months",  # Default, will be refined by clarifying questions
+                    "scope_guess": "national",  # Default scope
+                    "primary_drivers": primary_drivers,
+                    "clarifying_questions": transformed_questions,
+                    "risk_notes": risk_notes,
+                    "processing_time_ms": 0,  # TODO: track actual processing time
                 },
                 artifact_ids=artifact_ids,
             )
@@ -901,15 +929,75 @@ async def _blueprint_build_async(task, job_id: str, context: dict):
 
             await session.commit()
 
-            # Mark succeeded
+            # Transform slots to frontend InputSlot format
+            # Backend: {sort_order, slot_name, slot_type, required_level, description, ...}
+            # Frontend: {slot_id, name, description, required_level, data_type, example_sources}
+            transformed_slots = []
+            for idx, slot_data in enumerate(slots):
+                transformed_slots.append({
+                    "slot_id": f"slot_{idx + 1}",
+                    "name": slot_data.get("slot_name", ""),
+                    "description": slot_data.get("description", ""),
+                    "required_level": slot_data.get("required_level", "recommended"),
+                    "data_type": slot_data.get("slot_type", ""),
+                    "example_sources": slot_data.get("allowed_acquisition_methods", []),
+                })
+
+            # Transform tasks to frontend section_tasks format
+            # Backend: {section_id, sort_order, title, description, why_it_matters, ...}
+            # Frontend: Record<string, SectionTask[]> where SectionTask = {task_id, title, why_it_matters, ...}
+            section_tasks: Dict[str, List[Dict]] = {}
+            for idx, task_data in enumerate(tasks):
+                section_id = task_data.get("section_id", "overview")
+                if section_id not in section_tasks:
+                    section_tasks[section_id] = []
+                section_tasks[section_id].append({
+                    "task_id": f"task_{idx + 1}",
+                    "title": task_data.get("title", ""),
+                    "why_it_matters": task_data.get("why_it_matters", task_data.get("description", "")),
+                    "linked_slots": [],  # Can be populated based on task type
+                    "completion_criteria": task_data.get("description", ""),
+                })
+
+            # Extract time horizon from clarification answers
+            horizon = clarification_answers.get("time_horizon", "6 months")
+            if isinstance(horizon, list) and len(horizon) > 0:
+                horizon = horizon[0]
+
+            # Build full BlueprintDraft for frontend
+            blueprint_draft = {
+                "project_profile": {
+                    "goal_text": goal_text,
+                    "goal_summary": blueprint.goal_summary or goal_text[:200],
+                    "domain_guess": blueprint.domain_guess,
+                    "output_type": "distribution",  # Default
+                    "horizon": horizon,
+                    "scope": clarification_answers.get("scope", "national"),
+                    "success_metrics": [],  # Can be populated from clarification
+                },
+                "strategy": {
+                    "chosen_core": "collective",  # Default strategy
+                    "primary_drivers": blueprint.risk_notes[:3] if blueprint.risk_notes else [],
+                    "required_modules": ["persona_engine", "event_processor"],
+                },
+                "input_slots": transformed_slots,
+                "section_tasks": section_tasks,
+                "clarification_answers": clarification_answers,
+                "generated_at": datetime.utcnow().isoformat(),
+                "processing_time_ms": 0,  # TODO: track actual time
+                "warnings": [],
+                # Also include raw counts for backward compatibility
+                "slots_created": len(slots),
+                "tasks_created": len(tasks),
+                "calibration_plan": True,
+                "branching_plan": True,
+                "blueprint_id": str(blueprint.id),
+            }
+
+            # Mark succeeded with full BlueprintDraft
             await mark_job_succeeded(
                 session, job_uuid,
-                result={
-                    "slots_created": len(slots),
-                    "tasks_created": len(tasks),
-                    "calibration_plan": True,
-                    "branching_plan": True,
-                },
+                result=blueprint_draft,
             )
 
             return {"status": "success", "slots": len(slots), "tasks": len(tasks)}
