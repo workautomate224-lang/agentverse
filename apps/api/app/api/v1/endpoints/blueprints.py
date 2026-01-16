@@ -204,9 +204,17 @@ async def create_blueprint(
     else:
         await db.commit()
 
-    await db.refresh(blueprint)
-
-    return blueprint
+    # Re-query with eager loading to avoid DetachedInstanceError
+    # The blueprint needs slots and tasks loaded for BlueprintResponse serialization
+    result = await db.execute(
+        select(Blueprint)
+        .where(Blueprint.id == blueprint.id)
+        .options(
+            selectinload(Blueprint.slots),
+            selectinload(Blueprint.tasks),
+        )
+    )
+    return result.scalar_one()
 
 
 @router.get("/{blueprint_id}", response_model=BlueprintResponse)
@@ -276,10 +284,18 @@ async def update_blueprint(
     for field, value in update_data.items():
         setattr(blueprint, field, value)
 
-    await db.flush()
-    await db.refresh(blueprint)
+    await db.commit()
 
-    return blueprint
+    # Re-query with eager loading for response serialization
+    result = await db.execute(
+        select(Blueprint)
+        .where(Blueprint.id == blueprint.id)
+        .options(
+            selectinload(Blueprint.slots),
+            selectinload(Blueprint.tasks),
+        )
+    )
+    return result.scalar_one()
 
 
 @router.post("/{blueprint_id}/publish", response_model=BlueprintResponse)
@@ -313,21 +329,32 @@ async def publish_blueprint(
         )
 
     # Deactivate other blueprints for this project
+    from sqlalchemy import update as sql_update
     await db.execute(
-        select(Blueprint).where(
+        sql_update(Blueprint)
+        .where(
             Blueprint.project_id == blueprint.project_id,
             Blueprint.id != blueprint.id,
             Blueprint.is_active == True,
         )
+        .values(is_active=False)
     )
 
     blueprint.is_draft = False
     blueprint.is_active = True
 
-    await db.flush()
-    await db.refresh(blueprint)
+    await db.commit()
 
-    return blueprint
+    # Re-query with eager loading for response serialization
+    result = await db.execute(
+        select(Blueprint)
+        .where(Blueprint.id == blueprint.id)
+        .options(
+            selectinload(Blueprint.slots),
+            selectinload(Blueprint.tasks),
+        )
+    )
+    return result.scalar_one()
 
 
 @router.post("/{blueprint_id}/clarify", response_model=BlueprintResponse)
@@ -391,9 +418,16 @@ async def submit_clarification_answers(
     # Dispatch to Celery for background processing
     dispatch_pil_job.delay(str(job.id))
 
-    await db.refresh(blueprint)
-
-    return blueprint
+    # Re-query with eager loading to avoid DetachedInstanceError
+    result = await db.execute(
+        select(Blueprint)
+        .where(Blueprint.id == blueprint.id)
+        .options(
+            selectinload(Blueprint.slots),
+            selectinload(Blueprint.tasks),
+        )
+    )
+    return result.scalar_one()
 
 
 # =============================================================================
