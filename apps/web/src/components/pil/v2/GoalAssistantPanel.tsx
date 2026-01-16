@@ -635,7 +635,8 @@ export function GoalAssistantPanel({
                         </div>
                       )}
 
-                      {q.answer_type === 'short_text' && (
+                      {/* Support both 'short_text' and 'short_input' for compatibility */}
+                      {(q.answer_type === 'short_text' || q.answer_type === 'short_input') && (
                         <input
                           type="text"
                           value={(answers[q.id] as string) || ''}

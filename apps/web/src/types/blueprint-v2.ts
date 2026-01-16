@@ -10,7 +10,7 @@ export interface ClarifyingQuestion {
   id: string;
   question: string;
   why_we_ask: string;
-  answer_type: 'single_select' | 'multi_select' | 'short_text';
+  answer_type: 'single_select' | 'multi_select' | 'short_text' | 'short_input';
   options?: { value: string; label: string }[];
   required: boolean;
 }
