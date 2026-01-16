@@ -16,7 +16,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers
 revision = "missing_tenants_001"
-down_revision = "2026_01_15_0004_add_more_pil_job_columns"
+down_revision = "pil_jobs_columns_fix_002"
 branch_labels = None
 depends_on = None
 
