@@ -22,6 +22,7 @@ import {
   Tag,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { GuidancePanel } from '@/components/pil';
 
 export default function ProjectSettingsPage() {
   const params = useParams();
@@ -45,6 +46,15 @@ export default function ProjectSettingsPage() {
         <p className="text-xs md:text-sm font-mono text-white/50 mt-1">
           Configure project properties and preferences
         </p>
+      </div>
+
+      {/* Guidance Panel - Blueprint-driven guidance */}
+      <div className="max-w-2xl mb-6">
+        <GuidancePanel
+          projectId={projectId}
+          sectionId="settings"
+          className="mb-0"
+        />
       </div>
 
       <div className="max-w-2xl space-y-6">

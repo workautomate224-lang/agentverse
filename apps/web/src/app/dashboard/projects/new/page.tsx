@@ -359,16 +359,12 @@ export default function CreateProjectWizardPage() {
     }
   }, []);
 
-  // Validation per step
+  // Validation per step (blueprint_v3.md - always requires blueprint)
   const isStepValid = (stepId: StepId): boolean => {
     switch (stepId) {
       case 'goal':
-        // V2: Requires blueprint to be generated
-        if (isV2WizardEnabled) {
-          return formData.goal.trim().length >= 10 && blueprintDraft !== null;
-        }
-        // V1: Just needs goal text
-        return formData.goal.trim().length >= 10;
+        // Blueprint v3: Always requires blueprint to be generated before proceeding
+        return formData.goal.trim().length >= 10 && blueprintDraft !== null;
       case 'temporal':
         // Live mode: always valid (no temporal constraints)
         if (formData.temporalMode === 'live') return true;
@@ -385,7 +381,8 @@ export default function CreateProjectWizardPage() {
       case 'core':
         return !!formData.coreType;
       case 'setup':
-        return formData.name.trim().length >= 3;
+        // Blueprint v3: Project cannot be created without finalized blueprint
+        return formData.name.trim().length >= 3 && blueprintDraft !== null;
       default:
         return false;
     }
@@ -429,8 +426,15 @@ export default function CreateProjectWizardPage() {
   };
 
   // Handle form submission - creates project via API and navigates to workspace
+  // Blueprint v3: Project cannot be created without finalized blueprint
   const handleCreate = async () => {
     setCreateError(null);
+
+    // Blueprint v3 enforcement: Fail early if blueprint is missing
+    if (!blueprintDraft) {
+      setCreateError('Blueprint is required. Please complete goal analysis in Step 1 before creating a project.');
+      return;
+    }
 
     try {
       // Detect domain from goal (API expects: marketing, political, finance, custom)
@@ -465,27 +469,17 @@ export default function CreateProjectWizardPage() {
         ...(temporalContext && { temporal_context: temporalContext }),
       });
 
-      // Create Blueprint (V2 vs V1 flow)
-      // V2: We already have blueprintDraft from Step 1 - skip clarification
-      // V1: Trigger goal analysis to generate blueprint on overview
-      try {
-        // Both v1 and v2 use the same API, but v2 skips clarification
-        // since it was already done in Step 1
-        await createBlueprintMutation.mutateAsync({
-          project_id: project.id,
-          goal_text: formData.goal,
-          // V2: Skip clarification (already done), V1: Trigger goal analysis
-          skip_clarification: isV2WizardEnabled && blueprintDraft !== null,
-        });
-        // Note: In v2 flow, blueprintDraft state can be used by overview for initial display
-        // until the backend blueprint is fully processed
-      } catch {
-        // Blueprint creation failed, but project was created
-        // Continue to overview - user can retry blueprint creation there
-      }
+      // Create Blueprint with finalized v1 (blueprint_v3.md requirement)
+      // Blueprint draft was already generated in Step 1, now commit it to the project
+      await createBlueprintMutation.mutateAsync({
+        project_id: project.id,
+        goal_text: formData.goal,
+        // Skip clarification since it was already done in Step 1
+        skip_clarification: true,
+      });
 
       // Navigate to the project workspace using real UUID from backend
-      // The overview page will show ClarifyPanel if blueprint is in draft state
+      // Overview is read-only per blueprint_v3.md
       router.push(`/p/${project.id}/overview`);
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : 'Failed to create project');

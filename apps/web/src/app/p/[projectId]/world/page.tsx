@@ -20,6 +20,7 @@ import {
   Download,
   Filter,
 } from 'lucide-react';
+import { GuidancePanel } from '@/components/pil';
 
 export default function WorldViewerPage() {
   const params = useParams();
@@ -43,6 +44,15 @@ export default function WorldViewerPage() {
         <p className="text-xs md:text-sm font-mono text-white/50 mt-1">
           Visualize the simulation world with high-performance 2D rendering
         </p>
+      </div>
+
+      {/* Guidance Panel - Blueprint-driven guidance */}
+      <div className="max-w-5xl mb-6">
+        <GuidancePanel
+          projectId={projectId}
+          sectionId="world"
+          className="mb-0"
+        />
       </div>
 
       {/* Toolbar */}

@@ -39,6 +39,7 @@ import {
   useTelemetrySlice,
 } from '@/hooks/useApi';
 import type { RunSummary, TelemetryIndex, TelemetrySummary, TelemetrySlice } from '@/lib/api';
+import { GuidancePanel } from '@/components/pil';
 
 // Format date for display
 function formatDate(dateString: string): string {
@@ -237,6 +238,15 @@ export default function TelemetryReplayPage() {
         <p className="text-xs md:text-sm font-mono text-white/50 mt-1">
           Watch simulation replays and explore telemetry data (read-only per C3)
         </p>
+      </div>
+
+      {/* Guidance Panel - Blueprint-driven guidance */}
+      <div className="max-w-5xl mb-6">
+        <GuidancePanel
+          projectId={projectId}
+          sectionId="replay"
+          className="mb-0"
+        />
       </div>
 
       {/* Run Selector */}
