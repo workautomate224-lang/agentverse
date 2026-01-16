@@ -140,10 +140,11 @@ class Blueprint(Base):
         primary_key=True,
         default=uuid.uuid4
     )
-    project_id: Mapped[uuid.UUID] = mapped_column(
+    # Blueprint v2: project_id is nullable to allow draft blueprints before project creation
+    project_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("project_specs.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
         index=True
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(
