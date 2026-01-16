@@ -57,6 +57,10 @@ from app.models.blueprint import (
 )
 from app.models.llm import LLMProfileKey
 from app.services.llm_router import LLMRouter, LLMRouterContext
+from app.services.slot_status_handler import (
+    process_slot_pipeline_completion,
+    mark_slot_processing,
+)
 
 
 def get_async_session():
@@ -1134,10 +1138,23 @@ async def _slot_validation_async(task, job_id: str, context: dict):
                 artifact_ids=[str(artifact.id)],
             )
 
-            return {"status": "success", "validation": validation_report}
+            # PHASE 5: Update slot status based on validation result
+            job.result = validation_report  # Set result for status handler
+            job.status = PILJobStatus.SUCCEEDED.value
+            status_update = await process_slot_pipeline_completion(session, job)
+
+            return {
+                "status": "success",
+                "validation": validation_report,
+                "slot_status_update": status_update,
+            }
 
         except Exception as e:
             await mark_job_failed(session, job_uuid, str(e))
+            # PHASE 5: Update slot status on failure
+            job.status = PILJobStatus.FAILED.value
+            job.error_message = str(e)
+            await process_slot_pipeline_completion(session, job)
             raise
 
 
@@ -1271,10 +1288,19 @@ Provide a brief summary (2-3 sentences) of what this data represents and how it 
                 artifact_ids=[str(artifact.id)],
             )
 
+            # PHASE 5: Summarization doesn't change status, but we log completion
+            job.result = summary_content
+            job.status = PILJobStatus.SUCCEEDED.value
+            await process_slot_pipeline_completion(session, job)
+
             return {"status": "success", "summary": summary_content}
 
         except Exception as e:
             await mark_job_failed(session, job_uuid, str(e))
+            # PHASE 5: Update slot status on failure
+            job.status = PILJobStatus.FAILED.value
+            job.error_message = str(e)
+            await process_slot_pipeline_completion(session, job)
             raise
 
 
@@ -1432,10 +1458,23 @@ async def _slot_alignment_scoring_async(task, job_id: str, context: dict):
                 artifact_ids=[str(artifact.id)],
             )
 
-            return {"status": "success", "alignment": alignment_report}
+            # PHASE 5: Update slot status based on alignment score
+            job.result = alignment_report
+            job.status = PILJobStatus.SUCCEEDED.value
+            status_update = await process_slot_pipeline_completion(session, job)
+
+            return {
+                "status": "success",
+                "alignment": alignment_report,
+                "slot_status_update": status_update,
+            }
 
         except Exception as e:
             await mark_job_failed(session, job_uuid, str(e))
+            # PHASE 5: Update slot status on failure
+            job.status = PILJobStatus.FAILED.value
+            job.error_message = str(e)
+            await process_slot_pipeline_completion(session, job)
             raise
 
 
@@ -1568,10 +1607,23 @@ async def _slot_compilation_async(task, job_id: str, context: dict):
                 artifact_ids=[str(artifact.id)],
             )
 
-            return {"status": "success", "compilation": compilation_result}
+            # PHASE 5: Update slot status - compilation success = READY & fulfilled
+            job.result = compilation_result
+            job.status = PILJobStatus.SUCCEEDED.value
+            status_update = await process_slot_pipeline_completion(session, job)
+
+            return {
+                "status": "success",
+                "compilation": compilation_result,
+                "slot_status_update": status_update,
+            }
 
         except Exception as e:
             await mark_job_failed(session, job_uuid, str(e))
+            # PHASE 5: Update slot status on failure
+            job.status = PILJobStatus.FAILED.value
+            job.error_message = str(e)
+            await process_slot_pipeline_completion(session, job)
             raise
 
 

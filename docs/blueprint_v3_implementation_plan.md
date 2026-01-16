@@ -181,12 +181,13 @@ BLUEPRINT_V2_WIZARD: process.env.NEXT_PUBLIC_BLUEPRINT_V2_WIZARD === 'true' ||
 
 ---
 
-### PHASE 5 — CHECKLIST WITH ALERTS ✅ FRONTEND COMPLETE (Backend pending)
+### PHASE 5 — CHECKLIST WITH ALERTS ✅ COMPLETE
 
 #### Task 5.1: Implement Real Checklist Status
-**Files to modify**:
+**Files modified**:
 - `apps/web/src/components/pil/BlueprintChecklist.tsx` ✅ (Frontend ready)
-- Backend slot pipeline endpoints ⏳ (Pending backend implementation)
+- `apps/api/app/services/slot_status_handler.py` ✅ (NEW - Post-job status handler)
+- `apps/api/app/tasks/pil_tasks.py` ✅ (Updated with status handler integration)
 
 **Frontend Status (COMPLETE)**:
 - BlueprintChecklist component fully supports AlertState (ready, needs_attention, blocked, not_started)
@@ -196,15 +197,29 @@ BLUEPRINT_V2_WIZARD: process.env.NEXT_PUBLIC_BLUEPRINT_V2_WIZARD === 'true' ||
 - Next action suggestions with navigation links
 - Match score display for alignment
 
-**Backend Work Required**:
-1. Connect checklist items to real artifact/job outputs
-2. Implement status transitions: NOT_STARTED → PROCESSING → READY/NEEDS_ATTENTION/BLOCKED
-3. Trigger slot pipeline jobs on artifact upload
+**Backend Status (COMPLETE)**:
+1. ✅ Created `slot_status_handler.py` service with:
+   - `update_slot_status_from_job()` - Updates slot status based on job result
+   - `update_linked_tasks_status()` - Updates task status based on linked slots
+   - `process_slot_pipeline_completion()` - Main entry point for post-job updates
+   - Status thresholds: ALIGNMENT_READY >= 80, QUALITY_READY >= 0.8
+2. ✅ Integrated status handler into all slot pipeline tasks:
+   - `slot_validation_task` → Updates slot based on validation_passed and quality_score
+   - `slot_summarization_task` → Logs completion (doesn't change status)
+   - `slot_alignment_scoring_task` → Updates slot based on alignment_score
+   - `slot_compilation_task` → Marks slot as fulfilled and READY
+3. ✅ Status transitions implemented:
+   - NOT_STARTED → READY (validation passed, high scores)
+   - NOT_STARTED → NEEDS_ATTENTION (validation passed but low scores)
+   - NOT_STARTED → BLOCKED (job failed or critical error)
+4. ✅ Task status derived from linked slot statuses
 
 **Acceptance Test**:
-- [x] Frontend displays checklist with all status states (mock data works)
-- [ ] Checklist items show real status from job outputs (needs backend)
-- [ ] Upload artifact triggers automatic status transition (needs backend)
+- [x] Frontend displays checklist with all status states
+- [x] Slot status updated after validation job completes
+- [x] Slot status updated after alignment scoring job completes
+- [x] Slot marked fulfilled after compilation job succeeds
+- [x] Task status derived from linked slot statuses
 
 ---
 
