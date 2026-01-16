@@ -25,8 +25,9 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 import uuid
 
-from celery import shared_task
 from sqlalchemy import select, update
+
+from app.core.celery_app import celery_app
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 
@@ -216,7 +217,7 @@ def _run_async(coro):
         return asyncio.run(coro)
 
 
-@shared_task(bind=True, base=TenantAwareTask, max_retries=3)
+@celery_app.task(bind=True, base=TenantAwareTask, max_retries=3)
 def goal_analysis_task(self, job_id: str, context: dict):
     """
     Analyze user goal text and produce:
@@ -373,6 +374,7 @@ async def _goal_analysis_async(task, job_id: str, context: dict):
             }
 
         except Exception as e:
+            await session.rollback()  # Rollback failed transaction before marking job failed
             await mark_job_failed(session, job_uuid, str(e))
             raise
 
@@ -790,7 +792,7 @@ def _fallback_risk_assessment(goal_text: str, domain: str) -> List[str]:
 # Blueprint Build Task (blueprint.md §4.3)
 # =============================================================================
 
-@shared_task(bind=True, base=TenantAwareTask, max_retries=3)
+@celery_app.task(bind=True, base=TenantAwareTask, max_retries=3)
 def blueprint_build_task(self, job_id: str, context: dict):
     """
     Build complete blueprint from clarified goals.
@@ -815,20 +817,40 @@ async def _blueprint_build_async(task, job_id: str, context: dict):
             )
             job = result.scalar_one_or_none()
 
-            if not job or not job.blueprint_id:
-                raise ValueError(f"Job {job_id} not found or missing blueprint_id")
+            if not job:
+                raise ValueError(f"Job {job_id} not found")
 
             goal_text = job.input_params.get("goal_text", "")
             clarification_answers = job.input_params.get("clarification_answers", {})
 
-            # Get blueprint
-            bp_result = await session.execute(
-                select(Blueprint).where(Blueprint.id == job.blueprint_id)
-            )
-            blueprint = bp_result.scalar_one_or_none()
+            # If no blueprint_id, create one (supports "Skip & Generate Blueprint" flow)
+            blueprint = None
+            if job.blueprint_id:
+                bp_result = await session.execute(
+                    select(Blueprint).where(Blueprint.id == job.blueprint_id)
+                )
+                blueprint = bp_result.scalar_one_or_none()
 
             if not blueprint:
-                raise ValueError(f"Blueprint {job.blueprint_id} not found")
+                # Create a new blueprint for this job
+                goal_summary = job.input_params.get("goal_summary", goal_text[:200])
+                domain_guess = job.input_params.get("domain_guess", DomainGuess.GENERIC.value)
+
+                blueprint = Blueprint(
+                    tenant_id=job.tenant_id,
+                    project_id=job.project_id,  # May be None
+                    goal_text=goal_text,
+                    goal_summary=goal_summary,
+                    domain_guess=domain_guess,
+                    is_draft=True,
+                    version=1,
+                )
+                session.add(blueprint)
+                await session.flush()
+
+                # Link blueprint to job
+                job.blueprint_id = blueprint.id
+                await session.flush()
 
             # Stage 1: Generate slots (30%)
             await update_job_progress(
@@ -893,6 +915,7 @@ async def _blueprint_build_async(task, job_id: str, context: dict):
             return {"status": "success", "slots": len(slots), "tasks": len(tasks)}
 
         except Exception as e:
+            await session.rollback()  # Rollback failed transaction before marking job failed
             await mark_job_failed(session, job_uuid, str(e))
             raise
 
@@ -1060,7 +1083,7 @@ def _generate_branching_plan(domain: str) -> Dict:
 # Slot Validation Task (blueprint.md §6.3)
 # =============================================================================
 
-@shared_task(bind=True, base=TenantAwareTask, max_retries=3)
+@celery_app.task(bind=True, base=TenantAwareTask, max_retries=3)
 def slot_validation_task(self, job_id: str, context: dict):
     """
     Validate data against slot requirements.
@@ -1162,7 +1185,7 @@ async def _slot_validation_async(task, job_id: str, context: dict):
 # Slot Summarization Task (blueprint_v2.md §5.2 - AI Summary)
 # =============================================================================
 
-@shared_task(bind=True, base=TenantAwareTask, max_retries=3)
+@celery_app.task(bind=True, base=TenantAwareTask, max_retries=3)
 def slot_summarization_task(self, job_id: str, context: dict):
     """
     Generate AI summary of slot data.
@@ -1308,7 +1331,7 @@ Provide a brief summary (2-3 sentences) of what this data represents and how it 
 # Slot Alignment Scoring Task (blueprint_v2.md §5.2 - Fit Score)
 # =============================================================================
 
-@shared_task(bind=True, base=TenantAwareTask, max_retries=3)
+@celery_app.task(bind=True, base=TenantAwareTask, max_retries=3)
 def slot_alignment_scoring_task(self, job_id: str, context: dict):
     """
     Score how well slot data aligns with project goals.
@@ -1482,7 +1505,7 @@ async def _slot_alignment_scoring_async(task, job_id: str, context: dict):
 # Slot Compilation Task (blueprint_v2.md §5.2 - Compile)
 # =============================================================================
 
-@shared_task(bind=True, base=TenantAwareTask, max_retries=3)
+@celery_app.task(bind=True, base=TenantAwareTask, max_retries=3)
 def slot_compilation_task(self, job_id: str, context: dict):
     """
     Transform slot data into derived artifacts for simulation.
@@ -1631,7 +1654,7 @@ async def _slot_compilation_async(task, job_id: str, context: dict):
 # Dispatch Entry Point
 # =============================================================================
 
-@shared_task(bind=True, base=TenantAwareTask)
+@celery_app.task(bind=True, base=TenantAwareTask)
 def dispatch_pil_job(self, job_id: str):
     """
     Dispatch a PIL job to the appropriate task based on job_type.

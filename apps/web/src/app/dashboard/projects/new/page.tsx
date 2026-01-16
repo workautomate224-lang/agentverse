@@ -354,7 +354,7 @@ export default function CreateProjectWizardPage() {
   const handleBlueprintReady = useCallback((blueprint: BlueprintDraft) => {
     setBlueprintDraft(blueprint);
     // Auto-set core type from blueprint strategy
-    if (blueprint.strategy.chosen_core) {
+    if (blueprint.strategy?.chosen_core) {
       setFormData(prev => ({ ...prev, coreType: blueprint.strategy.chosen_core }));
     }
   }, []);

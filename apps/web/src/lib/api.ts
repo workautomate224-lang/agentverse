@@ -6672,7 +6672,7 @@ export interface PILJob {
   stage_name: string | null;
   stage_message: string | null;
   input_params: Record<string, unknown>;
-  output_summary: Record<string, unknown> | null;
+  result: Record<string, unknown> | null;
   error_message: string | null;
   retry_count: number;
   max_retries: number;
@@ -6703,7 +6703,7 @@ export interface PILJobUpdate {
   progress_percent?: number;
   stage_name?: string;
   stage_message?: string;
-  output_summary?: Record<string, unknown>;
+  result?: Record<string, unknown>;
   error_message?: string;
 }
 

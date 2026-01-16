@@ -8,13 +8,14 @@
  *
  * Reference: blueprint_v3.md §2.1.1
  *
- * PHASE 2 (blueprint_v3): Job deduplication
- * - Uses useRef to track request-in-progress and prevent duplicate clicks
- * - AbortController for cleanup on unmount or new request
- * - Buttons disabled while processing
+ * VERTICAL SLICE #1: Background Job Integration
+ * - Uses PIL job hooks for background processing
+ * - Job appears in both Step 1 inline AND global Active Jobs widget
+ * - Resume behavior: job ID persisted to localStorage, recovered on return/refresh
+ * - Deduplication via job state (prevents duplicate job creation)
  */
 
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Sparkles,
@@ -26,24 +27,32 @@ import {
   Info,
   Brain,
   FileText,
-  Save,
+  XCircle,
+  Clock,
+  RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ExitConfirmationModal, useExitConfirmation } from '@/components/pil/ExitConfirmationModal';
 import { SaveDraftIndicator, SaveStatus } from '@/components/pil/SaveDraftIndicator';
+import { useCreatePILJob, usePILJob, useCancelPILJob, useRetryPILJob } from '@/hooks/useApi';
+import type { PILJobStatus } from '@/lib/api';
 import type {
   ClarifyingQuestion,
   GoalAnalysisResult,
   BlueprintDraft,
 } from '@/types/blueprint-v2';
 
-// PHASE 3 (blueprint_v3): Local storage key for wizard state persistence
+// VERTICAL SLICE #1: Local storage key for wizard state persistence
 const WIZARD_STATE_KEY = 'agentverse_wizard_state';
 
-// PHASE 3: Interface for persisted wizard state
+// VERTICAL SLICE #1: Interface for persisted wizard state with job IDs
 interface PersistedWizardState {
   goalText: string;
   stage: Stage;
+  // Job IDs for resume behavior
+  goalAnalysisJobId: string | null;
+  blueprintJobId: string | null;
+  // Results
   analysisResult: GoalAnalysisResult | null;
   answers: Record<string, string | string[]>;
   blueprintDraft: BlueprintDraft | null;
@@ -99,7 +108,7 @@ export function GoalAssistantPanel({
   onAnalysisStart,
   className,
 }: GoalAssistantPanelProps) {
-  // State
+  // VERTICAL SLICE #1: Core state
   const [stage, setStage] = useState<Stage>('idle');
   const [analysisResult, setAnalysisResult] = useState<GoalAnalysisResult | null>(null);
   const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
@@ -107,55 +116,126 @@ export function GoalAssistantPanel({
   const [error, setError] = useState<string | null>(null);
   const [expandedQuestion, setExpandedQuestion] = useState<string | null>(null);
 
-  // PHASE 3 (blueprint_v3): State persistence
+  // VERTICAL SLICE #1: Job IDs for background processing
+  const [goalAnalysisJobId, setGoalAnalysisJobId] = useState<string | null>(null);
+  const [blueprintJobId, setBlueprintJobId] = useState<string | null>(null);
+
+  // VERTICAL SLICE #1: State persistence
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [showExitModal, setShowExitModal] = useState(false);
   const [hasRestoredState, setHasRestoredState] = useState(false);
 
-  // PHASE 2 (blueprint_v3): Job deduplication refs
-  // Track if a request is in progress to prevent duplicate clicks
-  const requestInProgressRef = useRef<boolean>(false);
-  // AbortController for cleanup on unmount or when starting a new request
-  const abortControllerRef = useRef<AbortController | null>(null);
+  // VERTICAL SLICE #1: PIL Job hooks for background processing
+  const createJobMutation = useCreatePILJob();
+  const cancelJobMutation = useCancelPILJob();
+  const retryJobMutation = useRetryPILJob();
 
-  // PHASE 3: Determine if there are unsaved changes (analysis in progress or clarifying)
+  // Poll goal analysis job status (auto-refreshes while active)
+  const { data: goalAnalysisJob } = usePILJob(goalAnalysisJobId || '');
+  // Poll blueprint job status (auto-refreshes while active)
+  const { data: blueprintJob } = usePILJob(blueprintJobId || '');
+
+  // VERTICAL SLICE #1: Determine if there are unsaved changes
   const hasUnsavedChanges = useMemo(() => {
     return stage === 'analyzing' || stage === 'clarifying' || stage === 'generating_blueprint';
   }, [stage]);
 
-  // PHASE 3: Use exit confirmation hook for browser navigation
+  // VERTICAL SLICE #1: Use exit confirmation hook for browser navigation
   useExitConfirmation({ hasUnsavedChanges });
 
-  // PHASE 3: Restore state from localStorage on mount
+  // VERTICAL SLICE #1: Compute current job status for display
+  const currentJobStatus: PILJobStatus | null = useMemo(() => {
+    if (stage === 'analyzing' && goalAnalysisJob) {
+      return goalAnalysisJob.status;
+    }
+    if (stage === 'generating_blueprint' && blueprintJob) {
+      return blueprintJob.status;
+    }
+    return null;
+  }, [stage, goalAnalysisJob, blueprintJob]);
+
+  // VERTICAL SLICE #1: Compute current job for display
+  const currentJob = useMemo(() => {
+    if (stage === 'analyzing' && goalAnalysisJob) return goalAnalysisJob;
+    if (stage === 'generating_blueprint' && blueprintJob) return blueprintJob;
+    return null;
+  }, [stage, goalAnalysisJob, blueprintJob]);
+
+  // VERTICAL SLICE #1: Restore state from localStorage on mount (includes job IDs for resume)
   useEffect(() => {
     if (hasRestoredState) return;
 
     const saved = loadWizardState();
     if (saved && saved.goalText === goalText) {
-      // Restore only if the goal text matches (same session)
-      // Don't restore 'analyzing' or 'generating_blueprint' stages - restart those
-      if (saved.stage === 'clarifying' || saved.stage === 'preview') {
-        setStage(saved.stage);
-        setAnalysisResult(saved.analysisResult);
-        setAnswers(saved.answers);
-        setBlueprintDraft(saved.blueprintDraft);
-        setLastSavedAt(new Date(saved.savedAt));
-        setSaveStatus('saved');
+      // Restore state including job IDs for resume behavior
+      setStage(saved.stage);
+      setAnalysisResult(saved.analysisResult);
+      setAnswers(saved.answers);
+      setBlueprintDraft(saved.blueprintDraft);
+      setGoalAnalysisJobId(saved.goalAnalysisJobId);
+      setBlueprintJobId(saved.blueprintJobId);
+      setLastSavedAt(new Date(saved.savedAt));
+      setSaveStatus('saved');
 
-        // If we restored a completed blueprint, notify parent
-        if (saved.blueprintDraft && saved.stage === 'preview') {
-          onBlueprintReady(saved.blueprintDraft);
-        }
+      // If we restored a completed blueprint, notify parent
+      if (saved.blueprintDraft && saved.stage === 'preview') {
+        onBlueprintReady(saved.blueprintDraft);
       }
     }
     setHasRestoredState(true);
   }, [goalText, hasRestoredState, onBlueprintReady]);
 
-  // PHASE 3: Auto-save state when it changes
+  // VERTICAL SLICE #1: Handle goal analysis job completion
   useEffect(() => {
-    // Don't save during transitions (analyzing, generating)
-    if (stage === 'idle' || stage === 'analyzing' || stage === 'generating_blueprint') {
+    if (!goalAnalysisJob || stage !== 'analyzing') return;
+
+    if (goalAnalysisJob.status === 'succeeded') {
+      // Extract analysis result from job output
+      const output = goalAnalysisJob.result as unknown as GoalAnalysisResult | undefined;
+      if (output) {
+        setAnalysisResult(output);
+        if (output.clarifying_questions && output.clarifying_questions.length > 0) {
+          setStage('clarifying');
+        } else {
+          // No questions, generate blueprint directly
+          handleGenerateBlueprint(output, {});
+        }
+      } else {
+        setError('Job completed but no analysis result found');
+        setStage('idle');
+      }
+    } else if (goalAnalysisJob.status === 'failed') {
+      setError(goalAnalysisJob.error_message || 'Goal analysis failed');
+      // Stay in analyzing stage to show retry option
+    }
+  }, [goalAnalysisJob, stage]);
+
+  // VERTICAL SLICE #1: Handle blueprint job completion
+  useEffect(() => {
+    if (!blueprintJob || stage !== 'generating_blueprint') return;
+
+    if (blueprintJob.status === 'succeeded') {
+      // Extract blueprint from job output
+      const output = blueprintJob.result as unknown as BlueprintDraft | undefined;
+      if (output) {
+        setBlueprintDraft(output);
+        setStage('preview');
+        onBlueprintReady(output);
+      } else {
+        setError('Job completed but no blueprint found');
+        setStage('clarifying');
+      }
+    } else if (blueprintJob.status === 'failed') {
+      setError(blueprintJob.error_message || 'Blueprint generation failed');
+      // Stay in generating_blueprint stage to show retry option
+    }
+  }, [blueprintJob, stage, onBlueprintReady]);
+
+  // VERTICAL SLICE #1: Auto-save state when it changes (including job IDs)
+  useEffect(() => {
+    // Don't save if in idle state with no data
+    if (stage === 'idle' && !goalAnalysisJobId && !blueprintJobId) {
       return;
     }
 
@@ -165,6 +245,8 @@ export function GoalAssistantPanel({
       const state: PersistedWizardState = {
         goalText,
         stage,
+        goalAnalysisJobId,
+        blueprintJobId,
         analysisResult,
         answers,
         blueprintDraft,
@@ -176,9 +258,9 @@ export function GoalAssistantPanel({
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [goalText, stage, analysisResult, answers, blueprintDraft]);
+  }, [goalText, stage, goalAnalysisJobId, blueprintJobId, analysisResult, answers, blueprintDraft]);
 
-  // PHASE 3: Clear state when blueprint is finalized (preview stage)
+  // VERTICAL SLICE #1: Clear state when blueprint is finalized (preview stage)
   useEffect(() => {
     if (stage === 'preview' && blueprintDraft) {
       // Clear saved state since blueprint is ready
@@ -186,207 +268,152 @@ export function GoalAssistantPanel({
     }
   }, [stage, blueprintDraft]);
 
-  // Cleanup abort controller on unmount
-  useEffect(() => {
-    return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    };
-  }, []);
-
-  // Analyze goal
-  // PHASE 2 (blueprint_v3): Added deduplication to prevent duplicate clicks
+  // VERTICAL SLICE #1: Analyze goal using background job
   const handleAnalyzeGoal = useCallback(async () => {
     if (!goalText || goalText.trim().length < 10) {
       setError('Please enter at least 10 characters for your goal');
       return;
     }
 
-    // PHASE 2: Prevent duplicate requests
-    if (requestInProgressRef.current) {
-      return; // Already processing, ignore click
+    // Prevent duplicate job creation
+    if (createJobMutation.isPending || (goalAnalysisJob && (goalAnalysisJob.status === 'queued' || goalAnalysisJob.status === 'running'))) {
+      return;
     }
-
-    // Abort any previous request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-
-    // Create new abort controller for this request
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
-    requestInProgressRef.current = true;
 
     setStage('analyzing');
     setError(null);
     onAnalysisStart?.();
 
     try {
-      const response = await fetch('/api/goal-analysis', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ goal_text: goalText }),
-        signal: abortController.signal,
+      // Create goal_analysis job via PIL job system
+      const job = await createJobMutation.mutateAsync({
+        job_type: 'goal_analysis',
+        job_name: 'Goal Analysis',
+        input_params: {
+          goal_text: goalText,
+          skip_clarification: false,
+        },
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to analyze goal');
-      }
-
-      const result: GoalAnalysisResult = await response.json();
-      setAnalysisResult(result);
-
-      if (result.clarifying_questions.length > 0) {
-        setStage('clarifying');
-      } else {
-        // No questions, go directly to blueprint generation
-        await generateBlueprint(result, {});
-      }
+      // Store job ID for polling and resume
+      setGoalAnalysisJobId(job.id);
     } catch (err) {
-      // Don't show error if request was aborted
-      if (err instanceof Error && err.name === 'AbortError') {
-        return;
-      }
-      setError(err instanceof Error ? err.message : 'Analysis failed');
+      setError(err instanceof Error ? err.message : 'Failed to start analysis');
       setStage('idle');
-    } finally {
-      requestInProgressRef.current = false;
     }
-  }, [goalText, onAnalysisStart]);
+  }, [goalText, onAnalysisStart, createJobMutation, goalAnalysisJob]);
 
-  // Skip clarification and generate blueprint directly
-  // PHASE 2 (blueprint_v3): Added deduplication to prevent duplicate clicks
+  // VERTICAL SLICE #1: Skip clarification and generate blueprint directly using background job
   const handleSkipClarify = useCallback(async () => {
-    // PHASE 2: Prevent duplicate requests
-    if (requestInProgressRef.current) {
-      return; // Already processing, ignore click
+    // Prevent duplicate job creation
+    if (createJobMutation.isPending || (blueprintJob && (blueprintJob.status === 'queued' || blueprintJob.status === 'running'))) {
+      return;
     }
-
-    // Abort any previous request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-
-    // Create new abort controller for this request
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
-    requestInProgressRef.current = true;
 
     setStage('generating_blueprint');
     setError(null);
 
     try {
-      const response = await fetch('/api/goal-analysis', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ goal_text: goalText, skip_clarification: true }),
-        signal: abortController.signal,
+      // Create blueprint_build job directly (skip clarification)
+      const job = await createJobMutation.mutateAsync({
+        job_type: 'blueprint_build',
+        job_name: 'Blueprint Generation (Skip Clarify)',
+        input_params: {
+          goal_text: goalText,
+          skip_clarification: true,
+          clarification_answers: {},
+        },
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to analyze goal');
-      }
-
-      const result: GoalAnalysisResult = await response.json();
-      await generateBlueprint(result, {});
+      // Store job ID for polling and resume
+      setBlueprintJobId(job.id);
     } catch (err) {
-      // Don't show error if request was aborted
-      if (err instanceof Error && err.name === 'AbortError') {
-        return;
-      }
-      setError(err instanceof Error ? err.message : 'Failed to generate blueprint');
+      setError(err instanceof Error ? err.message : 'Failed to start blueprint generation');
       setStage('idle');
-    } finally {
-      requestInProgressRef.current = false;
     }
-  }, [goalText]);
+  }, [goalText, createJobMutation, blueprintJob]);
 
-  // Generate blueprint from analysis + answers
-  // PHASE 2 (blueprint_v3): Uses shared abort controller for request cleanup
-  const generateBlueprint = useCallback(async (
+  // VERTICAL SLICE #1: Generate blueprint from analysis + answers using background job
+  const handleGenerateBlueprint = useCallback(async (
     analysis: GoalAnalysisResult,
     clarificationAnswers: Record<string, string | string[]>
   ) => {
-    setStage('generating_blueprint');
-
-    // Use existing abort controller if set (from outer function)
-    // or create a new one if called directly
-    const abortController = abortControllerRef.current || new AbortController();
-    if (!abortControllerRef.current) {
-      abortControllerRef.current = abortController;
+    // Prevent duplicate job creation
+    if (createJobMutation.isPending || (blueprintJob && (blueprintJob.status === 'queued' || blueprintJob.status === 'running'))) {
+      return;
     }
 
+    setStage('generating_blueprint');
+    setError(null);
+
     try {
-      const response = await fetch('/api/blueprint-draft', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      // Create blueprint_build job via PIL job system
+      const job = await createJobMutation.mutateAsync({
+        job_type: 'blueprint_build',
+        job_name: 'Blueprint Generation',
+        input_params: {
           goal_text: goalText,
           goal_summary: analysis.goal_summary,
           domain_guess: analysis.domain_guess,
           clarification_answers: clarificationAnswers,
-        }),
-        signal: abortController.signal,
+        },
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to generate blueprint');
-      }
-
-      const blueprint: BlueprintDraft = await response.json();
-      setBlueprintDraft(blueprint);
-      setStage('preview');
-      onBlueprintReady(blueprint);
+      // Store job ID for polling and resume
+      setBlueprintJobId(job.id);
     } catch (err) {
-      // Don't show error if request was aborted
-      if (err instanceof Error && err.name === 'AbortError') {
-        return;
-      }
-      setError(err instanceof Error ? err.message : 'Blueprint generation failed');
+      setError(err instanceof Error ? err.message : 'Failed to start blueprint generation');
       setStage('clarifying');
     }
-  }, [goalText, onBlueprintReady]);
+  }, [goalText, createJobMutation, blueprintJob]);
+
+  // VERTICAL SLICE #1: Cancel current job
+  const handleCancelJob = useCallback(async () => {
+    const jobId = stage === 'analyzing' ? goalAnalysisJobId : blueprintJobId;
+    if (!jobId) return;
+
+    try {
+      await cancelJobMutation.mutateAsync(jobId);
+      setStage('idle');
+      setGoalAnalysisJobId(null);
+      setBlueprintJobId(null);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to cancel job');
+    }
+  }, [stage, goalAnalysisJobId, blueprintJobId, cancelJobMutation]);
+
+  // VERTICAL SLICE #1: Retry failed job
+  const handleRetryJob = useCallback(async () => {
+    const jobId = stage === 'analyzing' ? goalAnalysisJobId : blueprintJobId;
+    if (!jobId) return;
+
+    try {
+      setError(null);
+      await retryJobMutation.mutateAsync(jobId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to retry job');
+    }
+  }, [stage, goalAnalysisJobId, blueprintJobId, retryJobMutation]);
 
   // Handle answer change
   const handleAnswerChange = useCallback((questionId: string, value: string | string[]) => {
     setAnswers(prev => ({ ...prev, [questionId]: value }));
   }, []);
 
-  // Submit clarification answers
-  // PHASE 2 (blueprint_v3): Added deduplication to prevent duplicate submissions
+  // VERTICAL SLICE #1: Submit clarification answers using background job
   const handleSubmitAnswers = useCallback(async () => {
     if (!analysisResult) return;
-
-    // PHASE 2: Prevent duplicate requests
-    if (requestInProgressRef.current) {
-      return; // Already processing, ignore click
-    }
-
-    // Abort any previous request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-
-    // Create new abort controller for this request
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
-    requestInProgressRef.current = true;
-
-    try {
-      await generateBlueprint(analysisResult, answers);
-    } finally {
-      requestInProgressRef.current = false;
-    }
-  }, [analysisResult, answers, generateBlueprint]);
+    await handleGenerateBlueprint(analysisResult, answers);
+  }, [analysisResult, answers, handleGenerateBlueprint]);
 
   // Check if all required questions are answered
-  const allRequiredAnswered = analysisResult?.clarifying_questions
+  const allRequiredAnswered = (analysisResult?.clarifying_questions || [])
     .filter(q => q.required)
     .every(q => {
       const answer = answers[q.id];
       return answer && (Array.isArray(answer) ? answer.length > 0 : answer.trim().length > 0);
-    }) ?? false;
+    });
 
   return (
     <div className={cn('border border-white/10 bg-white/5', className)}>
@@ -405,11 +432,19 @@ export function GoalAssistantPanel({
           />
         )}
 
+        {/* VERTICAL SLICE #1: Job status badge in header */}
         {stage !== 'idle' && (
-          <span className="ml-auto text-[10px] font-mono text-white/40 uppercase">
-            {stage === 'analyzing' && 'Analyzing...'}
+          <span className={cn(
+            "ml-auto text-[10px] font-mono uppercase px-2 py-0.5",
+            currentJobStatus === 'queued' && 'bg-amber-500/20 text-amber-400',
+            currentJobStatus === 'running' && 'bg-cyan-500/20 text-cyan-400',
+            currentJobStatus === 'succeeded' && 'bg-green-500/20 text-green-400',
+            currentJobStatus === 'failed' && 'bg-red-500/20 text-red-400',
+            !currentJobStatus && 'text-white/40'
+          )}>
+            {stage === 'analyzing' && (currentJobStatus || 'Analyzing')}
             {stage === 'clarifying' && 'Clarification'}
-            {stage === 'generating_blueprint' && 'Generating...'}
+            {stage === 'generating_blueprint' && (currentJobStatus || 'Generating')}
             {stage === 'preview' && 'Blueprint Ready'}
           </span>
         )}
@@ -466,19 +501,24 @@ export function GoalAssistantPanel({
           </div>
         )}
 
-        {/* Analyzing State */}
+        {/* VERTICAL SLICE #1: Analyzing State with Job Status */}
         {stage === 'analyzing' && (
           <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <Loader2 className="w-5 h-5 text-cyan-400 animate-spin" />
-              <div>
-                <p className="text-sm font-mono text-white">Analyzing your goal...</p>
-                <p className="text-xs font-mono text-white/40">Understanding context and generating questions</p>
+            {/* Job Status Display */}
+            <JobStatusDisplay
+              job={goalAnalysisJob}
+              jobType="Goal Analysis"
+              onCancel={handleCancelJob}
+              onRetry={handleRetryJob}
+              isRetrying={retryJobMutation.isPending}
+              isCancelling={cancelJobMutation.isPending}
+            />
+            {error && (
+              <div className="flex items-center gap-2 text-red-400 text-xs font-mono">
+                <AlertCircle className="w-3 h-3" />
+                {error}
               </div>
-            </div>
-            <div className="h-2 bg-white/10 overflow-hidden">
-              <div className="h-full bg-cyan-500 animate-pulse" style={{ width: '60%' }} />
-            </div>
+            )}
           </div>
         )}
 
@@ -631,19 +671,24 @@ export function GoalAssistantPanel({
           </div>
         )}
 
-        {/* Generating Blueprint */}
+        {/* VERTICAL SLICE #1: Generating Blueprint with Job Status */}
         {stage === 'generating_blueprint' && (
           <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <Loader2 className="w-5 h-5 text-cyan-400 animate-spin" />
-              <div>
-                <p className="text-sm font-mono text-white">Building blueprint...</p>
-                <p className="text-xs font-mono text-white/40">Creating project structure and tasks</p>
+            {/* Job Status Display */}
+            <JobStatusDisplay
+              job={blueprintJob}
+              jobType="Blueprint Generation"
+              onCancel={handleCancelJob}
+              onRetry={handleRetryJob}
+              isRetrying={retryJobMutation.isPending}
+              isCancelling={cancelJobMutation.isPending}
+            />
+            {error && (
+              <div className="flex items-center gap-2 text-red-400 text-xs font-mono">
+                <AlertCircle className="w-3 h-3" />
+                {error}
               </div>
-            </div>
-            <div className="h-2 bg-white/10 overflow-hidden">
-              <div className="h-full bg-cyan-500 animate-pulse" style={{ width: '80%' }} />
-            </div>
+            )}
           </div>
         )}
 
@@ -656,12 +701,202 @@ export function GoalAssistantPanel({
   );
 }
 
+// VERTICAL SLICE #1: Job Status Display Sub-component
+interface JobStatusDisplayProps {
+  job: {
+    id: string;
+    status: PILJobStatus;
+    progress_percent: number;
+    stage_name: string | null;
+    stage_message: string | null;
+    error_message: string | null;
+  } | undefined;
+  jobType: string;
+  onCancel: () => void;
+  onRetry: () => void;
+  isRetrying: boolean;
+  isCancelling: boolean;
+}
+
+function JobStatusDisplay({
+  job,
+  jobType,
+  onCancel,
+  onRetry,
+  isRetrying,
+  isCancelling,
+}: JobStatusDisplayProps) {
+  // Status configuration
+  const statusConfig: Record<PILJobStatus, { icon: React.ReactNode; color: string; bgColor: string; label: string }> = {
+    queued: {
+      icon: <Clock className="w-4 h-4" />,
+      color: 'text-amber-400',
+      bgColor: 'bg-amber-500/10 border-amber-500/30',
+      label: 'QUEUED',
+    },
+    running: {
+      icon: <Loader2 className="w-4 h-4 animate-spin" />,
+      color: 'text-cyan-400',
+      bgColor: 'bg-cyan-500/10 border-cyan-500/30',
+      label: 'RUNNING',
+    },
+    succeeded: {
+      icon: <CheckCircle className="w-4 h-4" />,
+      color: 'text-green-400',
+      bgColor: 'bg-green-500/10 border-green-500/30',
+      label: 'SUCCEEDED',
+    },
+    failed: {
+      icon: <XCircle className="w-4 h-4" />,
+      color: 'text-red-400',
+      bgColor: 'bg-red-500/10 border-red-500/30',
+      label: 'FAILED',
+    },
+    cancelled: {
+      icon: <XCircle className="w-4 h-4" />,
+      color: 'text-gray-400',
+      bgColor: 'bg-gray-500/10 border-gray-500/30',
+      label: 'CANCELLED',
+    },
+  };
+
+  // If no job yet, show loading state
+  if (!job) {
+    return (
+      <div className="p-3 bg-white/5 border border-white/10">
+        <div className="flex items-center gap-3">
+          <Loader2 className="w-4 h-4 text-white/40 animate-spin" />
+          <div>
+            <p className="text-xs font-mono text-white/60">Starting {jobType}...</p>
+            <p className="text-[10px] font-mono text-white/30">Creating job...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const config = statusConfig[job.status];
+  const isActive = job.status === 'queued' || job.status === 'running';
+  const isFailed = job.status === 'failed';
+
+  return (
+    <div className={cn('p-3 border', config.bgColor)}>
+      {/* Header with status */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span className={config.color}>{config.icon}</span>
+          <span className={cn('text-xs font-mono font-bold', config.color)}>
+            {config.label}
+          </span>
+        </div>
+        <span className="text-[10px] font-mono text-white/40">
+          Job: {job.id.slice(0, 8)}...
+        </span>
+      </div>
+
+      {/* Job info */}
+      <div className="space-y-2">
+        <p className="text-sm font-mono text-white">{jobType}</p>
+        {job.stage_message && (
+          <p className="text-xs font-mono text-white/60">{job.stage_message}</p>
+        )}
+        {job.stage_name && (
+          <p className="text-[10px] font-mono text-white/40">Stage: {job.stage_name}</p>
+        )}
+      </div>
+
+      {/* Progress bar for active jobs */}
+      {isActive && (
+        <div className="mt-3">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] font-mono text-white/40">Progress</span>
+            <span className="text-[10px] font-mono text-white/60">{job.progress_percent}%</span>
+          </div>
+          <div className="h-2 bg-white/10 overflow-hidden">
+            <div
+              className={cn('h-full transition-all duration-500', config.color.replace('text-', 'bg-'))}
+              style={{ width: `${Math.max(job.progress_percent, 10)}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Error message for failed jobs */}
+      {isFailed && job.error_message && (
+        <div className="mt-2 p-2 bg-red-500/10 border border-red-500/20">
+          <p className="text-[10px] font-mono text-red-400">{job.error_message}</p>
+        </div>
+      )}
+
+      {/* Action buttons */}
+      <div className="flex gap-2 mt-3">
+        {isActive && (
+          <Button
+            onClick={onCancel}
+            disabled={isCancelling}
+            variant="outline"
+            size="sm"
+            className="border-white/20 text-white/70 hover:bg-white/10 font-mono text-[10px]"
+          >
+            {isCancelling ? (
+              <>
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                Cancelling...
+              </>
+            ) : (
+              <>
+                <XCircle className="w-3 h-3 mr-1" />
+                Cancel
+              </>
+            )}
+          </Button>
+        )}
+        {isFailed && (
+          <Button
+            onClick={onRetry}
+            disabled={isRetrying}
+            className="bg-cyan-500 hover:bg-cyan-600 text-black font-mono text-[10px]"
+            size="sm"
+          >
+            {isRetrying ? (
+              <>
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                Retrying...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="w-3 h-3 mr-1" />
+                Retry
+              </>
+            )}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Blueprint Preview Sub-component
 function BlueprintPreview({ blueprint }: { blueprint: BlueprintDraft }) {
   const [expanded, setExpanded] = useState<string | null>('profile');
 
-  const requiredSlots = blueprint.input_slots.filter(s => s.required_level === 'required');
-  const recommendedSlots = blueprint.input_slots.filter(s => s.required_level === 'recommended');
+  // Safe defaults for all potentially undefined fields
+  const inputSlots = blueprint.input_slots || [];
+  const requiredSlots = inputSlots.filter(s => s.required_level === 'required');
+  const recommendedSlots = inputSlots.filter(s => s.required_level === 'recommended');
+  const warnings = blueprint.warnings || [];
+  const projectProfile = blueprint.project_profile || {
+    domain_guess: 'generic',
+    output_type: 'prediction',
+    horizon: 'medium',
+    scope: 'standard',
+    goal_summary: blueprint.goal_text || 'No summary available',
+  };
+  const strategy = blueprint.strategy || {
+    chosen_core: 'ensemble',
+    primary_drivers: [],
+    required_modules: [],
+  };
 
   return (
     <div className="space-y-3">
@@ -677,9 +912,9 @@ function BlueprintPreview({ blueprint }: { blueprint: BlueprintDraft }) {
       </div>
 
       {/* Warnings */}
-      {blueprint.warnings.length > 0 && (
+      {warnings.length > 0 && (
         <div className="p-2 bg-amber-500/10 border border-amber-500/30">
-          {blueprint.warnings.map((w, i) => (
+          {warnings.map((w, i) => (
             <p key={i} className="text-[10px] font-mono text-amber-400 flex items-center gap-1">
               <AlertCircle className="w-3 h-3" />
               {w}
@@ -710,23 +945,23 @@ function BlueprintPreview({ blueprint }: { blueprint: BlueprintDraft }) {
               <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
                 <div>
                   <span className="text-white/40">Domain:</span>
-                  <span className="text-white ml-1">{blueprint.project_profile.domain_guess}</span>
+                  <span className="text-white ml-1">{projectProfile.domain_guess}</span>
                 </div>
                 <div>
                   <span className="text-white/40">Output:</span>
-                  <span className="text-white ml-1">{blueprint.project_profile.output_type}</span>
+                  <span className="text-white ml-1">{projectProfile.output_type}</span>
                 </div>
                 <div>
                   <span className="text-white/40">Horizon:</span>
-                  <span className="text-white ml-1">{blueprint.project_profile.horizon}</span>
+                  <span className="text-white ml-1">{projectProfile.horizon}</span>
                 </div>
                 <div>
                   <span className="text-white/40">Scope:</span>
-                  <span className="text-white ml-1">{blueprint.project_profile.scope}</span>
+                  <span className="text-white ml-1">{projectProfile.scope}</span>
                 </div>
               </div>
               <p className="text-[10px] font-mono text-white/60">
-                {blueprint.project_profile.goal_summary}
+                {projectProfile.goal_summary}
               </p>
             </div>
           )}
@@ -742,7 +977,7 @@ function BlueprintPreview({ blueprint }: { blueprint: BlueprintDraft }) {
               Strategy
             </span>
             <span className="px-2 py-0.5 bg-cyan-500/20 text-[10px] font-mono text-cyan-400 uppercase">
-              {blueprint.strategy.chosen_core}
+              {strategy.chosen_core}
             </span>
             {expanded === 'strategy' ? (
               <ChevronDown className="w-4 h-4 text-white/40" />
@@ -755,7 +990,7 @@ function BlueprintPreview({ blueprint }: { blueprint: BlueprintDraft }) {
               <div>
                 <span className="text-[10px] font-mono text-white/40">Primary Drivers:</span>
                 <div className="flex flex-wrap gap-1 mt-1">
-                  {blueprint.strategy.primary_drivers.map((d, i) => (
+                  {strategy.primary_drivers.map((d, i) => (
                     <span key={i} className="px-2 py-0.5 bg-white/10 text-[10px] font-mono text-white/70">
                       {d}
                     </span>
@@ -765,7 +1000,7 @@ function BlueprintPreview({ blueprint }: { blueprint: BlueprintDraft }) {
               <div>
                 <span className="text-[10px] font-mono text-white/40">Required Modules:</span>
                 <div className="flex flex-wrap gap-1 mt-1">
-                  {blueprint.strategy.required_modules.map((m, i) => (
+                  {strategy.required_modules.map((m, i) => (
                     <span key={i} className="px-2 py-0.5 bg-purple-500/20 text-[10px] font-mono text-purple-400">
                       {m}
                     </span>

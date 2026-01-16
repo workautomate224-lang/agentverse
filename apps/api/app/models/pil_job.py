@@ -328,10 +328,10 @@ class PILArtifact(Base):
         nullable=False,
         index=True
     )
-    project_id: Mapped[uuid.UUID] = mapped_column(
+    project_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("project_specs.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,  # Allow null for pre-project goal analysis
         index=True
     )
 
