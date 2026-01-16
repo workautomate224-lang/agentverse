@@ -64,7 +64,12 @@ class Settings(BaseSettings):
     # OpenRouter
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
-    DEFAULT_MODEL: str = "openai/gpt-4o-mini"
+    DEFAULT_MODEL: str = "openai/gpt-5.2"  # GPT-5.2 as default for PIL jobs
+
+    # PIL (Project Intelligence Layer) Settings
+    # Controls whether LLM fallbacks are allowed when OpenRouter calls fail
+    # Set to "false" in staging/prod to ensure real LLM calls are made
+    PIL_ALLOW_FALLBACK: bool = False  # Default: fail fast, no silent fallbacks
 
     # Sentry
     SENTRY_DSN: str | None = None

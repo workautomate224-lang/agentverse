@@ -891,7 +891,9 @@ function BlueprintPreview({ blueprint }: { blueprint: BlueprintDraft }) {
     output_type: 'prediction',
     horizon: 'medium',
     scope: 'standard',
-    goal_summary: blueprint.goal_text || 'No summary available',
+    goal_summary: 'No summary available',
+    goal_text: '',
+    success_metrics: [],
   };
   const strategy = blueprint.strategy || {
     chosen_core: 'ensemble',

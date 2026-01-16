@@ -91,6 +91,33 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await audit_logger.start_background_flush()
     logger.info("Audit logger initialized")
 
+    # Validate OPENROUTER_API_KEY is configured (Blueprint v2 requirement)
+    # This ensures PIL jobs can actually call OpenRouter
+    if not settings.OPENROUTER_API_KEY:
+        logger.error(
+            "OPENROUTER_API_KEY is not configured",
+            environment=settings.ENVIRONMENT,
+            critical=True,
+        )
+        if settings.ENVIRONMENT in ("staging", "production"):
+            raise RuntimeError(
+                "OPENROUTER_API_KEY must be configured in staging/production. "
+                "PIL jobs will fail without it."
+            )
+        else:
+            logger.warning(
+                "Running without OPENROUTER_API_KEY - PIL jobs will fail",
+                environment=settings.ENVIRONMENT,
+            )
+    else:
+        # Mask key for logging (show first 8 chars only)
+        masked_key = settings.OPENROUTER_API_KEY[:8] + "..." if len(settings.OPENROUTER_API_KEY) > 8 else "***"
+        logger.info(
+            "OpenRouter API key configured",
+            key_prefix=masked_key,
+            default_model=settings.DEFAULT_MODEL,
+        )
+
     yield
 
     # Shutdown

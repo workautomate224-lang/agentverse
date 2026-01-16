@@ -64,6 +64,28 @@ from app.services.slot_status_handler import (
 )
 
 
+# =============================================================================
+# Custom Exceptions for LLM Failures (Blueprint v2 - Fail Fast)
+# =============================================================================
+
+class PILLLMError(Exception):
+    """
+    Raised when an LLM call fails and PIL_ALLOW_FALLBACK is False.
+
+    This ensures PIL jobs fail visibly rather than silently using
+    keyword-based fallbacks, making it clear when OpenRouter isn't
+    being called properly.
+    """
+    def __init__(self, profile_key: str, original_error: Exception):
+        self.profile_key = profile_key
+        self.original_error = original_error
+        super().__init__(
+            f"LLM call failed for {profile_key}: {str(original_error)}. "
+            f"PIL_ALLOW_FALLBACK is disabled - no fallback used. "
+            f"Check OPENROUTER_API_KEY and LLM profiles configuration."
+        )
+
+
 def get_async_session():
     """Create async session for database operations within tasks."""
     engine = create_async_engine(
@@ -252,6 +274,8 @@ async def _goal_analysis_async(task, job_id: str, context: dict):
                 raise ValueError(f"Job {job_id} not found")
 
             goal_text = job.input_params.get("goal_text", "")
+            # skip_cache: Force fresh LLM calls (default True in staging for verification)
+            skip_cache = job.input_params.get("skip_cache", False)
 
             # Create LLMRouter context
             llm_context = LLMRouterContext(
@@ -268,7 +292,9 @@ async def _goal_analysis_async(task, job_id: str, context: dict):
             )
 
             # Use LLM for goal analysis and domain classification
-            goal_summary, domain_guess = await _llm_analyze_goal(session, goal_text, llm_context)
+            goal_summary, domain_guess, goal_llm_proof = await _llm_analyze_goal(
+                session, goal_text, llm_context, skip_cache=skip_cache
+            )
 
             # Stage 2: Generate clarifying questions (50%)
             await update_job_progress(
@@ -277,8 +303,8 @@ async def _goal_analysis_async(task, job_id: str, context: dict):
                 stages_completed=2
             )
 
-            clarifying_questions = await _llm_generate_clarifying_questions(
-                session, goal_text, domain_guess, llm_context
+            clarifying_questions, questions_llm_proof = await _llm_generate_clarifying_questions(
+                session, goal_text, domain_guess, llm_context, skip_cache=skip_cache
             )
 
             # Stage 3: Generate blueprint preview and assess risks (80%)
@@ -288,8 +314,12 @@ async def _goal_analysis_async(task, job_id: str, context: dict):
                 stages_completed=3
             )
 
-            blueprint_preview = await _llm_generate_blueprint_preview(session, domain_guess, llm_context)
-            risk_notes = await _llm_assess_risks(session, goal_text, domain_guess, llm_context)
+            blueprint_preview, preview_llm_proof = await _llm_generate_blueprint_preview(
+                session, domain_guess, llm_context, skip_cache=skip_cache
+            )
+            risk_notes, risks_llm_proof = await _llm_assess_risks(
+                session, goal_text, domain_guess, llm_context, skip_cache=skip_cache
+            )
 
             # Create artifacts
             artifact_ids = []
@@ -390,6 +420,14 @@ async def _goal_analysis_async(task, job_id: str, context: dict):
                     "clarifying_questions": transformed_questions,
                     "risk_notes": risk_notes,
                     "processing_time_ms": 0,  # TODO: track actual processing time
+                    # LLM Proof metadata (Blueprint v2 - verifiable LLM execution)
+                    # This allows frontend to show proof that OpenRouter was called
+                    "llm_proof": {
+                        "goal_analysis": goal_llm_proof,
+                        "clarifying_questions": questions_llm_proof,
+                        "blueprint_preview": preview_llm_proof,
+                        "risk_assessment": risks_llm_proof,
+                    },
                 },
                 artifact_ids=artifact_ids,
             )
@@ -415,10 +453,18 @@ async def _llm_analyze_goal(
     session: AsyncSession,
     goal_text: str,
     context: LLMRouterContext,
-) -> tuple[str, str]:
+    skip_cache: bool = False,
+) -> tuple[str, str, dict]:
     """
     Use LLM to analyze goal text and classify domain.
-    Returns (goal_summary, domain_guess).
+    Returns (goal_summary, domain_guess, llm_proof).
+
+    Args:
+        skip_cache: If True, bypass cache for fresh LLM call (default in staging)
+
+    Returns:
+        Tuple of (goal_summary, domain_guess, llm_proof)
+        llm_proof contains: model, call_id, cache_hit, tokens, cost_usd
     """
     router = LLMRouter(session)
 
@@ -457,6 +503,7 @@ Provide the goal summary and domain classification."""
             context=context,
             temperature_override=0.3,  # Lower temperature for consistency
             max_tokens_override=500,
+            skip_cache=skip_cache,
         )
 
         # Parse JSON response
@@ -475,14 +522,29 @@ Provide the goal summary and domain classification."""
         }
         domain_guess = domain_map.get(domain.lower(), DomainGuess.GENERIC.value)
 
-        return goal_summary, domain_guess
+        # Build LLM proof metadata for audit trail
+        llm_proof = {
+            "call_id": getattr(response, "call_id", str(uuid.uuid4())),
+            "profile_key": LLMProfileKey.PIL_GOAL_ANALYSIS.value,
+            "model": getattr(response, "model", settings.DEFAULT_MODEL),
+            "cache_hit": getattr(response, "cache_hit", False),
+            "input_tokens": getattr(response, "input_tokens", 0),
+            "output_tokens": getattr(response, "output_tokens", 0),
+            "cost_usd": getattr(response, "cost_usd", 0.0),
+            "timestamp": datetime.utcnow().isoformat(),
+        }
 
-    except Exception:
-        # Fallback to simple analysis if LLM fails
-        return _fallback_goal_analysis(goal_text)
+        return goal_summary, domain_guess, llm_proof
+
+    except Exception as e:
+        # Check if fallbacks are allowed (default: False in staging/prod)
+        if settings.PIL_ALLOW_FALLBACK:
+            return _fallback_goal_analysis(goal_text)
+        # Fail fast - no silent fallbacks
+        raise PILLLMError(LLMProfileKey.PIL_GOAL_ANALYSIS.value, e)
 
 
-def _fallback_goal_analysis(goal_text: str) -> tuple[str, str]:
+def _fallback_goal_analysis(goal_text: str) -> tuple[str, str, dict]:
     """Fallback goal analysis when LLM is unavailable."""
     # Simple summary
     if len(goal_text) < 100:
@@ -505,7 +567,20 @@ def _fallback_goal_analysis(goal_text: str) -> tuple[str, str]:
     else:
         domain = DomainGuess.GENERIC.value
 
-    return goal_summary, domain
+    # Fallback proof - indicates no LLM was used
+    llm_proof = {
+        "call_id": f"fallback_{uuid.uuid4()}",
+        "profile_key": LLMProfileKey.PIL_GOAL_ANALYSIS.value,
+        "model": "fallback_keyword_match",
+        "cache_hit": False,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cost_usd": 0.0,
+        "timestamp": datetime.utcnow().isoformat(),
+        "is_fallback": True,
+    }
+
+    return goal_summary, domain, llm_proof
 
 
 async def _llm_generate_clarifying_questions(
@@ -513,9 +588,16 @@ async def _llm_generate_clarifying_questions(
     goal_text: str,
     domain: str,
     context: LLMRouterContext,
-) -> List[Dict]:
+    skip_cache: bool = False,
+) -> tuple[List[Dict], dict]:
     """
     Use LLM to generate clarifying questions for the project.
+
+    Args:
+        skip_cache: If True, bypass cache for fresh LLM call (default in staging)
+
+    Returns:
+        Tuple of (questions_list, llm_proof)
     """
     router = LLMRouter(session)
 
@@ -562,6 +644,7 @@ Generate 3-5 questions tailored to this specific goal and domain."""
             context=context,
             temperature_override=0.5,  # Moderate creativity
             max_tokens_override=1000,
+            skip_cache=skip_cache,
         )
 
         result = json.loads(response.content)
@@ -579,14 +662,29 @@ Generate 3-5 questions tailored to this specific goal and domain."""
                 "required": True,
             })
 
-        return questions
+        # Build LLM proof metadata
+        llm_proof = {
+            "call_id": getattr(response, "call_id", str(uuid.uuid4())),
+            "profile_key": LLMProfileKey.PIL_CLARIFYING_QUESTIONS.value,
+            "model": getattr(response, "model", settings.DEFAULT_MODEL),
+            "cache_hit": getattr(response, "cache_hit", False),
+            "input_tokens": getattr(response, "input_tokens", 0),
+            "output_tokens": getattr(response, "output_tokens", 0),
+            "cost_usd": getattr(response, "cost_usd", 0.0),
+            "timestamp": datetime.utcnow().isoformat(),
+        }
 
-    except Exception:
-        # Fallback to base questions
-        return _fallback_clarifying_questions(domain)
+        return questions, llm_proof
+
+    except Exception as e:
+        # Check if fallbacks are allowed (default: False in staging/prod)
+        if settings.PIL_ALLOW_FALLBACK:
+            return _fallback_clarifying_questions(domain)
+        # Fail fast - no silent fallbacks
+        raise PILLLMError(LLMProfileKey.PIL_CLARIFYING_QUESTIONS.value, e)
 
 
-def _fallback_clarifying_questions(domain: str) -> List[Dict]:
+def _fallback_clarifying_questions(domain: str) -> tuple[List[Dict], dict]:
     """Fallback questions when LLM is unavailable."""
     base_questions = [
         {
@@ -631,16 +729,36 @@ def _fallback_clarifying_questions(domain: str) -> List[Dict]:
             "required": True,
         })
 
-    return base_questions
+    # Fallback proof
+    llm_proof = {
+        "call_id": f"fallback_{uuid.uuid4()}",
+        "profile_key": LLMProfileKey.PIL_CLARIFYING_QUESTIONS.value,
+        "model": "fallback_template",
+        "cache_hit": False,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cost_usd": 0.0,
+        "timestamp": datetime.utcnow().isoformat(),
+        "is_fallback": True,
+    }
+
+    return base_questions, llm_proof
 
 
 async def _llm_generate_blueprint_preview(
     session: AsyncSession,
     domain: str,
     context: LLMRouterContext,
-) -> Dict:
+    skip_cache: bool = False,
+) -> tuple[Dict, dict]:
     """
     Use LLM to generate a blueprint preview based on domain.
+
+    Args:
+        skip_cache: If True, bypass cache for fresh LLM call (default in staging)
+
+    Returns:
+        Tuple of (blueprint_preview_dict, llm_proof)
     """
     router = LLMRouter(session)
 
@@ -690,21 +808,40 @@ What data slots and tasks would be needed for a typical project in this domain?"
             context=context,
             temperature_override=0.3,
             max_tokens_override=800,
+            skip_cache=skip_cache,
         )
 
         result = json.loads(response.content)
-        return {
+        blueprint_preview = {
             "required_slots": result.get("required_slots", ["PersonaSet"]),
             "recommended_slots": result.get("recommended_slots", ["EventScriptSet"]),
             "section_tasks": result.get("section_tasks", {}),
             "key_challenges": result.get("key_challenges", []),
         }
 
-    except Exception:
-        return _fallback_blueprint_preview(domain)
+        # Build LLM proof metadata
+        llm_proof = {
+            "call_id": getattr(response, "call_id", str(uuid.uuid4())),
+            "profile_key": LLMProfileKey.PIL_BLUEPRINT_GENERATION.value,
+            "model": getattr(response, "model", settings.DEFAULT_MODEL),
+            "cache_hit": getattr(response, "cache_hit", False),
+            "input_tokens": getattr(response, "input_tokens", 0),
+            "output_tokens": getattr(response, "output_tokens", 0),
+            "cost_usd": getattr(response, "cost_usd", 0.0),
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+        return blueprint_preview, llm_proof
+
+    except Exception as e:
+        # Check if fallbacks are allowed (default: False in staging/prod)
+        if settings.PIL_ALLOW_FALLBACK:
+            return _fallback_blueprint_preview(domain)
+        # Fail fast - no silent fallbacks
+        raise PILLLMError(LLMProfileKey.PIL_BLUEPRINT_GENERATION.value, e)
 
 
-def _fallback_blueprint_preview(domain: str) -> Dict:
+def _fallback_blueprint_preview(domain: str) -> tuple[Dict, dict]:
     """Fallback blueprint preview when LLM is unavailable."""
     required_slots = ["PersonaSet"]
     recommended_slots = ["TimeSeries", "EventScriptSet"]
@@ -724,11 +861,26 @@ def _fallback_blueprint_preview(domain: str) -> Dict:
         "reliability": ["Set up calibration plan", "Define validation metrics"],
     }
 
-    return {
+    blueprint_preview = {
         "required_slots": required_slots,
         "recommended_slots": recommended_slots,
         "section_tasks": section_tasks,
     }
+
+    # Fallback proof
+    llm_proof = {
+        "call_id": f"fallback_{uuid.uuid4()}",
+        "profile_key": LLMProfileKey.PIL_BLUEPRINT_GENERATION.value,
+        "model": "fallback_template",
+        "cache_hit": False,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cost_usd": 0.0,
+        "timestamp": datetime.utcnow().isoformat(),
+        "is_fallback": True,
+    }
+
+    return blueprint_preview, llm_proof
 
 
 async def _llm_assess_risks(
@@ -736,9 +888,16 @@ async def _llm_assess_risks(
     goal_text: str,
     domain: str,
     context: LLMRouterContext,
-) -> List[str]:
+    skip_cache: bool = False,
+) -> tuple[List[str], dict]:
     """
     Use LLM to assess potential risks for the project.
+
+    Args:
+        skip_cache: If True, bypass cache for fresh LLM call (default in staging)
+
+    Returns:
+        Tuple of (risks_list, llm_proof)
     """
     router = LLMRouter(session)
 
@@ -782,6 +941,7 @@ What are the key risks and challenges?"""
             context=context,
             temperature_override=0.4,
             max_tokens_override=500,
+            skip_cache=skip_cache,
         )
 
         result = json.loads(response.content)
@@ -790,13 +950,29 @@ What are the key risks and challenges?"""
         if not risks:
             risks = ["No significant risks identified at this stage"]
 
-        return risks
+        # Build LLM proof metadata
+        llm_proof = {
+            "call_id": getattr(response, "call_id", str(uuid.uuid4())),
+            "profile_key": LLMProfileKey.PIL_RISK_ASSESSMENT.value,
+            "model": getattr(response, "model", settings.DEFAULT_MODEL),
+            "cache_hit": getattr(response, "cache_hit", False),
+            "input_tokens": getattr(response, "input_tokens", 0),
+            "output_tokens": getattr(response, "output_tokens", 0),
+            "cost_usd": getattr(response, "cost_usd", 0.0),
+            "timestamp": datetime.utcnow().isoformat(),
+        }
 
-    except Exception:
-        return _fallback_risk_assessment(goal_text, domain)
+        return risks, llm_proof
+
+    except Exception as e:
+        # Check if fallbacks are allowed (default: False in staging/prod)
+        if settings.PIL_ALLOW_FALLBACK:
+            return _fallback_risk_assessment(goal_text, domain)
+        # Fail fast - no silent fallbacks
+        raise PILLLMError(LLMProfileKey.PIL_RISK_ASSESSMENT.value, e)
 
 
-def _fallback_risk_assessment(goal_text: str, domain: str) -> List[str]:
+def _fallback_risk_assessment(goal_text: str, domain: str) -> tuple[List[str], dict]:
     """Fallback risk assessment when LLM is unavailable."""
     risks = []
     goal_lower = goal_text.lower()
@@ -813,7 +989,20 @@ def _fallback_risk_assessment(goal_text: str, domain: str) -> List[str]:
     if not risks:
         risks.append("No significant risks identified at this stage")
 
-    return risks
+    # Fallback proof
+    llm_proof = {
+        "call_id": f"fallback_{uuid.uuid4()}",
+        "profile_key": LLMProfileKey.PIL_RISK_ASSESSMENT.value,
+        "model": "fallback_keyword_match",
+        "cache_hit": False,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cost_usd": 0.0,
+        "timestamp": datetime.utcnow().isoformat(),
+        "is_fallback": True,
+    }
+
+    return risks, llm_proof
 
 
 # =============================================================================
@@ -1304,6 +1493,7 @@ async def _slot_summarization_async(task, job_id: str, context: dict):
             slot_id = job.input_params.get("slot_id")
             fulfilled_by = job.input_params.get("fulfilled_by", {})
             data_sample = job.input_params.get("data_sample", {})
+            skip_cache = job.input_params.get("skip_cache", False)
 
             await update_job_progress(
                 session, job_uuid, 20,
@@ -1363,6 +1553,7 @@ Provide a brief summary (2-3 sentences) of what this data represents and how it 
                     context=llm_context,
                     temperature_override=0.3,
                     max_tokens_override=300,
+                    skip_cache=skip_cache,
                 )
 
                 if llm_response and llm_response.content:
@@ -1370,9 +1561,14 @@ Provide a brief summary (2-3 sentences) of what this data represents and how it 
                     summary_content["ai_generated"] = True
 
             except Exception as llm_error:
-                # Fallback to basic summary if LLM fails
-                summary_content["ai_generated"] = False
-                summary_content["fallback_reason"] = str(llm_error)
+                # Check if fallbacks are allowed (default: False in staging/prod)
+                if settings.PIL_ALLOW_FALLBACK:
+                    # Fallback to basic summary if LLM fails and fallbacks allowed
+                    summary_content["ai_generated"] = False
+                    summary_content["fallback_reason"] = str(llm_error)
+                else:
+                    # Fail fast - no silent fallbacks
+                    raise PILLLMError("SLOT_SUMMARIZATION", llm_error)
 
             await update_job_progress(
                 session, job_uuid, 80,

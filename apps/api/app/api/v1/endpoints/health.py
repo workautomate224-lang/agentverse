@@ -441,6 +441,46 @@ async def metrics_endpoint() -> Response:
     )
 
 
+@router.get("/health/llm")
+async def llm_health_check() -> dict:
+    """
+    LLM Configuration Health Check - Verifies OpenRouter is configured.
+
+    This is a lightweight check that does NOT make an API call.
+    Use /health/llm-canary for a real API call test.
+
+    Returns:
+        - api_key_configured: Whether OPENROUTER_API_KEY is set
+        - default_model: The configured default model
+        - pil_allow_fallback: Whether PIL fallbacks are enabled
+        - status: "healthy" if API key is configured, "unhealthy" otherwise
+    """
+    from datetime import datetime, timezone
+
+    api_key = settings.OPENROUTER_API_KEY
+    has_key = bool(api_key and len(api_key) > 0)
+
+    # Get PIL fallback setting
+    pil_allow_fallback = getattr(settings, "PIL_ALLOW_FALLBACK", False)
+
+    result = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "environment": settings.ENVIRONMENT,
+        "api_key_configured": has_key,
+        "api_key_prefix": api_key[:8] + "..." if has_key and len(api_key) > 8 else None,
+        "default_model": settings.DEFAULT_MODEL,
+        "base_url": settings.OPENROUTER_BASE_URL,
+        "pil_allow_fallback": pil_allow_fallback,
+        "status": "healthy" if has_key else "unhealthy",
+    }
+
+    if not has_key:
+        result["error"] = "OPENROUTER_API_KEY is not configured"
+        result["message"] = "PIL jobs will fail without a valid API key"
+
+    return result
+
+
 @router.get("/health/llm-canary")
 async def llm_canary_test(db: AsyncSession = Depends(get_db)) -> dict:
     """

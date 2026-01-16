@@ -384,17 +384,21 @@ class LLMRouter:
         return result.scalar_one_or_none()
 
     def _get_default_profile(self, profile_key: str) -> LLMProfile:
-        """Create a default in-memory profile when none exists in DB."""
+        """
+        Create a default in-memory profile when none exists in DB.
+
+        Uses gpt-5.2 as default model per Blueprint v2 requirements.
+        """
         return LLMProfile(
             id=uuid.uuid4(),
             profile_key=profile_key,
             label=f"Default {profile_key}",
-            model="openai/gpt-4o-mini",
+            model="openai/gpt-5.2",  # GPT-5.2 as default for PIL jobs
             temperature=0.3,  # Balanced for comprehensive yet consistent responses
             max_tokens=2000,  # Increased for comprehensive professional responses
-            cost_per_1k_input_tokens=0.00015,
-            cost_per_1k_output_tokens=0.0006,
-            fallback_models=["anthropic/claude-3-haiku-20240307"],
+            cost_per_1k_input_tokens=0.005,   # GPT-5.2 pricing
+            cost_per_1k_output_tokens=0.015,  # GPT-5.2 pricing
+            fallback_models=["openai/gpt-4o"],  # Fallback to GPT-4o
             cache_enabled=True,
             is_active=True,
             is_default=True,

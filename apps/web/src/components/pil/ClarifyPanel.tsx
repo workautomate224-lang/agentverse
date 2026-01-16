@@ -22,6 +22,8 @@ import {
   Loader2,
   HelpCircle,
   Info,
+  Cpu,
+  ChevronDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -37,6 +39,7 @@ import type {
   ClarifyingQuestion,
   GoalAnalysisResult,
   Blueprint,
+  LLMProofEntry,
 } from '@/lib/api';
 import { PILJobProgress } from './PILJobProgress';
 import { SaveDraftIndicator, type SaveStatus } from './SaveDraftIndicator';
@@ -64,6 +67,94 @@ const QUESTION_TYPE_CONFIG = {
     icon: MessageSquare,
   },
 };
+
+/**
+ * LLM Proof Badge - Shows verifiable LLM execution details
+ * Blueprint v2 requirement: Users can see proof that OpenRouter was called
+ */
+function LLMProofBadge({ proof }: { proof: LLMProofEntry }) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Extract model name (e.g., "openai/gpt-5.2" -> "gpt-5.2")
+  const modelShort = proof.model?.split('/').pop() || proof.model;
+
+  // Truncate call_id for display
+  const callIdShort = proof.call_id?.slice(0, 8) || 'unknown';
+
+  // Format cost
+  const costFormatted = proof.cost_usd > 0
+    ? `$${proof.cost_usd.toFixed(4)}`
+    : 'free';
+
+  const isFallback = proof.is_fallback || proof.model?.includes('fallback');
+
+  return (
+    <div className="mt-2 pt-2 border-t border-cyan-400/20">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className={cn(
+          "flex items-center gap-1.5 text-[10px] font-mono",
+          isFallback ? "text-yellow-400/70" : "text-cyan-400/70",
+          "hover:text-cyan-400 transition-colors"
+        )}
+      >
+        <Cpu className="h-3 w-3" />
+        <span className="font-medium">
+          {isFallback ? 'FALLBACK' : 'LLM'}: {modelShort}
+        </span>
+        {proof.cache_hit && (
+          <span className="px-1 py-0.5 rounded bg-green-400/20 text-green-400 text-[9px]">
+            CACHED
+          </span>
+        )}
+        <ChevronDown
+          className={cn(
+            "h-3 w-3 transition-transform",
+            expanded && "rotate-180"
+          )}
+        />
+      </button>
+
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="overflow-hidden"
+          >
+            <div className="mt-1.5 pl-4 space-y-0.5 text-[10px] font-mono text-gray-500">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-600">trace_id:</span>
+                <code className="px-1 py-0.5 rounded bg-white/5 text-gray-400">
+                  {callIdShort}...
+                </code>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-600">tokens:</span>
+                <span>{proof.input_tokens + proof.output_tokens}</span>
+                <span className="text-gray-600">({proof.input_tokens} in / {proof.output_tokens} out)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-600">cost:</span>
+                <span className={proof.cost_usd > 0 ? "text-yellow-400/70" : "text-green-400/70"}>
+                  {costFormatted}
+                </span>
+              </div>
+              {proof.timestamp && (
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-600">time:</span>
+                  <span>{new Date(proof.timestamp).toLocaleTimeString()}</span>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
 
 interface ClarifyPanelProps {
   /** Project ID */
@@ -481,13 +572,17 @@ export function ClarifyPanel({
         <div className="p-4 rounded border border-cyan-400/30 bg-cyan-400/5">
           <div className="flex items-start gap-2">
             <Sparkles className="h-4 w-4 text-cyan-400 mt-0.5 flex-shrink-0" />
-            <div>
+            <div className="flex-1">
               <p className="text-xs text-cyan-400 font-mono font-medium mb-1">
                 AI Understanding
               </p>
               <p className="text-sm text-gray-300 font-mono">
                 {goalAnalysis.goal_summary}
               </p>
+              {/* LLM Proof Line - Blueprint v2 verifiable execution */}
+              {goalAnalysis.llm_proof?.goal_analysis && (
+                <LLMProofBadge proof={goalAnalysis.llm_proof.goal_analysis} />
+              )}
             </div>
           </div>
         </div>

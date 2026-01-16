@@ -6927,6 +6927,27 @@ export interface BlueprintSummary {
   tasks_total: number;
 }
 
+/** LLM Proof metadata for verifying LLM execution */
+export interface LLMProofEntry {
+  call_id: string;
+  profile_key: string;
+  model: string;
+  cache_hit: boolean;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+  timestamp: string;
+  is_fallback?: boolean;
+}
+
+/** LLM Proof collection for all LLM calls in a job */
+export interface LLMProof {
+  goal_analysis?: LLMProofEntry;
+  clarifying_questions?: LLMProofEntry;
+  blueprint_preview?: LLMProofEntry;
+  risk_assessment?: LLMProofEntry;
+}
+
 /** Goal analysis result */
 export interface GoalAnalysisResult {
   goal_summary: string;
@@ -6934,6 +6955,8 @@ export interface GoalAnalysisResult {
   clarifying_questions: ClarifyingQuestion[];
   blueprint_preview: Record<string, unknown>;
   risk_notes: string[];
+  /** LLM proof metadata (Blueprint v2 - verifiable LLM execution) */
+  llm_proof?: LLMProof;
 }
 
 /** Create blueprint request */
