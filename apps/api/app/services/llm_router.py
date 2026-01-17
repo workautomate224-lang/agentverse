@@ -388,9 +388,11 @@ class LLMRouter:
         Create a default in-memory profile when none exists in DB.
 
         Uses gpt-5.2 as default model per Blueprint v2 requirements.
+        Note: id is None to indicate this is an in-memory profile, which
+        prevents foreign key violations when logging LLM calls.
         """
         return LLMProfile(
-            id=uuid.uuid4(),
+            id=None,  # No ID for in-memory profiles to avoid FK violation
             profile_key=profile_key,
             label=f"Default {profile_key}",
             model="openai/gpt-5.2",  # GPT-5.2 as default for PIL jobs
