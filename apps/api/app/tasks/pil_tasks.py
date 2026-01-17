@@ -1234,7 +1234,7 @@ def _generate_slots(domain: str, answers: Dict) -> List[Dict]:
         slots.append({
             "sort_order": sort_order,
             "slot_name": "Historical Sales Data",
-            "slot_type": SlotType.TIME_SERIES.value,
+            "slot_type": SlotType.TIMESERIES.value,
             "required_level": RequiredLevel.REQUIRED.value,
             "description": "Historical sales or demand data",
             "allowed_acquisition_methods": ["manual_upload", "connect_api"],
