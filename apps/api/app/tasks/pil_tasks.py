@@ -278,9 +278,10 @@ async def _goal_analysis_async(task, job_id: str, context: dict):
             skip_cache = job.input_params.get("skip_cache", False)
 
             # Create LLMRouter context
+            # Note: project_id may be None during initial goal analysis (before project created)
             llm_context = LLMRouterContext(
-                tenant_id=str(job.tenant_id),
-                project_id=str(job.project_id),
+                tenant_id=str(job.tenant_id) if job.tenant_id else None,
+                project_id=str(job.project_id) if job.project_id else None,
                 phase="compilation",  # C5 tracking - LLM used for planning
             )
 
@@ -1525,7 +1526,7 @@ async def _slot_summarization_async(task, job_id: str, context: dict):
             # Try to get LLM-powered summary
             try:
                 llm_context = LLMRouterContext(
-                    tenant_id=str(job.tenant_id),
+                    tenant_id=str(job.tenant_id) if job.tenant_id else None,
                     project_id=str(job.project_id) if job.project_id else None,
                     phase="summarization",
                 )
