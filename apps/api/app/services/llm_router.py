@@ -104,6 +104,9 @@ class LLMRouterContext(BaseModel):
     auto_classify: bool = False  # Enable smart classification of prompts
     manual_web_search: Optional[bool] = None  # Manual override (None = use auto or default)
     manual_thinking_mode: Optional[bool] = None  # Manual override (None = use auto or default)
+    # Slice 1A: Strict LLM mode for wizard flows (No-Fake-Success rule)
+    strict_llm: bool = False  # If True, NEVER fallback - fail immediately on LLM error
+    skip_cache: bool = False  # If True, bypass cache for fresh LLM calls (staging/dev)
 
 
 class LLMRouter:
@@ -155,6 +158,9 @@ class LLMRouter:
         context = context or LLMRouterContext()
         start_time = time.time()
 
+        # Slice 1A: Honor context.skip_cache flag (staging/dev cache bypass)
+        should_skip_cache = skip_cache or context.skip_cache
+
         # 0. Smart Auto-Classification (if enabled)
         # This determines if web_search or thinking_mode should be enabled
         if context.auto_classify:
@@ -185,7 +191,8 @@ class LLMRouter:
         messages_hash = self._compute_messages_hash(messages)
 
         # 4. Check cache (if enabled)
-        if profile.cache_enabled and not skip_cache:
+        # Slice 1A: Use should_skip_cache to respect both param and context.skip_cache
+        if profile.cache_enabled and not should_skip_cache:
             cached = await self._get_cached_response(cache_key)
             if cached:
                 response_time_ms = int((time.time() - start_time) * 1000)
@@ -261,6 +268,33 @@ class LLMRouter:
                 fallback_attempts=fallback_attempts,
             )
             raise RuntimeError(f"All LLM models failed for {profile_key}: {error_message}")
+
+        # Slice 1A: Strict LLM mode - fail if fallback was used (No-Fake-Success rule)
+        if context.strict_llm and fallback_attempts > 0:
+            # Log the call as failed due to strict mode
+            await self._log_call(
+                profile=profile,
+                context=context,
+                model_requested=model,
+                model_used=model_used,
+                messages_hash=messages_hash,
+                input_tokens=response.input_tokens,
+                output_tokens=response.output_tokens,
+                response_time_ms=response_time_ms,
+                cost_usd=0.0,
+                status=LLMCallStatus.ERROR,
+                cache_hit=False,
+                cache_key=cache_key,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                error_message=f"strict_llm mode: fallback to {model_used} is not allowed",
+                fallback_attempts=fallback_attempts,
+            )
+            raise RuntimeError(
+                f"LLM call for {profile_key} used fallback model {model_used} "
+                f"(requested: {model}). strict_llm mode requires primary model only. "
+                f"Fallback attempts: {fallback_attempts}"
+            )
 
         # 6. Calculate cost
         cost_usd = self._calculate_cost(
