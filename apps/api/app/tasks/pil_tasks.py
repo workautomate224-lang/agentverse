@@ -1525,6 +1525,16 @@ async def _blueprint_build_async(task, job_id: str, context: dict):
             )
 
             # Convert LLM section_tasks to database format
+            # Map section_id to available_actions (same as fallback tasks)
+            section_actions_map = {
+                "overview": [TaskAction.MANUAL_ADD.value],
+                "inputs": [TaskAction.MANUAL_ADD.value, TaskAction.CONNECT_SOURCE.value],
+                "personas": [TaskAction.AI_GENERATE.value, TaskAction.AI_RESEARCH.value, TaskAction.MANUAL_ADD.value],
+                "rules": [TaskAction.MANUAL_ADD.value],
+                "run_params": [TaskAction.MANUAL_ADD.value],
+                "reliability": [TaskAction.MANUAL_ADD.value],
+            }
+
             tasks = []
             task_idx = 0
             for section_id, section_task_list in llm_tasks.items():
@@ -1536,6 +1546,8 @@ async def _blueprint_build_async(task, job_id: str, context: dict):
                         "title": llm_task.get("title", f"Task {task_idx}"),
                         "description": llm_task.get("why_it_matters", ""),
                         "why_it_matters": llm_task.get("why_it_matters", ""),
+                        "available_actions": section_actions_map.get(section_id, [TaskAction.MANUAL_ADD.value]),
+                        "status": AlertState.NOT_STARTED.value,
                     }
                     tasks.append(task_data)
                     task_obj = BlueprintTask(
