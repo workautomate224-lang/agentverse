@@ -766,41 +766,15 @@ async def _llm_generate_blueprint_preview(
     """
     router = LLMRouter(session)
 
-    system_prompt = """You are an expert simulation architect for a predictive AI platform.
-Generate a blueprint preview for a simulation project based on the domain.
+    # Simplified prompt to get compact JSON response
+    system_prompt = """You are an expert simulation architect. Generate a concise blueprint preview.
 
-The platform supports these input slot types:
-- PersonaSet: Population of agents with demographics and behaviors
-- Table: Structured data (demographics, survey results, etc.)
-- TimeSeries: Time-indexed data (sales, prices, trends)
-- EventScriptSet: External events affecting agent behavior
-- TextCorpus: Unstructured text data (news, social media)
-- Graph: Network/relationship data
+Slot types: PersonaSet, Table, TimeSeries, EventScriptSet, TextCorpus, Graph
 
-The platform has these sections:
-- inputs: Data sources and uploads
-- personas: Agent population configuration
-- rules: Decision rules and behavior models
-- run_params: Simulation parameters and outputs
-- reliability: Calibration and validation
+Return ONLY valid JSON with this exact structure (keep arrays short, max 2-3 items each):
+{"required_slots":["slot1"],"recommended_slots":["slot2"],"section_tasks":{"inputs":["task"],"personas":["task"],"rules":["task"],"run_params":["task"],"reliability":["task"]},"key_challenges":["challenge"]}"""
 
-Respond in JSON format:
-{
-  "required_slots": ["slot_type1", "slot_type2"],
-  "recommended_slots": ["slot_type3"],
-  "section_tasks": {
-    "inputs": ["task1", "task2"],
-    "personas": ["task1"],
-    "rules": ["task1"],
-    "run_params": ["task1"],
-    "reliability": ["task1"]
-  },
-  "key_challenges": ["challenge1", "challenge2"]
-}"""
-
-    user_prompt = f"""Generate a blueprint preview for domain: {domain}
-
-What data slots and tasks would be needed for a typical project in this domain?"""
+    user_prompt = f"Domain: {domain}. Return the JSON blueprint preview."
 
     try:
         response = await router.complete(
@@ -810,9 +784,10 @@ What data slots and tasks would be needed for a typical project in this domain?"
                 {"role": "user", "content": user_prompt},
             ],
             context=context,
-            temperature_override=0.3,
-            # Use profile's max_tokens (4000) - don't override to avoid truncation
+            temperature_override=0.2,  # Lower temperature for more consistent JSON
+            max_tokens_override=1000,  # Limit output to prevent truncation
             skip_cache=skip_cache,
+            response_format={"type": "json_object"},  # Force valid JSON output
         )
 
         # Parse JSON response with error handling
