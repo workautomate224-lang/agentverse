@@ -75,6 +75,12 @@ interface GoalAssistantPanelProps {
   onStateCleared?: () => void;
   /** Slice 1C: Callback to create draft project when analysis starts */
   onDraftCreate?: (goalText: string) => Promise<string | null>;
+  /** Slice 1D-B: Callback when user clicks Publish Project */
+  onPublish?: () => Promise<void>;
+  /** Slice 1D-B: Callback when user clicks Edit Answers */
+  onEditAnswers?: () => void;
+  /** Slice 1D-B: Whether the wizard is in read-only mode (post-publish) */
+  readOnly?: boolean;
   className?: string;
 }
 
@@ -92,6 +98,9 @@ export function GoalAssistantPanel({
   onGoalTextRestore,
   onStateCleared,
   onDraftCreate,
+  onPublish,
+  onEditAnswers,
+  readOnly = false,
   className,
 }: GoalAssistantPanelProps) {
   // VERTICAL SLICE #1: Core state
@@ -440,6 +449,14 @@ export function GoalAssistantPanel({
       setStage('idle');
     }
   }, [goalText, onDraftCreate, createJobMutation, blueprintJob]);
+
+  // Slice 1D-B: Handle "Edit Answers" from blueprint preview
+  // Returns user to clarifying stage to modify their answers
+  const handleEditAnswers = useCallback(() => {
+    if (readOnly) return;  // Don't allow editing in read-only mode
+    setStage('clarifying');
+    onEditAnswers?.();
+  }, [readOnly, onEditAnswers]);
 
   // VERTICAL SLICE #1: Generate blueprint from analysis + answers using background job
   const handleGenerateBlueprint = useCallback(async (
@@ -874,7 +891,12 @@ export function GoalAssistantPanel({
 
         {/* Blueprint Preview */}
         {stage === 'preview' && blueprintDraft && (
-          <BlueprintPreview blueprint={blueprintDraft} />
+          <BlueprintPreview
+            blueprint={blueprintDraft}
+            onPublish={onPublish}
+            onEditAnswers={handleEditAnswers}
+            readOnly={readOnly}
+          />
         )}
       </div>
     </div>
@@ -1056,9 +1078,23 @@ function JobStatusDisplay({
   );
 }
 
-// Blueprint Preview Sub-component
-function BlueprintPreview({ blueprint }: { blueprint: BlueprintDraft }) {
+// Slice 1D-B: Blueprint Preview Sub-component with Publish/Edit buttons
+interface BlueprintPreviewProps {
+  blueprint: BlueprintDraft;
+  onPublish?: () => Promise<void>;
+  onEditAnswers?: () => void;
+  readOnly?: boolean;
+}
+
+function BlueprintPreview({
+  blueprint,
+  onPublish,
+  onEditAnswers,
+  readOnly = false,
+}: BlueprintPreviewProps) {
   const [expanded, setExpanded] = useState<string | null>('profile');
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
 
   // Safe defaults for all potentially undefined fields
   const inputSlots = blueprint.input_slots || [];
@@ -1080,17 +1116,78 @@ function BlueprintPreview({ blueprint }: { blueprint: BlueprintDraft }) {
     required_modules: [],
   };
 
+  // Slice 1D-B: Handle publish action
+  const handlePublish = async () => {
+    if (!onPublish || isPublishing) return;
+
+    setIsPublishing(true);
+    setPublishError(null);
+
+    try {
+      await onPublish();
+    } catch (err) {
+      setPublishError(err instanceof Error ? err.message : 'Failed to publish project');
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
   return (
     <div className="space-y-3">
-      {/* Success Header */}
+      {/* Success Header with Action Buttons */}
       <div className="p-3 bg-green-500/10 border border-green-500/30">
         <div className="flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-green-400" />
           <span className="text-xs font-mono font-bold text-green-400">BLUEPRINT READY</span>
         </div>
         <p className="text-xs font-mono text-white/60 mt-1">
-          Your project blueprint has been generated. Continue to the next step.
+          {readOnly
+            ? 'This project has been published and is now active.'
+            : 'Your project blueprint is ready. Publish to activate or edit answers to refine.'}
         </p>
+
+        {/* Slice 1D-B: Publish and Edit Buttons */}
+        {!readOnly && (
+          <div className="flex gap-2 mt-3">
+            <Button
+              onClick={handlePublish}
+              disabled={isPublishing}
+              className="bg-green-500 hover:bg-green-600 text-black font-mono text-xs"
+            >
+              {isPublishing ? (
+                <>
+                  <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                  Publishing...
+                </>
+              ) : (
+                <>
+                  <Zap className="w-3 h-3 mr-1" />
+                  Publish Project
+                </>
+              )}
+            </Button>
+
+            <Button
+              onClick={onEditAnswers}
+              disabled={isPublishing}
+              variant="outline"
+              className="border-white/20 text-white hover:bg-white/10 font-mono text-xs"
+            >
+              <RefreshCw className="w-3 h-3 mr-1" />
+              Edit Answers
+            </Button>
+          </div>
+        )}
+
+        {/* Publish Error */}
+        {publishError && (
+          <div className="mt-2 p-2 bg-red-500/10 border border-red-500/20">
+            <p className="text-[10px] font-mono text-red-400 flex items-center gap-1">
+              <AlertCircle className="w-3 h-3" />
+              {publishError}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Warnings */}

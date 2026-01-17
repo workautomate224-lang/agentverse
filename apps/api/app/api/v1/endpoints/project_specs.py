@@ -209,13 +209,17 @@ class WizardState(BaseModel):
 
     This mirrors the frontend WizardPersistedState but is the server-side
     source of truth.
+
+    Slice 1D-A: Added user_did_skip_clarify for BlueprintInput assembly.
+    Slice 1D-B: Added BLUEPRINT_READY as valid step for publish validation.
     """
     # Schema metadata
     schema_version: int = Field(default=1, description="Schema version for migrations")
 
     # Current step in wizard flow
+    # Slice 1D-B: 'blueprint_ready' is the server-side canonical step for publish validation
     step: Literal[
-        'goal', 'analyzing', 'clarify', 'generating', 'blueprint_preview', 'complete'
+        'goal', 'analyzing', 'clarify', 'generating', 'blueprint_preview', 'blueprint_ready', 'complete'
     ] = Field(default='goal')
 
     # Goal input
@@ -227,6 +231,9 @@ class WizardState(BaseModel):
 
     # Clarification answers
     clarification_answers: dict = Field(default_factory=dict)
+
+    # Slice 1D-A: Track if user skipped clarification step
+    user_did_skip_clarify: bool = Field(default=False, description="True if user skipped clarification")
 
     # Blueprint draft
     blueprint_draft: Optional[dict] = None
@@ -283,6 +290,9 @@ class ProjectSpecResponse(BaseModel):
     # Slice 1C: Draft / Resume
     status: str = Field(default="ACTIVE", description="Project status: DRAFT, ACTIVE, ARCHIVED")
     wizard_state_version: int = Field(default=0, description="Optimistic concurrency version")
+
+    # Slice 1D-B: Published timestamp
+    published_at: Optional[str] = Field(default=None, description="ISO timestamp when DRAFT was promoted to ACTIVE")
 
     # Versions
     schema_version: str
@@ -389,7 +399,7 @@ async def list_project_specs(
             temporal_mode, as_of_datetime, temporal_timezone,
             isolation_level, allowed_sources, temporal_policy_version,
             temporal_lock_status,
-            status, wizard_state_version,
+            status, wizard_state_version, published_at,
             created_at, updated_at
         FROM project_specs
         WHERE {" AND ".join(where_clauses)}
@@ -437,6 +447,8 @@ async def list_project_specs(
             # Slice 1C: Draft / Resume fields
             status=row.status or "ACTIVE",
             wizard_state_version=row.wizard_state_version or 0,
+            # Slice 1D-B: Published timestamp
+            published_at=row.published_at.isoformat() if row.published_at else None,
             schema_version="1.0.0",  # Default version
             project_version="1.0.0",  # Not stored in spec schema
             settings={
@@ -633,7 +645,7 @@ async def get_project_spec(
     import json
     from sqlalchemy import text
 
-    # Query using spec-compliant schema columns including temporal and Slice 1C fields
+    # Query using spec-compliant schema columns including temporal, Slice 1C, and Slice 1D-B fields
     query = text("""
         SELECT
             id, tenant_id, title, goal_nl, description, domain_template,
@@ -642,7 +654,7 @@ async def get_project_spec(
             temporal_mode, as_of_datetime, temporal_timezone,
             isolation_level, allowed_sources, temporal_policy_version,
             temporal_lock_status,
-            status, wizard_state_version,
+            status, wizard_state_version, published_at,
             created_at, updated_at
         FROM project_specs
         WHERE id = :project_id AND tenant_id = :tenant_id
@@ -694,6 +706,8 @@ async def get_project_spec(
         # Slice 1C: Draft / Resume fields
         status=row.status or "ACTIVE",
         wizard_state_version=row.wizard_state_version or 0,
+        # Slice 1D-B: Published timestamp
+        published_at=row.published_at.isoformat() if row.published_at else None,
         schema_version="1.0.0",
         project_version="1.0.0",
         settings={
@@ -1089,6 +1103,138 @@ async def patch_project_status(
     await db.commit()
 
     return await get_project_spec(project_id, db, current_user, tenant_ctx)
+
+
+# =============================================================================
+# Slice 1D-B: Publish Endpoint
+# =============================================================================
+
+class PublishResponse(BaseModel):
+    """Response from publishing a draft project."""
+    id: str
+    status: str
+    published_at: str
+    message: str
+
+
+@router.post(
+    "/{project_id}/publish",
+    response_model=PublishResponse,
+    summary="Publish a draft project (Slice 1D-B)",
+    responses={
+        200: {"description": "Project successfully published"},
+        400: {"description": "Invalid state for publishing"},
+        404: {"description": "Project not found"},
+    },
+)
+async def publish_project(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_ctx: TenantContext = Depends(require_tenant),
+) -> PublishResponse:
+    """
+    Publish a DRAFT project to make it ACTIVE.
+
+    Slice 1D-B: This endpoint validates that:
+    1. Project status is DRAFT
+    2. wizard_state.step is 'blueprint_preview' or 'blueprint_ready'
+
+    On success:
+    - Sets status = 'ACTIVE'
+    - Sets published_at = current timestamp
+    - Sets wizard_state.step = 'complete'
+
+    Returns 400 if validation fails (wrong status or wizard step).
+    """
+    from datetime import datetime
+    from sqlalchemy import text
+    import json
+
+    # Check project exists and get current state
+    check_query = text("""
+        SELECT id, status, wizard_state FROM project_specs
+        WHERE id = :project_id AND tenant_id = :tenant_id
+    """)
+
+    result = await db.execute(
+        check_query,
+        {"project_id": project_id, "tenant_id": tenant_ctx.tenant_id},
+    )
+
+    row = result.fetchone()
+
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {project_id} not found",
+        )
+
+    current_status = row.status or "ACTIVE"
+
+    # Validate status is DRAFT
+    if current_status != "DRAFT":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot publish: project status is '{current_status}', expected 'DRAFT'",
+        )
+
+    # Validate wizard_state.step is blueprint_preview or blueprint_ready
+    wizard_state = row.wizard_state
+    if not wizard_state:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot publish: wizard_state is missing",
+        )
+
+    # Parse wizard_state if it's a string
+    if isinstance(wizard_state, str):
+        wizard_state = json.loads(wizard_state)
+
+    current_step = wizard_state.get("step", "goal")
+
+    # Allow publish from blueprint_preview or blueprint_ready
+    valid_steps = ("blueprint_preview", "blueprint_ready")
+    if current_step not in valid_steps:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot publish: wizard step is '{current_step}', expected one of {valid_steps}",
+        )
+
+    # Update to ACTIVE with published_at and set wizard step to complete
+    now = datetime.utcnow()
+
+    # Update wizard_state.step to 'complete'
+    wizard_state["step"] = "complete"
+
+    update_query = text("""
+        UPDATE project_specs
+        SET status = 'ACTIVE',
+            published_at = :published_at,
+            wizard_state = :wizard_state,
+            updated_at = :updated_at
+        WHERE id = :project_id AND tenant_id = :tenant_id
+    """)
+
+    await db.execute(
+        update_query,
+        {
+            "project_id": project_id,
+            "tenant_id": tenant_ctx.tenant_id,
+            "published_at": now,
+            "wizard_state": json.dumps(wizard_state),
+            "updated_at": now,
+        },
+    )
+
+    await db.commit()
+
+    return PublishResponse(
+        id=project_id,
+        status="ACTIVE",
+        published_at=now.isoformat(),
+        message="Project published successfully",
+    )
 
 
 @router.get(

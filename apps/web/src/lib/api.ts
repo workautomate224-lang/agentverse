@@ -2762,6 +2762,21 @@ class ApiClient {
     });
   }
 
+  /**
+   * Publish a DRAFT project to make it ACTIVE.
+   * Slice 1D-B: Validates wizard_state.step is blueprint_preview or blueprint_ready.
+   */
+  async publishProject(projectId: string): Promise<{
+    id: string;
+    status: string;
+    published_at: string;
+    message: string;
+  }> {
+    return this.request(`/api/v1/project-specs/${projectId}/publish`, {
+      method: 'POST',
+    });
+  }
+
   async createProjectSpecRun(projectId: string, data: {
     node_id?: string;
     seeds?: number[];

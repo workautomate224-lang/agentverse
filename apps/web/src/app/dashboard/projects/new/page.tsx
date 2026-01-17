@@ -48,6 +48,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useCreateProjectSpec, useCreateBlueprint } from '@/hooks/useApi';
 import { isFeatureEnabled } from '@/lib/feature-flags';
+import { api } from '@/lib/api';
 import { GoalAssistantPanel } from '@/components/pil/v2/GoalAssistantPanel';
 import {
   hasRestorableState as checkRestorableState,
@@ -269,6 +270,8 @@ export default function CreateProjectWizardPage() {
   const [showExitModal, setShowExitModal] = useState(false);
   // Slice 1C: Loading state for resume from server
   const [isLoadingResume, setIsLoadingResume] = useState(false);
+  // Slice 1D-B: Publishing state
+  const [isPublishing, setIsPublishing] = useState(false);
 
   // Slice 1B Fix: Check for restorable wizard state on mount
   useEffect(() => {
@@ -277,6 +280,7 @@ export default function CreateProjectWizardPage() {
   }, []);
 
   // Slice 1C: Handle resume from server when ?resume=<projectId> is present
+  // Slice 1D-B: Redirect to overview if project is already ACTIVE (published)
   useEffect(() => {
     const resumeProjectId = searchParams.get('resume');
     if (!resumeProjectId) return;
@@ -284,6 +288,14 @@ export default function CreateProjectWizardPage() {
     const loadResumeState = async () => {
       setIsLoadingResume(true);
       try {
+        // First, check if the project is ACTIVE - if so, redirect to overview
+        const project = await api.getProjectSpec(resumeProjectId);
+        if (project.status === 'ACTIVE') {
+          // Project was already published - redirect to overview page
+          router.replace(`/p/${resumeProjectId}/overview`);
+          return;
+        }
+
         const serverState = await loadFromServer(resumeProjectId);
         if (serverState) {
           // Restore goal text
@@ -309,7 +321,7 @@ export default function CreateProjectWizardPage() {
     };
 
     loadResumeState();
-  }, [searchParams]);
+  }, [searchParams, router]);
 
   // Check if there's unsaved draft state that should trigger exit confirmation
   const hasDraftState = useCallback(() => {
@@ -443,6 +455,40 @@ export default function CreateProjectWizardPage() {
     if (blueprint.strategy?.chosen_core) {
       setFormData(prev => ({ ...prev, coreType: blueprint.strategy.chosen_core }));
     }
+  }, []);
+
+  // Slice 1D-B: Handle publish from blueprint preview
+  const handlePublish = useCallback(async () => {
+    // Get project ID from state or localStorage
+    const projectId = draftProjectId || getDraftProjectId()?.projectId;
+    if (!projectId) {
+      setCreateError('No draft project to publish. Please complete the wizard first.');
+      return;
+    }
+
+    setIsPublishing(true);
+    setCreateError(null);
+
+    try {
+      // Call publish API endpoint
+      await api.publishProject(projectId);
+
+      // Clear wizard localStorage state
+      clearAllWizardState();
+
+      // Navigate to the project overview page (consistent with project list)
+      router.push(`/p/${projectId}/overview`);
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : 'Failed to publish project');
+    } finally {
+      setIsPublishing(false);
+    }
+  }, [draftProjectId, router]);
+
+  // Slice 1D-B: Handle edit answers from blueprint preview
+  const handleEditAnswers = useCallback(() => {
+    // Just signal to the parent - GoalAssistantPanel handles the stage change internally
+    // No additional state changes needed here
   }, []);
 
   // Validation per step (blueprint_v3.md - always requires blueprint)
@@ -746,6 +792,8 @@ export default function CreateProjectWizardPage() {
                     setHasRestorableWizardState(false);
                   }}
                   onDraftCreate={createDraftProject}
+                  onPublish={handlePublish}
+                  onEditAnswers={handleEditAnswers}
                   className="mt-4"
                 />
               )}

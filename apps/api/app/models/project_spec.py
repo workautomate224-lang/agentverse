@@ -150,6 +150,14 @@ class ProjectSpec(Base):
         Integer, default=0, nullable=False
     )
 
+    # ==========================================================================
+    # Slice 1D-B: Published timestamp
+    # ==========================================================================
+    # Set when DRAFT is promoted to ACTIVE via /publish endpoint
+    published_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, nullable=False
@@ -206,6 +214,8 @@ class ProjectSpec(Base):
             "status": self.status,
             "wizard_state": self.wizard_state,
             "wizard_state_version": self.wizard_state_version,
+            # Slice 1D-B: Published timestamp
+            "published_at": self.published_at.isoformat() if self.published_at else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
