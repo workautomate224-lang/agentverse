@@ -33,7 +33,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers
 revision = "slice_1c_wizard_state_001"
-down_revision = "temporal_isolation_001"
+down_revision = "pil_llm_profiles_001"
 branch_labels = None
 depends_on = None
 
