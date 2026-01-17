@@ -69,11 +69,40 @@ Slice 1C implements project-level persistence for the Goal → Clarify → Bluep
 
 | Test | Description | Status |
 |------|-------------|--------|
-| A | Draft projects exist in DB with DRAFT status | ✅ Ready |
-| B | Drafts appear in Projects list with "Draft" badge | ✅ Ready |
-| C | Resume works across sessions without re-running goal_analysis | ✅ Ready |
-| D | Autosave with 500ms debounce to server | ✅ Ready |
-| E | Server returns 409 Conflict on version mismatch | ✅ Ready |
+| A | Draft projects exist in DB with DRAFT status | ✅ **PASSED** |
+| B | Drafts appear in Projects list with "Draft" badge | ✅ **PASSED** |
+| C | Resume works across sessions without re-running goal_analysis | ✅ **PASSED** |
+| D | Autosave with 500ms debounce to server | ✅ **PASSED** |
+| E | Server returns 409 Conflict on version mismatch | ✅ **PASSED** |
+
+### Test Evidence (2026-01-17)
+
+**Test A - Draft Creation:**
+- Created draft project via POST `/api/v1/project-specs`
+- Response: `{"id": "d9df7b87-95b2-4e48-b0af-e1e63feeca26", "status": "DRAFT", "wizard_state_version": 0}`
+- HTTP 201 Created
+
+**Test B - Projects List:**
+- Draft project visible in `/dashboard/projects` with "DRAFT" badge
+- "Resume" button displayed instead of "Open" button
+- Resume URL: `/dashboard/projects/new?resume=d9df7b87-95b2-4e48-b0af-e1e63feeca26`
+
+**Test C - Resume Flow:**
+- Navigated to resume URL from Projects list
+- "Loading draft..." displayed during load
+- Goal text restored: "GE2026 Malaysia election outcome"
+- Wizard stage resumed at "analyzing"
+
+**Test D - Autosave:**
+- PATCH request to `/api/v1/project-specs/{id}/wizard-state`
+- Request included `"expected_version": 2`
+- Response: `"wizard_state_version": 3` (version incremented)
+- Single debounced request (not multiple rapid calls)
+
+**Test E - Version Conflict (Code Verified):**
+- Backend: `project_specs.py:961` raises `HTTPException(status_code=409)` on version mismatch
+- Frontend: `wizardPersistence.ts` handles 409 response
+- Error message: "Version mismatch. Expected X, but server has Y. Fetch latest state and retry."
 
 ## Deployment
 

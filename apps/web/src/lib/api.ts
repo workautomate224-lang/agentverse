@@ -996,8 +996,10 @@ export interface WizardState {
   step: WizardStep;
   goal_text: string;
   goal_analysis_result?: WizardGoalAnalysisResult;
+  goal_analysis_job_id?: string | null;
   clarification_answers: Record<string, string | string[]>;
   blueprint_draft?: Record<string, unknown>;
+  blueprint_job_id?: string | null;
   last_saved_at: string;
 }
 

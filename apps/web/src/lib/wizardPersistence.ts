@@ -322,8 +322,10 @@ export function toServerWizardState(local: WizardPersistedState): WizardState {
         fallback_attempts: 0,
       },
     } : undefined,
+    goal_analysis_job_id: local.goalAnalysisJobId,
     clarification_answers: local.clarificationAnswers,
     blueprint_draft: local.blueprintDraft as unknown as Record<string, unknown> | undefined,
+    blueprint_job_id: local.blueprintJobId,
     last_saved_at: local.updatedAt,
   };
 }
@@ -353,6 +355,20 @@ export function fromServerWizardState(server: WizardState): WizardPersistedState
       break;
   }
 
+  // Determine active job based on stage and job IDs
+  const goalAnalysisJobId = server.goal_analysis_job_id || null;
+  const blueprintJobId = server.blueprint_job_id || null;
+  let activeJobId: string | null = null;
+  let activeJobType: 'goal_analysis' | 'blueprint_build' | null = null;
+
+  if (stage === 'analyzing' && goalAnalysisJobId) {
+    activeJobId = goalAnalysisJobId;
+    activeJobType = 'goal_analysis';
+  } else if (stage === 'generating' && blueprintJobId) {
+    activeJobId = blueprintJobId;
+    activeJobType = 'blueprint_build';
+  }
+
   return {
     schemaVersion: server.schema_version,
     updatedAt: server.last_saved_at || new Date().toISOString(),
@@ -371,14 +387,14 @@ export function fromServerWizardState(server: WizardState): WizardPersistedState
         goal_analysis: server.goal_analysis_result.llm_provenance,
       },
     } : null,
-    goalAnalysisJobId: null, // Jobs are transient, not persisted to server
+    goalAnalysisJobId,
     clarificationAnswers: server.clarification_answers as Record<string, string>,
     blueprintDraft: server.blueprint_draft as unknown as BlueprintDraft | null,
-    blueprintJobId: null,
+    blueprintJobId,
     stage,
     hasCompletedAnalysis: !!server.goal_analysis_result,
-    activeJobId: null,
-    activeJobType: null,
+    activeJobId,
+    activeJobType,
   };
 }
 
