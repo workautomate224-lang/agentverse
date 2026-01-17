@@ -508,10 +508,20 @@ Provide the goal summary and domain classification."""
             temperature_override=0.3,  # Lower temperature for consistency
             max_tokens_override=500,
             skip_cache=skip_cache,
+            response_format={"type": "json_object"},
         )
 
         # Parse JSON response
-        result = json.loads(response.content)
+        try:
+            result = json.loads(response.content)
+        except json.JSONDecodeError as json_err:
+            logger.error(
+                "LLM returned invalid JSON for goal analysis",
+                error=str(json_err),
+                content_preview=response.content[:500] if response.content else None,
+            )
+            raise ValueError(f"LLM returned invalid JSON: {json_err}")
+
         goal_summary = result.get("goal_summary", goal_text[:200])
         domain = result.get("domain", "generic")
 
@@ -647,11 +657,21 @@ Generate 3-5 questions tailored to this specific goal and domain."""
             ],
             context=context,
             temperature_override=0.5,  # Moderate creativity
-            max_tokens_override=1000,
+            max_tokens_override=1200,
             skip_cache=skip_cache,
+            response_format={"type": "json_object"},
         )
 
-        result = json.loads(response.content)
+        try:
+            result = json.loads(response.content)
+        except json.JSONDecodeError as json_err:
+            logger.error(
+                "LLM returned invalid JSON for clarifying questions",
+                error=str(json_err),
+                content_preview=response.content[:500] if response.content else None,
+            )
+            raise ValueError(f"LLM returned invalid JSON: {json_err}")
+
         questions = result.get("questions", [])
 
         # Ensure required base questions are included
@@ -939,12 +959,22 @@ What are the key risks and challenges?"""
                 {"role": "user", "content": user_prompt},
             ],
             context=context,
-            temperature_override=0.4,
-            max_tokens_override=500,
+            temperature_override=0.3,
+            max_tokens_override=600,
             skip_cache=skip_cache,
+            response_format={"type": "json_object"},
         )
 
-        result = json.loads(response.content)
+        try:
+            result = json.loads(response.content)
+        except json.JSONDecodeError as json_err:
+            logger.error(
+                "LLM returned invalid JSON for risk assessment",
+                error=str(json_err),
+                content_preview=response.content[:500] if response.content else None,
+            )
+            raise ValueError(f"LLM returned invalid JSON: {json_err}")
+
         risks = result.get("risks", [])
 
         if not risks:
