@@ -923,6 +923,9 @@ export interface ProjectSpec {
   updated_at: string;
   // Temporal Knowledge Isolation (temporal.md §4)
   temporal_context?: TemporalContextResponse;
+  // Slice 1C: Draft / Resume (Project-level Persistence)
+  status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
+  wizard_state_version: number;
 }
 
 export interface ProjectSpecCreate {
@@ -933,6 +936,9 @@ export interface ProjectSpecCreate {
   default_run_config?: Partial<CreateRunConfigInput>;
   // Temporal Knowledge Isolation (temporal.md §4)
   temporal_context?: TemporalContextCreate;
+  // Slice 1C: Draft / Resume - optional status and wizard_state for drafts
+  status?: 'DRAFT' | 'ACTIVE';
+  wizard_state?: WizardState;
 }
 
 export interface ProjectSpecUpdate {
@@ -952,6 +958,62 @@ export interface ProjectSpecStats {
   total_tokens_used: number;
   total_cost_usd: number;
   last_run_at?: string;
+}
+
+// =============================================================================
+// Slice 1C: Wizard State Types (Draft / Resume)
+// =============================================================================
+
+export type WizardStep = 'goal' | 'analyzing' | 'clarify' | 'generating' | 'blueprint_preview' | 'complete';
+
+export interface WizardLLMProvenance {
+  provider: string;
+  model: string;
+  cache_hit: boolean;
+  fallback_used: boolean;
+  fallback_attempts: number;
+  latency_ms?: number;
+  timestamp?: string;
+}
+
+export interface WizardClarifyingQuestion {
+  id: string;
+  question: string;
+  options?: string[];
+  multi_select?: boolean;
+  required?: boolean;
+}
+
+export interface WizardGoalAnalysisResult {
+  goal_summary: string;
+  domain_guess: string;
+  clarifying_questions: WizardClarifyingQuestion[];
+  llm_provenance: WizardLLMProvenance;
+}
+
+export interface WizardState {
+  schema_version: number;
+  step: WizardStep;
+  goal_text: string;
+  goal_analysis_result?: WizardGoalAnalysisResult;
+  clarification_answers: Record<string, string | string[]>;
+  blueprint_draft?: Record<string, unknown>;
+  last_saved_at: string;
+}
+
+export interface WizardStatePatch {
+  wizard_state: WizardState;
+  expected_version: number;
+}
+
+export interface WizardStateResponse {
+  wizard_state: WizardState | null;
+  wizard_state_version: number;
+  status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
+}
+
+export interface ProjectStatusPatch {
+  status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
 }
 
 // =============================================================================
@@ -2615,12 +2677,14 @@ class ApiClient {
     limit?: number;
     domain?: string;
     search?: string;
+    status?: 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
   }): Promise<ProjectSpec[]> {
     const searchParams = new URLSearchParams();
     if (params?.skip) searchParams.set('skip', String(params.skip));
     if (params?.limit) searchParams.set('limit', String(params.limit));
     if (params?.domain) searchParams.set('domain', params.domain);
     if (params?.search) searchParams.set('search', params.search);
+    if (params?.status) searchParams.set('project_status', params.status);
 
     const query = searchParams.toString();
     return this.request<ProjectSpec[]>(`/api/v1/project-specs${query ? `?${query}` : ''}`);
@@ -2658,6 +2722,41 @@ class ApiClient {
     const params = newName ? `?new_name=${encodeURIComponent(newName)}` : '';
     return this.request<ProjectSpec>(`/api/v1/project-specs/${projectId}/duplicate${params}`, {
       method: 'POST',
+    });
+  }
+
+  // =============================================================================
+  // Slice 1C: Wizard State Endpoints (Draft / Resume)
+  // =============================================================================
+
+  /**
+   * Get wizard state for a project draft.
+   * Returns null wizard_state if project is not a draft or has no wizard state.
+   */
+  async getWizardState(projectId: string): Promise<WizardStateResponse> {
+    return this.request<WizardStateResponse>(`/api/v1/project-specs/${projectId}/wizard-state`);
+  }
+
+  /**
+   * Patch wizard state with optimistic concurrency control.
+   * Returns 409 Conflict if expected_version doesn't match current version.
+   * @throws Error with status 409 if version mismatch
+   */
+  async patchWizardState(projectId: string, data: WizardStatePatch): Promise<WizardStateResponse> {
+    return this.request<WizardStateResponse>(`/api/v1/project-specs/${projectId}/wizard-state`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Update project status (e.g., promote DRAFT to ACTIVE).
+   * Validates status transitions (e.g., cannot un-archive).
+   */
+  async patchProjectStatus(projectId: string, status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED'): Promise<ProjectSpec> {
+    return this.request<ProjectSpec>(`/api/v1/project-specs/${projectId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
     });
   }
 

@@ -56,6 +56,7 @@ import {
   loadWizardState as loadState,
   clearWizardState as clearState,
   hasRestorableState,
+  autosaveToServer,
   type WizardPersistedState,
   type WizardGoalAnalysisResult,
 } from '@/lib/wizardPersistence';
@@ -68,6 +69,8 @@ interface GoalAssistantPanelProps {
   onGoalTextRestore?: (text: string) => void;
   /** Callback when wizard state is cleared (e.g., starting fresh) */
   onStateCleared?: () => void;
+  /** Slice 1C: Callback to create draft project when analysis starts */
+  onDraftCreate?: (goalText: string) => Promise<string | null>;
   className?: string;
 }
 
@@ -84,6 +87,7 @@ export function GoalAssistantPanel({
   onAnalysisStart,
   onGoalTextRestore,
   onStateCleared,
+  onDraftCreate,
   className,
 }: GoalAssistantPanelProps) {
   // VERTICAL SLICE #1: Core state
@@ -251,6 +255,7 @@ export function GoalAssistantPanel({
   }, [blueprintJob, stage, onBlueprintReady]);
 
   // Slice 1B Fix: Auto-save state when it changes (including job IDs)
+  // Slice 1C: Also sync to server via autosaveToServer (debounced 500ms)
   // Uses new persistence utility with schema version and TTL
   useEffect(() => {
     // Don't save if in idle state with no meaningful data
@@ -264,7 +269,7 @@ export function GoalAssistantPanel({
     }
 
     // Debounce save by 500ms
-    const timer = setTimeout(() => {
+    const timer = setTimeout(async () => {
       setSaveStatus('saving');
 
       // Convert stage to persistence format
@@ -276,8 +281,7 @@ export function GoalAssistantPanel({
         'preview': 'preview',
       };
 
-      // Save using new persistence utility
-      saveState({
+      const stateToSave: Partial<WizardPersistedState> = {
         goalText,
         stage: stageMap[stage],
         goalAnalysisJobId,
@@ -287,8 +291,15 @@ export function GoalAssistantPanel({
         blueprintDraft,
         hasCompletedAnalysis: stage !== 'idle' && stage !== 'analyzing',
         activeJobId: stage === 'analyzing' ? goalAnalysisJobId : (stage === 'generating_blueprint' ? blueprintJobId : null),
-        activeJobType: stage === 'analyzing' ? 'goal_analysis' : (stage === 'generating_blueprint' ? 'blueprint_build' : null),
-      });
+        activeJobType: stage === 'analyzing' ? 'goal_analysis' as const : (stage === 'generating_blueprint' ? 'blueprint_build' as const : null),
+      };
+
+      // Save to localStorage first (immediate fallback)
+      saveState(stateToSave);
+
+      // Slice 1C: Also sync to server (debounced, if draft project exists)
+      // autosaveToServer handles its own debouncing and returns whether server sync succeeded
+      await autosaveToServer(stateToSave);
 
       setLastSavedAt(new Date());
       setSaveStatus('saved');
@@ -302,6 +313,7 @@ export function GoalAssistantPanel({
   // The parent page will call clearWizardState when appropriate
 
   // VERTICAL SLICE #1: Analyze goal using background job
+  // Slice 1C: Create draft project before starting analysis
   const handleAnalyzeGoal = useCallback(async () => {
     if (!goalText || goalText.trim().length < 10) {
       setError('Please enter at least 10 characters for your goal');
@@ -318,6 +330,12 @@ export function GoalAssistantPanel({
     onAnalysisStart?.();
 
     try {
+      // Slice 1C: Create draft project if callback provided
+      // This persists the draft to DB with status=DRAFT before running LLM
+      if (onDraftCreate) {
+        await onDraftCreate(goalText);
+      }
+
       // Create goal_analysis job via PIL job system
       const job = await createJobMutation.mutateAsync({
         job_type: 'goal_analysis',
@@ -334,9 +352,10 @@ export function GoalAssistantPanel({
       setError(err instanceof Error ? err.message : 'Failed to start analysis');
       setStage('idle');
     }
-  }, [goalText, onAnalysisStart, createJobMutation, goalAnalysisJob]);
+  }, [goalText, onAnalysisStart, onDraftCreate, createJobMutation, goalAnalysisJob]);
 
   // VERTICAL SLICE #1: Skip clarification and generate blueprint directly using background job
+  // Slice 1C: Create draft project before starting generation
   const handleSkipClarify = useCallback(async () => {
     // Prevent duplicate job creation
     if (createJobMutation.isPending || (blueprintJob && (blueprintJob.status === 'queued' || blueprintJob.status === 'running'))) {
@@ -347,6 +366,11 @@ export function GoalAssistantPanel({
     setError(null);
 
     try {
+      // Slice 1C: Create draft project if callback provided
+      if (onDraftCreate) {
+        await onDraftCreate(goalText);
+      }
+
       // Create blueprint_build job directly (skip clarification)
       const job = await createJobMutation.mutateAsync({
         job_type: 'blueprint_build',
@@ -364,7 +388,7 @@ export function GoalAssistantPanel({
       setError(err instanceof Error ? err.message : 'Failed to start blueprint generation');
       setStage('idle');
     }
-  }, [goalText, createJobMutation, blueprintJob]);
+  }, [goalText, onDraftCreate, createJobMutation, blueprintJob]);
 
   // VERTICAL SLICE #1: Generate blueprint from analysis + answers using background job
   const handleGenerateBlueprint = useCallback(async (

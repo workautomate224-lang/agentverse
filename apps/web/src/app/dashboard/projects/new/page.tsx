@@ -11,7 +11,7 @@
  */
 
 import { useState, useCallback, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Button } from '@/components/ui/button';
@@ -49,7 +49,15 @@ import { cn } from '@/lib/utils';
 import { useCreateProjectSpec, useCreateBlueprint } from '@/hooks/useApi';
 import { isFeatureEnabled } from '@/lib/feature-flags';
 import { GoalAssistantPanel } from '@/components/pil/v2/GoalAssistantPanel';
-import { hasRestorableState as checkRestorableState, clearWizardState } from '@/lib/wizardPersistence';
+import {
+  hasRestorableState as checkRestorableState,
+  clearWizardState,
+  setDraftProjectId,
+  getDraftProjectId,
+  clearAllWizardState,
+  loadFromServer,
+  promoteDraftToActive,
+} from '@/lib/wizardPersistence';
 import type { BlueprintDraft } from '@/types/blueprint-v2';
 
 // Wizard step definitions - 4-step flow per temporal.md §3
@@ -222,6 +230,7 @@ function detectDomain(goal: string): 'marketing' | 'political' | 'finance' | 'cu
 
 export default function CreateProjectWizardPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const createProjectMutation = useCreateProjectSpec();
   const createBlueprintMutation = useCreateBlueprint();
 
@@ -234,6 +243,9 @@ export default function CreateProjectWizardPage() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   // Slice 1B Fix: Track if there's restorable wizard state
   const [hasRestorableWizardState, setHasRestorableWizardState] = useState(false);
+  // Slice 1C: Track draft project ID for server persistence
+  const [draftProjectId, setDraftProjectIdState] = useState<string | null>(null);
+  const [isCreatingDraft, setIsCreatingDraft] = useState(false);
   const [formData, setFormData] = useState<WizardFormData>({
     goal: '',
     // Temporal defaults per temporal.md §3
@@ -255,12 +267,49 @@ export default function CreateProjectWizardPage() {
   const [showSourcesPanel, setShowSourcesPanel] = useState(false);
   // Exit confirmation modal state (per blueprint_v2.md §2.1.2)
   const [showExitModal, setShowExitModal] = useState(false);
+  // Slice 1C: Loading state for resume from server
+  const [isLoadingResume, setIsLoadingResume] = useState(false);
 
   // Slice 1B Fix: Check for restorable wizard state on mount
   useEffect(() => {
     const hasRestorable = checkRestorableState();
     setHasRestorableWizardState(hasRestorable);
   }, []);
+
+  // Slice 1C: Handle resume from server when ?resume=<projectId> is present
+  useEffect(() => {
+    const resumeProjectId = searchParams.get('resume');
+    if (!resumeProjectId) return;
+
+    const loadResumeState = async () => {
+      setIsLoadingResume(true);
+      try {
+        const serverState = await loadFromServer(resumeProjectId);
+        if (serverState) {
+          // Restore goal text
+          setFormData(prev => ({ ...prev, goal: serverState.goalText }));
+
+          // Restore blueprint draft if exists
+          if (serverState.blueprintDraft) {
+            setBlueprintDraft(serverState.blueprintDraft);
+          }
+
+          // Set draft project ID for autosave to continue
+          setDraftProjectIdState(resumeProjectId);
+
+          // Signal that we have restorable state (for GoalAssistantPanel)
+          setHasRestorableWizardState(true);
+        }
+      } catch {
+        // Failed to load from server - will fall back to localStorage in GoalAssistantPanel
+        setHasRestorableWizardState(checkRestorableState());
+      } finally {
+        setIsLoadingResume(false);
+      }
+    };
+
+    loadResumeState();
+  }, [searchParams]);
 
   // Check if there's unsaved draft state that should trigger exit confirmation
   const hasDraftState = useCallback(() => {
@@ -285,35 +334,61 @@ export default function CreateProjectWizardPage() {
 
   // Handle discard and exit
   const handleDiscardExit = useCallback(() => {
-    // Slice 1B Fix: Clear wizard state from localStorage
-    clearWizardState();
+    // Slice 1C: Clear all wizard state (localStorage + server tracking)
+    clearAllWizardState();
     // Clear all state and navigate away
     setShowExitModal(false);
     router.push('/dashboard/projects');
   }, [router]);
 
-  // Handle save draft and exit (for future implementation)
+  // Handle save draft and exit - Slice 1C: Draft already exists on server
   const handleSaveDraftExit = useCallback(() => {
-    // TODO: In Phase B.3, implement localStorage draft persistence
-    // For now, just show a toast and exit
+    // Slice 1C: Draft is already autosaved to server, just exit
+    // The draft will appear in the projects list with DRAFT status
     setShowExitModal(false);
-    // Store draft to localStorage
-    if (typeof window !== 'undefined') {
-      const draftData = {
-        goal: formData.goal,
-        blueprintDraft,
-        temporalMode: formData.temporalMode,
-        asOfDate: formData.asOfDate,
-        asOfTime: formData.asOfTime,
-        timezone: formData.timezone,
-        isolationLevel: formData.isolationLevel,
-        coreType: formData.coreType,
-        savedAt: new Date().toISOString(),
-      };
-      localStorage.setItem('agentverse_project_draft', JSON.stringify(draftData));
-    }
     router.push('/dashboard/projects');
-  }, [formData, blueprintDraft, router]);
+  }, [router]);
+
+  // Slice 1C: Create a DRAFT project when goal analysis starts
+  const createDraftProject = useCallback(async (goalText: string) => {
+    // Don't create duplicate drafts
+    if (draftProjectId || isCreatingDraft) return draftProjectId;
+
+    setIsCreatingDraft(true);
+    try {
+      // Create a DRAFT project with initial wizard state
+      const project = await createProjectMutation.mutateAsync({
+        name: `Draft: ${goalText.slice(0, 30)}...`,
+        description: goalText,
+        domain: detectDomain(goalText),
+        settings: {
+          default_horizon: 100,
+          default_tick_rate: 1000,
+          default_agent_count: 100,
+          allow_public_templates: true,
+        },
+        status: 'DRAFT',
+        wizard_state: {
+          schema_version: 1,
+          step: 'analyzing',
+          goal_text: goalText,
+          clarification_answers: {},
+          last_saved_at: new Date().toISOString(),
+        },
+      });
+
+      // Track the draft project ID for autosave
+      setDraftProjectIdState(project.id);
+      setDraftProjectId(project.id, project.wizard_state_version);
+
+      return project.id;
+    } catch {
+      // Continue without server persistence if draft creation fails
+      return null;
+    } finally {
+      setIsCreatingDraft(false);
+    }
+  }, [draftProjectId, isCreatingDraft, createProjectMutation]);
 
   // Handle browser back button / navigation away
   useEffect(() => {
@@ -438,6 +513,7 @@ export default function CreateProjectWizardPage() {
 
   // Handle form submission - creates project via API and navigates to workspace
   // Blueprint v3: Project cannot be created without finalized blueprint
+  // Slice 1C: Promotes DRAFT to ACTIVE if draft exists, otherwise creates new project
   const handleCreate = async () => {
     setCreateError(null);
 
@@ -465,37 +541,75 @@ export default function CreateProjectWizardPage() {
         };
       }
 
-      // Create project via backend API
-      const project = await createProjectMutation.mutateAsync({
-        name: formData.name,
-        description: formData.goal,
-        domain, // auto-detected from goal text
-        settings: {
-          default_horizon: 100,
-          default_tick_rate: 1000,
-          default_agent_count: 100,
-          allow_public_templates: formData.isPublic,
-        },
-        // Include temporal context if backtest mode (per temporal.md §3)
-        ...(temporalContext && { temporal_context: temporalContext }),
-      });
+      let projectId: string;
+
+      // Slice 1C: If we have a draft, promote it to ACTIVE
+      if (draftProjectId) {
+        // Update the draft project with final details first
+        await createProjectMutation.mutateAsync({
+          name: formData.name,
+          description: formData.goal,
+          domain,
+          settings: {
+            default_horizon: 100,
+            default_tick_rate: 1000,
+            default_agent_count: 100,
+            allow_public_templates: formData.isPublic,
+          },
+          ...(temporalContext && { temporal_context: temporalContext }),
+        });
+
+        // Promote draft to active
+        await promoteDraftToActive(draftProjectId);
+        projectId = draftProjectId;
+      } else {
+        // Create new project via backend API (no draft exists)
+        const project = await createProjectMutation.mutateAsync({
+          name: formData.name,
+          description: formData.goal,
+          domain,
+          settings: {
+            default_horizon: 100,
+            default_tick_rate: 1000,
+            default_agent_count: 100,
+            allow_public_templates: formData.isPublic,
+          },
+          ...(temporalContext && { temporal_context: temporalContext }),
+        });
+        projectId = project.id;
+      }
 
       // Create Blueprint with finalized v1 (blueprint_v3.md requirement)
       // Blueprint draft was already generated in Step 1, now commit it to the project
       await createBlueprintMutation.mutateAsync({
-        project_id: project.id,
+        project_id: projectId,
         goal_text: formData.goal,
         // Skip clarification since it was already done in Step 1
         skip_clarification: true,
       });
 
+      // Slice 1C: Clear wizard state after successful creation
+      clearAllWizardState();
+
       // Navigate to the project workspace using real UUID from backend
       // Overview is read-only per blueprint_v3.md
-      router.push(`/p/${project.id}/overview`);
+      router.push(`/p/${projectId}/overview`);
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : 'Failed to create project');
     }
   };
+
+  // Slice 1C: Show loading state while resuming from server
+  if (isLoadingResume) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
+          <p className="text-sm font-mono text-white/60">Loading draft...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-black p-4 md:p-6">
@@ -631,6 +745,7 @@ export default function CreateProjectWizardPage() {
                     setIsAnalyzing(false);
                     setHasRestorableWizardState(false);
                   }}
+                  onDraftCreate={createDraftProject}
                   className="mt-4"
                 />
               )}

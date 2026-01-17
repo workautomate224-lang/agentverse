@@ -126,6 +126,16 @@ class ProjectSpecCreate(BaseModel):
         description="Temporal isolation context. Required for backtest mode."
     )
 
+    # Slice 1C: Draft / Resume - allow creating projects as DRAFT
+    status: Literal['DRAFT', 'ACTIVE'] = Field(
+        default='ACTIVE',
+        description="Project status. Use DRAFT when starting wizard flow."
+    )
+    wizard_state: Optional[dict] = Field(
+        default=None,
+        description="Initial wizard state for DRAFT projects."
+    )
+
     # Versions
     schema_version: str = Field(default="1.0.0")
 
@@ -153,6 +163,106 @@ class ProjectSpecUpdate(BaseModel):
     settings: Optional[dict] = None
 
 
+# ============================================================================
+# Slice 1C: Draft / Resume Schemas
+# ============================================================================
+
+
+class WizardLLMProvenance(BaseModel):
+    """LLM provenance tracking per Slice 1A invariants."""
+    provider: str
+    model: str
+    cache_hit: bool = False
+    fallback_used: bool = False
+    fallback_attempts: int = 0
+    call_id: Optional[str] = None
+    cost_usd: Optional[float] = None
+    timestamp: Optional[str] = None
+    profile_key: Optional[str] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+
+
+class WizardClarifyingQuestion(BaseModel):
+    """Clarifying question from goal analysis."""
+    id: str
+    question: str
+    options: List[str] = Field(default_factory=list)
+    rationale: str = ""
+    required: bool = False
+
+
+class WizardGoalAnalysisResult(BaseModel):
+    """Goal analysis result stored in wizard_state."""
+    domain_guess: Optional[str] = None
+    output_type: Optional[str] = None
+    horizon_guess: Optional[str] = None
+    scope_guess: Optional[str] = None
+    goal_summary: Optional[str] = None
+    clarifying_questions: List[WizardClarifyingQuestion] = Field(default_factory=list)
+    llm_proof: Optional[dict] = None  # Contains LLM provenance for each step
+
+
+class WizardState(BaseModel):
+    """
+    Wizard state schema for Slice 1C Draft/Resume.
+
+    This mirrors the frontend WizardPersistedState but is the server-side
+    source of truth.
+    """
+    # Schema metadata
+    schema_version: int = Field(default=1, description="Schema version for migrations")
+
+    # Current step in wizard flow
+    step: Literal[
+        'goal', 'analyzing', 'clarify', 'generating', 'blueprint_preview', 'complete'
+    ] = Field(default='goal')
+
+    # Goal input
+    goal_text: str = Field(default="", description="Natural language goal")
+
+    # Goal analysis results (with LLM provenance)
+    goal_analysis_result: Optional[WizardGoalAnalysisResult] = None
+    goal_analysis_job_id: Optional[str] = None
+
+    # Clarification answers
+    clarification_answers: dict = Field(default_factory=dict)
+
+    # Blueprint draft
+    blueprint_draft: Optional[dict] = None
+    blueprint_job_id: Optional[str] = None
+
+    # Timestamps
+    last_saved_at: str = Field(default="", description="ISO timestamp of last save")
+
+
+class WizardStatePatch(BaseModel):
+    """
+    PATCH request for wizard state updates with optimistic concurrency.
+
+    Client must provide expected_version to prevent overwrites from stale clients.
+    Server returns 409 Conflict if version mismatch.
+    """
+    wizard_state: WizardState
+    expected_version: int = Field(
+        ...,
+        ge=0,
+        description="Expected current version (for optimistic concurrency)"
+    )
+
+
+class WizardStateResponse(BaseModel):
+    """Response containing wizard state with version."""
+    wizard_state: Optional[WizardState] = None
+    wizard_state_version: int = 0
+    status: str = "ACTIVE"
+
+
+class ProjectStatusUpdate(BaseModel):
+    """Request to promote draft to active or archive a project."""
+    status: Literal['DRAFT', 'ACTIVE', 'ARCHIVED']
+
+
 class ProjectSpecResponse(BaseModel):
     """Project spec response per project.md §6.1, temporal.md §4."""
     id: str  # Changed from project_id to match frontend interface
@@ -169,6 +279,10 @@ class ProjectSpecResponse(BaseModel):
 
     # Temporal Knowledge Isolation (temporal.md §4)
     temporal_context: Optional[TemporalContextResponse] = None
+
+    # Slice 1C: Draft / Resume
+    status: str = Field(default="ACTIVE", description="Project status: DRAFT, ACTIVE, ARCHIVED")
+    wizard_state_version: int = Field(default=0, description="Optimistic concurrency version")
 
     # Versions
     schema_version: str
@@ -219,6 +333,11 @@ async def list_project_specs(
     domain: Optional[str] = Query(None, pattern="^(marketing|political|finance|custom)$"),
     search: Optional[str] = Query(None, max_length=100),
     temporal_mode: Optional[str] = Query(None, pattern="^(live|backtest)$"),
+    project_status: Optional[str] = Query(
+        None,
+        pattern="^(DRAFT|ACTIVE|ARCHIVED)$",
+        description="Filter by project status (Slice 1C)"
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     tenant_ctx: TenantContext = Depends(require_tenant),
@@ -230,6 +349,7 @@ async def list_project_specs(
     They hold references to datasets, personas, and event scripts.
 
     Optionally filter by temporal_mode ('live' or 'backtest').
+    Optionally filter by project_status ('DRAFT', 'ACTIVE', 'ARCHIVED') per Slice 1C.
     """
     import json
     # Query project_specs table
@@ -256,6 +376,11 @@ async def list_project_specs(
         where_clauses.append("temporal_mode = :temporal_mode")
         params["temporal_mode"] = temporal_mode
 
+    # Slice 1C: Filter by project status
+    if project_status:
+        where_clauses.append("status = :project_status")
+        params["project_status"] = project_status
+
     query = text(f"""
         SELECT
             id, tenant_id, title, goal_nl, description, domain_template,
@@ -264,6 +389,7 @@ async def list_project_specs(
             temporal_mode, as_of_datetime, temporal_timezone,
             isolation_level, allowed_sources, temporal_policy_version,
             temporal_lock_status,
+            status, wizard_state_version,
             created_at, updated_at
         FROM project_specs
         WHERE {" AND ".join(where_clauses)}
@@ -308,6 +434,9 @@ async def list_project_specs(
             event_script_ref=None,  # Not stored in spec schema
             ruleset_ref=None,  # Not stored in spec schema
             temporal_context=temporal_context_response,
+            # Slice 1C: Draft / Resume fields
+            status=row.status or "ACTIVE",
+            wizard_state_version=row.wizard_state_version or 0,
             schema_version="1.0.0",  # Default version
             project_version="1.0.0",  # Not stored in spec schema
             settings={
@@ -397,7 +526,7 @@ async def create_project_spec(
             allowed_sources_val = tc.allowed_sources
 
     # Insert project spec (using spec-compliant schema from migration)
-    # Includes temporal fields per temporal.md §4
+    # Includes temporal fields per temporal.md §4 and Slice 1C fields
     insert_query = text("""
         INSERT INTO project_specs (
             id, tenant_id, owner_id, title, goal_nl, description,
@@ -406,6 +535,7 @@ async def create_project_spec(
             temporal_mode, as_of_datetime, temporal_timezone,
             isolation_level, allowed_sources, temporal_policy_version,
             temporal_lock_status, temporal_lock_history,
+            status, wizard_state, wizard_state_version,
             has_baseline, created_at, updated_at
         ) VALUES (
             :id, :tenant_id, :owner_id, :title, :goal_nl, :description,
@@ -414,6 +544,7 @@ async def create_project_spec(
             :temporal_mode, :as_of_datetime, :temporal_timezone,
             :isolation_level, :allowed_sources, :temporal_policy_version,
             :temporal_lock_status, :temporal_lock_history,
+            :status, :wizard_state, :wizard_state_version,
             :has_baseline, :created_at, :updated_at
         )
     """)
@@ -442,6 +573,10 @@ async def create_project_spec(
             "temporal_policy_version": temporal_policy_version,
             "temporal_lock_status": temporal_lock_status,
             "temporal_lock_history": json.dumps(temporal_lock_history) if temporal_lock_history else None,
+            # Slice 1C: Draft / Resume fields
+            "status": request.status,
+            "wizard_state": json.dumps(request.wizard_state) if request.wizard_state else None,
+            "wizard_state_version": 0,
             "has_baseline": False,
             "created_at": now,
             "updated_at": now,
@@ -472,6 +607,9 @@ async def create_project_spec(
         event_script_ref=event_script_ref,
         ruleset_ref=ruleset_ref,
         temporal_context=temporal_context_response,
+        # Slice 1C: Draft / Resume fields
+        status=request.status,
+        wizard_state_version=0,
         schema_version=request.schema_version,
         project_version="1.0.0",
         settings=request.settings,
@@ -495,7 +633,7 @@ async def get_project_spec(
     import json
     from sqlalchemy import text
 
-    # Query using spec-compliant schema columns including temporal fields
+    # Query using spec-compliant schema columns including temporal and Slice 1C fields
     query = text("""
         SELECT
             id, tenant_id, title, goal_nl, description, domain_template,
@@ -504,6 +642,7 @@ async def get_project_spec(
             temporal_mode, as_of_datetime, temporal_timezone,
             isolation_level, allowed_sources, temporal_policy_version,
             temporal_lock_status,
+            status, wizard_state_version,
             created_at, updated_at
         FROM project_specs
         WHERE id = :project_id AND tenant_id = :tenant_id
@@ -552,6 +691,9 @@ async def get_project_spec(
         event_script_ref=None,
         ruleset_ref=None,
         temporal_context=temporal_context_response,
+        # Slice 1C: Draft / Resume fields
+        status=row.status or "ACTIVE",
+        wizard_state_version=row.wizard_state_version or 0,
         schema_version="1.0.0",
         project_version="1.0.0",
         settings={
@@ -702,6 +844,251 @@ async def delete_project_spec(
     await db.commit()
 
     return {"message": f"Project {project_id} deleted successfully"}
+
+
+# ============================================================================
+# Slice 1C: Draft / Resume Endpoints
+# ============================================================================
+
+
+@router.get(
+    "/{project_id}/wizard-state",
+    response_model=WizardStateResponse,
+    summary="Get wizard state for a project (Slice 1C)",
+)
+async def get_wizard_state(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_ctx: TenantContext = Depends(require_tenant),
+) -> WizardStateResponse:
+    """
+    Get the wizard state for a DRAFT project.
+
+    Returns the current wizard state including step, goal_text, goal_analysis_result,
+    clarification_answers, and blueprint_draft.
+
+    Used by the frontend to resume wizard progress after page refresh or navigation.
+    """
+    import json
+    from sqlalchemy import text
+
+    query = text("""
+        SELECT status, wizard_state, wizard_state_version
+        FROM project_specs
+        WHERE id = :project_id AND tenant_id = :tenant_id
+    """)
+
+    result = await db.execute(
+        query,
+        {"project_id": project_id, "tenant_id": tenant_ctx.tenant_id},
+    )
+
+    row = result.fetchone()
+
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {project_id} not found",
+        )
+
+    # Parse wizard_state if present
+    wizard_state_data = None
+    if row.wizard_state:
+        ws = row.wizard_state
+        if isinstance(ws, str):
+            ws = json.loads(ws)
+        wizard_state_data = WizardState(**ws)
+
+    return WizardStateResponse(
+        wizard_state=wizard_state_data,
+        wizard_state_version=row.wizard_state_version or 0,
+        status=row.status or "ACTIVE",
+    )
+
+
+@router.patch(
+    "/{project_id}/wizard-state",
+    response_model=WizardStateResponse,
+    summary="Update wizard state with optimistic concurrency (Slice 1C)",
+)
+async def patch_wizard_state(
+    project_id: str,
+    request: WizardStatePatch,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_ctx: TenantContext = Depends(require_tenant),
+) -> WizardStateResponse:
+    """
+    Update the wizard state for a DRAFT project with optimistic concurrency.
+
+    The client must provide the expected_version. If the server's current version
+    doesn't match, a 409 Conflict is returned to prevent overwrites from stale clients.
+
+    On success, the server increments wizard_state_version and returns the new version.
+
+    This endpoint is used for autosave during wizard flow.
+    """
+    import json
+    from datetime import datetime
+    from sqlalchemy import text
+
+    # Get current version
+    check_query = text("""
+        SELECT status, wizard_state_version
+        FROM project_specs
+        WHERE id = :project_id AND tenant_id = :tenant_id
+    """)
+
+    result = await db.execute(
+        check_query,
+        {"project_id": project_id, "tenant_id": tenant_ctx.tenant_id},
+    )
+
+    row = result.fetchone()
+
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {project_id} not found",
+        )
+
+    current_version = row.wizard_state_version or 0
+
+    # Optimistic concurrency check
+    if request.expected_version != current_version:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Version mismatch. Expected {request.expected_version}, but server has {current_version}. Fetch latest state and retry.",
+        )
+
+    # Compute new version
+    new_version = current_version + 1
+
+    # Update wizard state and timestamp
+    now = datetime.utcnow()
+    wizard_state_dict = request.wizard_state.model_dump()
+    wizard_state_dict["last_saved_at"] = now.isoformat()
+
+    update_query = text("""
+        UPDATE project_specs
+        SET wizard_state = :wizard_state,
+            wizard_state_version = :new_version,
+            updated_at = :updated_at
+        WHERE id = :project_id AND tenant_id = :tenant_id
+    """)
+
+    await db.execute(
+        update_query,
+        {
+            "project_id": project_id,
+            "tenant_id": tenant_ctx.tenant_id,
+            "wizard_state": json.dumps(wizard_state_dict),
+            "new_version": new_version,
+            "updated_at": now,
+        },
+    )
+
+    await db.commit()
+
+    return WizardStateResponse(
+        wizard_state=WizardState(**wizard_state_dict),
+        wizard_state_version=new_version,
+        status=row.status or "ACTIVE",
+    )
+
+
+@router.patch(
+    "/{project_id}/status",
+    response_model=ProjectSpecResponse,
+    summary="Update project status (Slice 1C)",
+)
+async def patch_project_status(
+    project_id: str,
+    request: ProjectStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    tenant_ctx: TenantContext = Depends(require_tenant),
+) -> ProjectSpecResponse:
+    """
+    Update project status (DRAFT -> ACTIVE or ACTIVE -> ARCHIVED).
+
+    Used to:
+    - Promote a DRAFT project to ACTIVE when wizard completes
+    - Archive a project (soft delete)
+
+    When promoting DRAFT to ACTIVE, the wizard_state is preserved for reference
+    but the project is considered complete.
+    """
+    from datetime import datetime
+    from sqlalchemy import text
+
+    # Check project exists
+    check_query = text("""
+        SELECT id, status FROM project_specs
+        WHERE id = :project_id AND tenant_id = :tenant_id
+    """)
+
+    result = await db.execute(
+        check_query,
+        {"project_id": project_id, "tenant_id": tenant_ctx.tenant_id},
+    )
+
+    row = result.fetchone()
+
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {project_id} not found",
+        )
+
+    # Validate status transitions
+    current_status = row.status or "ACTIVE"
+    new_status = request.status
+
+    # Allowed transitions:
+    # DRAFT -> ACTIVE (wizard complete)
+    # DRAFT -> ARCHIVED (cancel wizard)
+    # ACTIVE -> ARCHIVED (archive project)
+    # ARCHIVED -> ACTIVE (restore project)
+    valid_transitions = {
+        ("DRAFT", "ACTIVE"),
+        ("DRAFT", "ARCHIVED"),
+        ("ACTIVE", "ARCHIVED"),
+        ("ARCHIVED", "ACTIVE"),
+    }
+
+    if current_status == new_status:
+        # No change needed, return current state
+        return await get_project_spec(project_id, db, current_user, tenant_ctx)
+
+    if (current_status, new_status) not in valid_transitions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid status transition: {current_status} -> {new_status}",
+        )
+
+    # Update status
+    now = datetime.utcnow()
+    update_query = text("""
+        UPDATE project_specs
+        SET status = :status, updated_at = :updated_at
+        WHERE id = :project_id AND tenant_id = :tenant_id
+    """)
+
+    await db.execute(
+        update_query,
+        {
+            "project_id": project_id,
+            "tenant_id": tenant_ctx.tenant_id,
+            "status": new_status,
+            "updated_at": now,
+        },
+    )
+
+    await db.commit()
+
+    return await get_project_spec(project_id, db, current_user, tenant_ctx)
 
 
 @router.get(

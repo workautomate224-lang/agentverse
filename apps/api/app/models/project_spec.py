@@ -134,6 +134,22 @@ class ProjectSpec(Base):
         nullable=True
     )
 
+    # ==========================================================================
+    # Slice 1C: Draft / Resume (Project-level Persistence)
+    # ==========================================================================
+    # Project status: DRAFT (wizard in progress), ACTIVE (wizard completed), ARCHIVED
+    status: Mapped[str] = mapped_column(
+        String(20), default="ACTIVE", nullable=False
+    )
+    # Wizard state JSONB for persisting wizard progress (step, goal_text, answers, etc.)
+    wizard_state: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSONB, nullable=True
+    )
+    # Optimistic concurrency version for wizard_state updates
+    wizard_state_version: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False
+    )
+
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, nullable=False
@@ -186,6 +202,10 @@ class ProjectSpec(Base):
             # Baseline and node fields
             "has_baseline": self.has_baseline,
             "root_node_id": str(self.root_node_id) if self.root_node_id else None,
+            # Slice 1C: Draft / Resume fields
+            "status": self.status,
+            "wizard_state": self.wizard_state,
+            "wizard_state_version": self.wizard_state_version,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

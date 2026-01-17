@@ -34,7 +34,7 @@ import {
 import type { ProjectSpec } from '@/lib/api';
 
 type CoreType = 'collective' | 'target' | 'hybrid';
-type ProjectStatus = 'active' | 'archived';
+type ProjectStatus = 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
 type RunStatus = 'success' | 'failed' | 'running' | null;
 
 // Extended project type that combines API data with UI needs
@@ -50,6 +50,7 @@ interface ProjectView {
   nodeCount: number;
   runCount: number;
   tags: string[];
+  isDraft: boolean;
 }
 
 // Map domain to core type (best guess based on domain name)
@@ -66,18 +67,21 @@ function deriveCoreType(domain: string): CoreType {
 
 // Transform API ProjectSpec to UI ProjectView
 function transformProjectSpec(spec: ProjectSpec): ProjectView {
+  // Slice 1C: Use actual status from API, default to ACTIVE for backwards compatibility
+  const status = (spec.status as ProjectStatus) || 'ACTIVE';
   return {
     id: spec.id,
     name: spec.name,
     description: spec.description,
     domain: spec.domain,
     coreType: deriveCoreType(spec.domain),
-    status: 'active', // API doesn't have status yet, default to active
+    status,
     lastUpdated: spec.updated_at,
     lastRunStatus: spec.run_count > 0 ? 'success' : null, // Simplified - real impl would check actual run status
     nodeCount: spec.node_count,
     runCount: spec.run_count,
     tags: spec.domain ? [spec.domain] : [],
+    isDraft: status === 'DRAFT',
   };
 }
 
@@ -240,8 +244,9 @@ export default function ProjectsPage() {
           className="px-3 py-2 bg-white/5 border border-white/10 text-xs font-mono text-white appearance-none focus:outline-none focus:border-white/30 cursor-pointer"
         >
           <option value="">All Status</option>
-          <option value="active">Active</option>
-          <option value="archived">Archived</option>
+          <option value="DRAFT">Draft</option>
+          <option value="ACTIVE">Active</option>
+          <option value="ARCHIVED">Archived</option>
         </select>
         <select
           value={coreFilter}
@@ -356,12 +361,12 @@ export default function ProjectsPage() {
       {/* Archive Modal */}
       {archiveModal.open && archiveModal.project && (
         <Modal
-          title={archiveModal.project.status === 'active' ? 'Archive Project' : 'Restore Project'}
+          title={archiveModal.project.status === 'ACTIVE' ? 'Archive Project' : 'Restore Project'}
           onClose={() => setArchiveModal({ open: false, project: null })}
         >
           <div className="space-y-4">
             <p className="text-sm font-mono text-white/60">
-              {archiveModal.project.status === 'active'
+              {archiveModal.project.status === 'ACTIVE'
                 ? <>Archive <span className="text-white">&quot;{archiveModal.project.name}&quot;</span>?</>
                 : <>Restore <span className="text-white">&quot;{archiveModal.project.name}&quot;</span> to active projects?</>
               }
@@ -436,7 +441,15 @@ function ProjectRow({
             <FolderKanban className="w-4 h-4 text-white/40" />
           </div>
           <div className="min-w-0">
-            <h3 className="text-sm font-mono font-medium text-white truncate">{project.name}</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-mono font-medium text-white truncate">{project.name}</h3>
+              {/* Slice 1C: Draft badge */}
+              {project.isDraft && (
+                <span className="px-1.5 py-0.5 text-[9px] font-mono uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  Draft
+                </span>
+              )}
+            </div>
             <div className="flex gap-1 mt-0.5">
               {project.tags.slice(0, 2).map(tag => (
                 <span key={tag} className="text-[9px] font-mono text-white/30 uppercase">{tag}</span>
@@ -463,10 +476,11 @@ function ProjectRow({
           {project.nodeCount}
         </div>
         <div className="flex items-center justify-end gap-2">
-          <Link href={`/p/${project.id}/overview`}>
+          {/* Slice 1C: Draft projects go to wizard, active projects go to overview */}
+          <Link href={project.isDraft ? `/dashboard/projects/new?resume=${project.id}` : `/p/${project.id}/overview`}>
             <Button variant="outline" size="sm" className="h-7 px-2 text-[10px]">
               <ExternalLink className="w-3 h-3 mr-1" />
-              Open
+              {project.isDraft ? 'Resume' : 'Open'}
             </Button>
           </Link>
           <div className="relative">
@@ -498,7 +512,15 @@ function ProjectRow({
               <FolderKanban className="w-3.5 h-3.5 text-white/40" />
             </div>
             <div className="min-w-0">
-              <h3 className="text-xs font-mono font-medium text-white truncate">{project.name}</h3>
+              <div className="flex items-center gap-1.5">
+                <h3 className="text-xs font-mono font-medium text-white truncate">{project.name}</h3>
+                {/* Slice 1C: Draft badge (mobile) */}
+                {project.isDraft && (
+                  <span className="px-1 py-0.5 text-[8px] font-mono uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                    Draft
+                  </span>
+                )}
+              </div>
               <span className={cn('inline-flex items-center gap-1 px-1 py-0.5 text-[9px] font-mono uppercase border mt-1', core.color)}>
                 <CoreIcon className="w-2 h-2" />
                 {core.label}
@@ -538,10 +560,11 @@ function ProjectRow({
             <p className="text-white">{project.nodeCount}</p>
           </div>
         </div>
-        <Link href={`/p/${project.id}/overview`}>
+        {/* Slice 1C: Draft projects go to wizard, active projects go to overview */}
+        <Link href={project.isDraft ? `/dashboard/projects/new?resume=${project.id}` : `/p/${project.id}/overview`}>
           <Button variant="outline" size="sm" className="w-full h-7 text-[10px]">
             <ExternalLink className="w-3 h-3 mr-1" />
-            Open Project
+            {project.isDraft ? 'Resume Draft' : 'Open Project'}
           </Button>
         </Link>
       </div>
@@ -587,7 +610,7 @@ function ActionMenu({
           className="flex items-center gap-2 w-full px-3 py-1.5 text-xs font-mono text-white/60 hover:bg-white/10"
         >
           <Archive className="w-3 h-3" />
-          {project.status === 'active' ? 'Archive' : 'Restore'}
+          {project.status === 'ACTIVE' ? 'Archive' : 'Restore'}
         </button>
         <div className="border-t border-white/10 my-1" />
         <button
