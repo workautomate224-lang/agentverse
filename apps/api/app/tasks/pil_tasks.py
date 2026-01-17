@@ -68,6 +68,45 @@ from app.services.slot_status_handler import (
 
 
 # =============================================================================
+# Slot Type Normalization (Map LLM output to SlotType enum values)
+# =============================================================================
+
+def _normalize_slot_type(data_type: str) -> str:
+    """
+    Convert LLM data_type output to valid SlotType enum value.
+
+    The LLM prompt uses lowercase values like "table", "timeseries", "persona_set"
+    but the SlotType enum uses PascalCase values like "Table", "TimeSeries".
+    """
+    mapping = {
+        # Lowercase versions (as specified in LLM prompt)
+        "persona_set": SlotType.PERSONA_SET.value,
+        "table": SlotType.TABLE.value,
+        "timeseries": SlotType.TIMESERIES.value,
+        "document": SlotType.TEXT_CORPUS.value,  # Map "document" to TEXT_CORPUS
+        "event_script_set": SlotType.EVENT_SCRIPT_SET.value,
+        "ruleset": SlotType.RULESET.value,
+        "graph": SlotType.GRAPH.value,
+        "entity_set": SlotType.ENTITY_SET.value,
+        "text_corpus": SlotType.TEXT_CORPUS.value,
+        "labels": SlotType.LABELS.value,
+        "assumption_set": SlotType.ASSUMPTION_SET.value,
+        # PascalCase versions (if LLM returns these)
+        "PersonaSet": SlotType.PERSONA_SET.value,
+        "Table": SlotType.TABLE.value,
+        "TimeSeries": SlotType.TIMESERIES.value,
+        "TextCorpus": SlotType.TEXT_CORPUS.value,
+        "EventScriptSet": SlotType.EVENT_SCRIPT_SET.value,
+        "Ruleset": SlotType.RULESET.value,
+        "Graph": SlotType.GRAPH.value,
+        "EntitySet": SlotType.ENTITY_SET.value,
+        "Labels": SlotType.LABELS.value,
+        "AssumptionSet": SlotType.ASSUMPTION_SET.value,
+    }
+    return mapping.get(data_type, SlotType.TABLE.value)  # Default to TABLE
+
+
+# =============================================================================
 # Custom Exceptions for LLM Failures (Blueprint v2 - Fail Fast)
 # =============================================================================
 
@@ -1464,7 +1503,7 @@ async def _blueprint_build_async(task, job_id: str, context: dict):
                 slot_data = {
                     "sort_order": idx + 1,
                     "slot_name": llm_slot.get("name", f"Slot {idx + 1}"),
-                    "slot_type": llm_slot.get("data_type", SlotType.TEXT.value),
+                    "slot_type": _normalize_slot_type(llm_slot.get("data_type", "table")),
                     "required_level": llm_slot.get("required_level", RequiredLevel.RECOMMENDED.value),
                     "description": llm_slot.get("description", ""),
                     "allowed_acquisition_methods": llm_slot.get("example_sources", ["manual_upload"]),
