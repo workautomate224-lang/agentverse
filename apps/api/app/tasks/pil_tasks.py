@@ -808,11 +808,29 @@ What data slots and tasks would be needed for a typical project in this domain?"
             ],
             context=context,
             temperature_override=0.3,
-            max_tokens_override=800,
+            # Use profile's max_tokens (4000) - don't override to avoid truncation
             skip_cache=skip_cache,
         )
 
-        result = json.loads(response.content)
+        # Parse JSON response with error handling
+        try:
+            result = json.loads(response.content)
+        except json.JSONDecodeError as json_err:
+            # Log the parsing error and raw response for debugging
+            logger.error(
+                "JSON parsing failed for blueprint preview",
+                error=str(json_err),
+                response_length=len(response.content) if response.content else 0,
+                response_preview=response.content[:500] if response.content else None,
+            )
+            # Check if fallbacks are allowed
+            if settings.PIL_ALLOW_FALLBACK:
+                return _fallback_blueprint_preview(domain)
+            raise PILLLMError(
+                LLMProfileKey.PIL_BLUEPRINT_GENERATION.value,
+                ValueError(f"LLM returned invalid JSON: {json_err}"),
+            )
+
         blueprint_preview = {
             "required_slots": result.get("required_slots", ["PersonaSet"]),
             "recommended_slots": result.get("recommended_slots", ["EventScriptSet"]),
@@ -834,6 +852,9 @@ What data slots and tasks would be needed for a typical project in this domain?"
 
         return blueprint_preview, llm_proof
 
+    except PILLLMError:
+        # Re-raise PILLLMError without wrapping
+        raise
     except Exception as e:
         # Check if fallbacks are allowed (default: False in staging/prod)
         if settings.PIL_ALLOW_FALLBACK:
