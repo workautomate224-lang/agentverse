@@ -25,7 +25,10 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 import uuid
 
+import structlog
 from sqlalchemy import select, update
+
+logger = structlog.get_logger(__name__)
 
 from app.core.celery_app import celery_app
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
