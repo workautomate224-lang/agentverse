@@ -1145,6 +1145,7 @@ def _fallback_risk_assessment(goal_text: str, domain: str) -> tuple[List[str], d
 
 
 async def _llm_build_blueprint(
+    session: AsyncSession,
     goal_text: str,
     goal_summary: str,
     domain: str,
@@ -1266,7 +1267,7 @@ For example:
 Respond with JSON only, no explanation."""
 
     try:
-        llm_router = LLMRouter()
+        llm_router = LLMRouter(session)
         context = LLMRouterContext(
             strict_llm=True,  # Slice 1A: No fallback allowed
             skip_cache=skip_cache,
@@ -1428,6 +1429,7 @@ async def _blueprint_build_async(task, job_id: str, context: dict):
             try:
                 # Call LLM with full context (goal + analysis + clarification answers)
                 llm_blueprint_config, llm_proof = await _llm_build_blueprint(
+                    session=session,
                     goal_text=goal_text,
                     goal_summary=blueprint.goal_summary or goal_text[:200],
                     domain=blueprint.domain_guess,
