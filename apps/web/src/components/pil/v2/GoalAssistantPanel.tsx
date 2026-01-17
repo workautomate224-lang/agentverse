@@ -13,9 +13,15 @@
  * - Job appears in both Step 1 inline AND global Active Jobs widget
  * - Resume behavior: job ID persisted to localStorage, recovered on return/refresh
  * - Deduplication via job state (prevents duplicate job creation)
+ *
+ * Slice 1B Fix: State Persistence
+ * - Uses namespaced localStorage key with schema versioning
+ * - Persists: goalText, analysisResult, answers, blueprintDraft, jobIds
+ * - Restores state on refresh without re-running LLM analysis
+ * - Resumes job polling if job was running at refresh time
  */
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Sparkles,
@@ -45,57 +51,23 @@ import type {
   BlueprintDraft,
   LLMProof,
 } from '@/types/blueprint-v2';
-
-// VERTICAL SLICE #1: Local storage key for wizard state persistence
-const WIZARD_STATE_KEY = 'agentverse_wizard_state';
-
-// VERTICAL SLICE #1: Interface for persisted wizard state with job IDs
-interface PersistedWizardState {
-  goalText: string;
-  stage: Stage;
-  // Job IDs for resume behavior
-  goalAnalysisJobId: string | null;
-  blueprintJobId: string | null;
-  // Results
-  analysisResult: GoalAnalysisResult | null;
-  answers: Record<string, string | string[]>;
-  blueprintDraft: BlueprintDraft | null;
-  savedAt: string;
-}
-
-// PHASE 3: Helper to save wizard state to localStorage
-function saveWizardState(state: PersistedWizardState): void {
-  try {
-    localStorage.setItem(WIZARD_STATE_KEY, JSON.stringify(state));
-  } catch {
-    // Ignore localStorage errors (private browsing, quota exceeded, etc.)
-  }
-}
-
-// PHASE 3: Helper to load wizard state from localStorage
-function loadWizardState(): PersistedWizardState | null {
-  try {
-    const saved = localStorage.getItem(WIZARD_STATE_KEY);
-    if (!saved) return null;
-    return JSON.parse(saved);
-  } catch {
-    return null;
-  }
-}
-
-// PHASE 3: Helper to clear wizard state from localStorage
-function clearWizardState(): void {
-  try {
-    localStorage.removeItem(WIZARD_STATE_KEY);
-  } catch {
-    // Ignore localStorage errors
-  }
-}
+import {
+  saveWizardState as saveState,
+  loadWizardState as loadState,
+  clearWizardState as clearState,
+  hasRestorableState,
+  type WizardPersistedState,
+  type WizardGoalAnalysisResult,
+} from '@/lib/wizardPersistence';
 
 interface GoalAssistantPanelProps {
   goalText: string;
   onBlueprintReady: (blueprint: BlueprintDraft) => void;
   onAnalysisStart?: () => void;
+  /** Callback to restore goal text to parent after refresh */
+  onGoalTextRestore?: (text: string) => void;
+  /** Callback when wizard state is cleared (e.g., starting fresh) */
+  onStateCleared?: () => void;
   className?: string;
 }
 
@@ -110,6 +82,8 @@ export function GoalAssistantPanel({
   goalText,
   onBlueprintReady,
   onAnalysisStart,
+  onGoalTextRestore,
+  onStateCleared,
   className,
 }: GoalAssistantPanelProps) {
   // VERTICAL SLICE #1: Core state
@@ -166,29 +140,69 @@ export function GoalAssistantPanel({
     return null;
   }, [stage, goalAnalysisJob, blueprintJob]);
 
-  // VERTICAL SLICE #1: Restore state from localStorage on mount (includes job IDs for resume)
+  // Slice 1B Fix: Track if restore has been attempted
+  const restoreAttempted = useRef(false);
+
+  // Slice 1B Fix: Restore state from localStorage on mount
+  // Key change: We no longer require goalText to match - we restore goalText itself
   useEffect(() => {
-    if (hasRestoredState) return;
+    if (restoreAttempted.current) return;
+    restoreAttempted.current = true;
 
-    const saved = loadWizardState();
-    if (saved && saved.goalText === goalText) {
-      // Restore state including job IDs for resume behavior
-      setStage(saved.stage);
-      setAnalysisResult(saved.analysisResult);
-      setAnswers(saved.answers);
-      setBlueprintDraft(saved.blueprintDraft);
-      setGoalAnalysisJobId(saved.goalAnalysisJobId);
-      setBlueprintJobId(saved.blueprintJobId);
-      setLastSavedAt(new Date(saved.savedAt));
-      setSaveStatus('saved');
-
-      // If we restored a completed blueprint, notify parent
-      if (saved.blueprintDraft && saved.stage === 'preview') {
-        onBlueprintReady(saved.blueprintDraft);
-      }
+    const saved = loadState();
+    if (!saved || !saved.goalText) {
+      setHasRestoredState(true);
+      return;
     }
+
+    // Restore goal text to parent component FIRST
+    // This allows the parent's formData.goal to be updated
+    if (onGoalTextRestore && saved.goalText !== goalText) {
+      onGoalTextRestore(saved.goalText);
+    }
+
+    // Convert stage from persistence format to component format
+    const stageMap: Record<string, Stage> = {
+      'idle': 'idle',
+      'analyzing': 'analyzing',
+      'clarifying': 'clarifying',
+      'generating': 'generating_blueprint',
+      'preview': 'preview',
+    };
+
+    // Restore analysis result (convert from persistence type)
+    if (saved.goalAnalysisResult) {
+      setAnalysisResult(saved.goalAnalysisResult as unknown as GoalAnalysisResult);
+    }
+
+    // Restore other state
+    setAnswers(saved.clarificationAnswers || {});
+    if (saved.blueprintDraft) {
+      setBlueprintDraft(saved.blueprintDraft);
+    }
+
+    // Restore stage
+    const restoredStage = stageMap[saved.stage] || 'idle';
+    setStage(restoredStage);
+
+    // Restore job IDs for resume polling
+    if (saved.goalAnalysisJobId) {
+      setGoalAnalysisJobId(saved.goalAnalysisJobId);
+    }
+    if (saved.blueprintJobId) {
+      setBlueprintJobId(saved.blueprintJobId);
+    }
+
+    setLastSavedAt(new Date(saved.updatedAt));
+    setSaveStatus('saved');
+
+    // If we restored a completed blueprint, notify parent
+    if (saved.blueprintDraft && saved.stage === 'preview') {
+      onBlueprintReady(saved.blueprintDraft);
+    }
+
     setHasRestoredState(true);
-  }, [goalText, hasRestoredState, onBlueprintReady]);
+  }, [goalText, onGoalTextRestore, onBlueprintReady]);
 
   // VERTICAL SLICE #1: Handle goal analysis job completion
   useEffect(() => {
@@ -236,41 +250,56 @@ export function GoalAssistantPanel({
     }
   }, [blueprintJob, stage, onBlueprintReady]);
 
-  // VERTICAL SLICE #1: Auto-save state when it changes (including job IDs)
+  // Slice 1B Fix: Auto-save state when it changes (including job IDs)
+  // Uses new persistence utility with schema version and TTL
   useEffect(() => {
-    // Don't save if in idle state with no data
-    if (stage === 'idle' && !goalAnalysisJobId && !blueprintJobId) {
+    // Don't save if in idle state with no meaningful data
+    if (stage === 'idle' && !goalText && !goalAnalysisJobId && !blueprintJobId) {
+      return;
+    }
+
+    // Don't save during initial restore
+    if (!hasRestoredState) {
       return;
     }
 
     // Debounce save by 500ms
     const timer = setTimeout(() => {
       setSaveStatus('saving');
-      const state: PersistedWizardState = {
+
+      // Convert stage to persistence format
+      const stageMap: Record<Stage, WizardPersistedState['stage']> = {
+        'idle': 'idle',
+        'analyzing': 'analyzing',
+        'clarifying': 'clarifying',
+        'generating_blueprint': 'generating',
+        'preview': 'preview',
+      };
+
+      // Save using new persistence utility
+      saveState({
         goalText,
-        stage,
+        stage: stageMap[stage],
         goalAnalysisJobId,
         blueprintJobId,
-        analysisResult,
-        answers,
+        goalAnalysisResult: analysisResult as unknown as WizardGoalAnalysisResult | null,
+        clarificationAnswers: answers as Record<string, string>,
         blueprintDraft,
-        savedAt: new Date().toISOString(),
-      };
-      saveWizardState(state);
+        hasCompletedAnalysis: stage !== 'idle' && stage !== 'analyzing',
+        activeJobId: stage === 'analyzing' ? goalAnalysisJobId : (stage === 'generating_blueprint' ? blueprintJobId : null),
+        activeJobType: stage === 'analyzing' ? 'goal_analysis' : (stage === 'generating_blueprint' ? 'blueprint_build' : null),
+      });
+
       setLastSavedAt(new Date());
       setSaveStatus('saved');
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [goalText, stage, goalAnalysisJobId, blueprintJobId, analysisResult, answers, blueprintDraft]);
+  }, [goalText, stage, goalAnalysisJobId, blueprintJobId, analysisResult, answers, blueprintDraft, hasRestoredState]);
 
-  // VERTICAL SLICE #1: Clear state when blueprint is finalized (preview stage)
-  useEffect(() => {
-    if (stage === 'preview' && blueprintDraft) {
-      // Clear saved state since blueprint is ready
-      clearWizardState();
-    }
-  }, [stage, blueprintDraft]);
+  // Slice 1B Fix: DON'T clear state when blueprint is preview
+  // Only clear when user explicitly starts a new project or moves to next step
+  // The parent page will call clearWizardState when appropriate
 
   // VERTICAL SLICE #1: Analyze goal using background job
   const handleAnalyzeGoal = useCallback(async () => {
@@ -459,7 +488,8 @@ export function GoalAssistantPanel({
         open={showExitModal}
         onOpenChange={setShowExitModal}
         onConfirmExit={() => {
-          clearWizardState();
+          clearState();
+          onStateCleared?.();
           setShowExitModal(false);
         }}
         onSaveAndExit={() => {

@@ -49,6 +49,7 @@ import { cn } from '@/lib/utils';
 import { useCreateProjectSpec, useCreateBlueprint } from '@/hooks/useApi';
 import { isFeatureEnabled } from '@/lib/feature-flags';
 import { GoalAssistantPanel } from '@/components/pil/v2/GoalAssistantPanel';
+import { hasRestorableState as checkRestorableState, clearWizardState } from '@/lib/wizardPersistence';
 import type { BlueprintDraft } from '@/types/blueprint-v2';
 
 // Wizard step definitions - 4-step flow per temporal.md §3
@@ -231,6 +232,8 @@ export default function CreateProjectWizardPage() {
   // Blueprint draft state for v2 flow
   const [blueprintDraft, setBlueprintDraft] = useState<BlueprintDraft | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  // Slice 1B Fix: Track if there's restorable wizard state
+  const [hasRestorableWizardState, setHasRestorableWizardState] = useState(false);
   const [formData, setFormData] = useState<WizardFormData>({
     goal: '',
     // Temporal defaults per temporal.md §3
@@ -252,6 +255,12 @@ export default function CreateProjectWizardPage() {
   const [showSourcesPanel, setShowSourcesPanel] = useState(false);
   // Exit confirmation modal state (per blueprint_v2.md §2.1.2)
   const [showExitModal, setShowExitModal] = useState(false);
+
+  // Slice 1B Fix: Check for restorable wizard state on mount
+  useEffect(() => {
+    const hasRestorable = checkRestorableState();
+    setHasRestorableWizardState(hasRestorable);
+  }, []);
 
   // Check if there's unsaved draft state that should trigger exit confirmation
   const hasDraftState = useCallback(() => {
@@ -276,6 +285,8 @@ export default function CreateProjectWizardPage() {
 
   // Handle discard and exit
   const handleDiscardExit = useCallback(() => {
+    // Slice 1B Fix: Clear wizard state from localStorage
+    clearWizardState();
     // Clear all state and navigate away
     setShowExitModal(false);
     router.push('/dashboard/projects');
@@ -603,11 +614,23 @@ export default function CreateProjectWizardPage() {
               </div>
 
               {/* V2 Goal Assistant Panel - Analyze Goal, Clarify, Blueprint Preview */}
-              {isV2WizardEnabled && formData.goal.trim().length >= 10 && (
+              {/* Slice 1B Fix: Show panel when goal >= 10 chars OR when there's restorable state */}
+              {isV2WizardEnabled && (formData.goal.trim().length >= 10 || hasRestorableWizardState) && (
                 <GoalAssistantPanel
                   goalText={formData.goal}
                   onBlueprintReady={handleBlueprintReady}
                   onAnalysisStart={() => setIsAnalyzing(true)}
+                  onGoalTextRestore={(restoredGoal) => {
+                    // Slice 1B Fix: Restore goal text from localStorage
+                    setFormData(prev => ({ ...prev, goal: restoredGoal }));
+                    setHasRestorableWizardState(false);
+                  }}
+                  onStateCleared={() => {
+                    // Slice 1B Fix: Clear local state when wizard state is cleared
+                    setBlueprintDraft(null);
+                    setIsAnalyzing(false);
+                    setHasRestorableWizardState(false);
+                  }}
                   className="mt-4"
                 />
               )}
