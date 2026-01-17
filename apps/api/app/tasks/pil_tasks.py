@@ -1257,12 +1257,8 @@ Respond ONLY with valid JSON in this exact format:
 **USER'S CLARIFICATION ANSWERS:**
 {answers_text}
 
-Based on these inputs, generate a complete blueprint with slots, tasks, calibration plan, and branching plan.
-The slots and tasks should be tailored to the specific domain and the user's answers.
-For example:
-- If user specified a 6-month horizon, calibration should focus on that window
-- If user selected specific geographic scope, include relevant data slots
-- If user identified specific factors, create corresponding input slots
+Generate a COMPACT blueprint tailored to this specific project. Keep each array to 3-5 items max.
+IMPORTANT: Return ONLY valid JSON. No markdown, no explanation. Just the JSON object.
 
 Respond with JSON only, no explanation."""
 
@@ -1280,8 +1276,8 @@ Respond with JSON only, no explanation."""
                 {"role": "user", "content": user_prompt},
             ],
             context=context,
-            temperature_override=0.3,
-            max_tokens_override=2000,
+            temperature_override=0.2,
+            max_tokens_override=4000,
             skip_cache=skip_cache,
             response_format={"type": "json_object"},
         )
