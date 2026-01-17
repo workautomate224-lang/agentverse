@@ -1280,8 +1280,10 @@ Respond with JSON only, no explanation."""
                 {"role": "user", "content": user_prompt},
             ],
             context=context,
-            max_tokens=2000,
-            temperature=0.3,
+            temperature_override=0.3,
+            max_tokens_override=2000,
+            skip_cache=skip_cache,
+            response_format={"type": "json_object"},
         )
 
         # Build LLM proof with Slice 1A verification
