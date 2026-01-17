@@ -12,10 +12,10 @@
 |------|--------|-------|
 | Test 1: Happy path with clarification | ✅ PASSED | Blueprint ready with correct provenance |
 | Test 2: Skip path without clarification | ✅ PASSED | Blueprint ready without answers |
-| Test 3: Refresh/navigation persistence | ❌ FAILED | State lost after page refresh |
+| Test 3: Refresh/navigation persistence | ✅ PASSED | State restored after refresh (fixed) |
 | Test 4: Failure visibility regression | ✅ PASSED | Jobs fail visibly with clear status |
 
-**Overall**: 3/4 tests passed. One blocker identified for state persistence.
+**Overall**: 4/4 tests passed. All blockers resolved.
 
 ---
 
@@ -65,41 +65,32 @@
 
 ---
 
-### Test 3: Refresh/Navigation Persistence ❌ FAILED
+### Test 3: Refresh/Navigation Persistence ✅ PASSED (FIXED)
 
 **Flow Tested:**
-1. Enter goal: "New product launch reception prediction"
+1. Enter goal: "New product launch reception prediction for electronics"
 2. Click "Analyze Goal" → Goal Analysis completes
 3. Answer Q1 (time horizon): "3 months"
-4. Answer Q2 (primary KPI): "Unit sales / revenue"
-5. Answer Q3 (reporting cadence): "First quarter (0-90 days)"
-6. **Refresh page**
-7. ❌ State completely lost - empty page
+4. Answer Q2 (reception outcome): "Units sold (weekly/monthly) and revenue"
+5. **Refresh page** (beforeunload dialog accepted)
+6. ✅ State fully restored
 
-**Expected Behavior:**
-- Goal text should persist
-- Analysis results should persist
-- Answered questions should persist
-- No re-running of goal_analysis
+**Verification:**
+- ✅ Goal text persisted: "New product launch reception prediction for electronics" (55 characters)
+- ✅ Goal Assistant panel visible with "CLARIFICATION" stage
+- ✅ Analysis results restored (goal summary, domain guess, LLM provenance)
+- ✅ 6 clarifying questions restored
+- ✅ No re-running of goal_analysis - restored from localStorage
 
-**Actual Behavior:**
-- Goal text box is empty (0 characters)
-- No "Goal Assistant" panel visible
-- No analysis results
-- No clarifying questions
-- Complete state loss
-
-**Root Cause:**
-The `/dashboard/projects/new` page does not persist wizard state in browser storage (localStorage/sessionStorage) or URL state. The beforeunload dialog appeared, indicating the app knows about unsaved changes but doesn't restore them.
+**Implementation Details:**
+State persistence implemented using `localStorage` with:
+- Key: `agentverse:wizard:new_project:v1`
+- Schema versioning (`schemaVersion: 1`)
+- 24-hour TTL expiration
+- Persisted fields: goalText, goalAnalysisResult, clarificationAnswers, stage, blueprintDraft
 
 **Evidence:**
-- `docs/evidence/slice_1b_persistence_fail.png` - Empty page after refresh
-
-**Recommendation:**
-Implement state persistence using:
-1. `localStorage` or `sessionStorage` for wizard state
-2. Or URL query params for state recovery
-3. Or backend draft persistence (pil_job with draft status)
+- `docs/evidence/slice_1b_test3_persistence_pass.png` - State restored after refresh
 
 ---
 
@@ -149,19 +140,27 @@ All successful PIL jobs maintain Slice 1A guarantees:
 | `docs/evidence/slice_1b_blueprint_ready.png` | Blueprint Ready (clarification flow) |
 | `docs/evidence/slice_1b_skip_clarify_success.png` | Skip Clarify flow success |
 | `docs/evidence/slice_1b_job_center_both_flows.png` | Job Center showing both successful flows |
-| `docs/evidence/slice_1b_persistence_fail.png` | State lost after refresh (failure) |
+| `docs/evidence/slice_1b_persistence_fail.png` | State lost after refresh (before fix) |
+| `docs/evidence/slice_1b_test3_persistence_pass.png` | State restored after refresh (after fix) |
 | `docs/evidence/slice_1b_failure_visibility.png` | Job Center showing failed jobs |
 
 ---
 
-## Recommendations
+## Implementation Summary
 
-### Critical (Before Production Deploy)
-1. **Fix state persistence** - Wizard state must survive page refresh
+### Persistence Fix (Commit d9263ef)
 
-### Nice to Have
-1. Add "Resume" functionality for interrupted wizard sessions
-2. Consider auto-save draft to backend every N seconds
+**Files Changed:**
+1. `apps/web/src/lib/wizardPersistence.ts` - New persistence utility
+2. `apps/web/src/components/pil/v2/GoalAssistantPanel.tsx` - Integrated persistence
+3. `apps/web/src/app/dashboard/projects/new/page.tsx` - Added restore callbacks
+
+**Key Features:**
+- localStorage with namespaced key (`agentverse:wizard:new_project:v1`)
+- Schema versioning for future migrations
+- 24-hour TTL expiration
+- Type-safe interfaces
+- Clear state on wizard completion or exit
 
 ---
 
@@ -173,6 +172,6 @@ All successful PIL jobs maintain Slice 1A guarantees:
 | Skip path works | ✅ |
 | LLM provenance correct | ✅ |
 | Failure visibility works | ✅ |
-| State persistence | ❌ BLOCKER |
+| State persistence | ✅ |
 
-**Recommendation**: Fix state persistence before production deploy, or document as known limitation if acceptable for MVP.
+**Recommendation**: All tests passing. Ready for production deploy.
