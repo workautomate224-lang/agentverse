@@ -59,6 +59,7 @@ import {
   loadFromServer,
   promoteDraftToActive,
 } from '@/lib/wizardPersistence';
+import { emitProjectsPublished, emitProjectsCreated } from '@/lib/invalidationBus';
 import type { BlueprintDraft } from '@/types/blueprint-v2';
 
 // Wizard step definitions - 4-step flow per temporal.md §3
@@ -460,7 +461,7 @@ export default function CreateProjectWizardPage() {
   // Slice 1D-B: Handle publish from blueprint preview
   const handlePublish = useCallback(async () => {
     // Get project ID from state or localStorage
-    const projectId = draftProjectId || getDraftProjectId()?.projectId;
+    const projectId = draftProjectId || getDraftProjectId();
     if (!projectId) {
       setCreateError('No draft project to publish. Please complete the wizard first.');
       return;
@@ -472,6 +473,10 @@ export default function CreateProjectWizardPage() {
     try {
       // Call publish API endpoint
       await api.publishProject(projectId);
+
+      // Slice 2-0: Emit invalidation event for cross-tab sync
+      // This notifies other tabs that a draft was published (becomes ACTIVE)
+      emitProjectsPublished([projectId]);
 
       // Clear wizard localStorage state
       clearAllWizardState();
@@ -633,6 +638,14 @@ export default function CreateProjectWizardPage() {
         // Skip clarification since it was already done in Step 1
         skip_clarification: true,
       });
+
+      // Slice 2-0: Emit invalidation event for cross-tab sync
+      // If we promoted a draft, emit published; otherwise emit created
+      if (draftProjectId) {
+        emitProjectsPublished([projectId]);
+      } else {
+        emitProjectsCreated([projectId]);
+      }
 
       // Slice 1C: Clear wizard state after successful creation
       clearAllWizardState();

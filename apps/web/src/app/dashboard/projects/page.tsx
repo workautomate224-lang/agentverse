@@ -1,8 +1,24 @@
 'use client';
 
-import { useState } from 'react';
+/**
+ * Project List Page
+ *
+ * Slice 2-0 Hotfix Updates:
+ * 1. Cross-tab sync via invalidation bus
+ * 2. Dropdown menu uses Radix Portal (no clipping)
+ * 3. Proper draft cleanup on publish (same project_id, no duplicates)
+ */
+
+import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 import {
   Plus,
   FolderKanban,
@@ -31,6 +47,7 @@ import {
   useDuplicateProjectSpec,
   useDeleteProjectSpec,
 } from '@/hooks/useApi';
+import { useProjectsInvalidation, useInvalidationEmit } from '@/hooks/useInvalidationBus';
 import type { ProjectSpec } from '@/lib/api';
 
 type CoreType = 'collective' | 'target' | 'hybrid';
@@ -108,6 +125,12 @@ export default function ProjectsPage() {
     search: searchQuery || undefined,
   });
 
+  // Slice 2-0: Cross-tab sync - auto-revalidate on invalidation events
+  useProjectsInvalidation(refetch);
+
+  // Slice 2-0: Emit invalidation events on mutations
+  const { emitProjectsDeleted, emitProjectsUpdated, emitProjectsCreated } = useInvalidationEmit();
+
   // Mutations
   const updateProject = useUpdateProjectSpec();
   const duplicateProject = useDuplicateProjectSpec();
@@ -134,52 +157,59 @@ export default function ProjectsPage() {
   });
 
   // Action handlers - use real API mutations
-  const handleRename = async () => {
+  const handleRename = useCallback(async () => {
     if (renameModal.project && newName.trim()) {
       try {
         await updateProject.mutateAsync({
           projectId: renameModal.project.id,
           data: { name: newName.trim() }
         });
+        // Slice 2-0: Emit invalidation for cross-tab sync
+        emitProjectsUpdated([renameModal.project.id]);
         setRenameModal({ open: false, project: null });
         setNewName('');
       } catch {
         // Error handled by React Query
       }
     }
-  };
+  }, [renameModal.project, newName, updateProject, emitProjectsUpdated]);
 
-  const handleDuplicate = async () => {
+  const handleDuplicate = useCallback(async () => {
     if (duplicateModal.project) {
       try {
-        await duplicateProject.mutateAsync({
+        const result = await duplicateProject.mutateAsync({
           projectId: duplicateModal.project.id,
           newName: `${duplicateModal.project.name} (Copy)`
         });
+        // Slice 2-0: Emit invalidation for cross-tab sync
+        emitProjectsCreated([result.id]);
         setDuplicateModal({ open: false, project: null });
       } catch {
         // Error handled by React Query
       }
     }
-  };
+  }, [duplicateModal.project, duplicateProject, emitProjectsCreated]);
 
-  const handleArchive = () => {
+  const handleArchive = useCallback(() => {
     // Archive functionality not yet in API - show coming soon
     if (archiveModal.project) {
       setArchiveModal({ open: false, project: null });
     }
-  };
+  }, [archiveModal.project]);
 
-  const handleDelete = async () => {
+  const handleDelete = useCallback(async () => {
     if (deleteModal.project) {
+      const projectId = deleteModal.project.id;
       try {
-        await deleteProject.mutateAsync(deleteModal.project.id);
+        await deleteProject.mutateAsync(projectId);
+        // Slice 2-0: Emit invalidation for cross-tab sync
+        emitProjectsDeleted([projectId]);
         setDeleteModal({ open: false, project: null });
       } catch {
         // Error handled by React Query
       }
     }
-  };
+  }, [deleteModal.project, deleteProject, emitProjectsDeleted]);
 
   // Loading state
   if (isLoading) {
@@ -426,7 +456,6 @@ function ProjectRow({
   onArchive: () => void;
   onDelete: () => void;
 }) {
-  const [showMenu, setShowMenu] = useState(false);
   const core = coreTypeConfig[project.coreType];
   const runStatus = project.lastRunStatus ? runStatusConfig[project.lastRunStatus] : runStatusConfig.none;
   const CoreIcon = core.icon;
@@ -483,24 +512,36 @@ function ProjectRow({
               {project.isDraft ? 'Resume' : 'Open'}
             </Button>
           </Link>
-          <div className="relative">
-            <button
-              onClick={() => setShowMenu(!showMenu)}
-              className="p-1.5 hover:bg-white/10 transition-colors"
-            >
-              <MoreVertical className="w-3.5 h-3.5 text-white/40" />
-            </button>
-            {showMenu && (
-              <ActionMenu
-                project={project}
-                onClose={() => setShowMenu(false)}
-                onRename={onRename}
-                onDuplicate={onDuplicate}
-                onArchive={onArchive}
-                onDelete={onDelete}
-              />
-            )}
-          </div>
+          {/* Slice 2-0: Use Radix DropdownMenu with portal to prevent clipping */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="p-1.5 hover:bg-white/10 transition-colors focus:outline-none focus:bg-white/10"
+                aria-label="Project actions"
+              >
+                <MoreVertical className="w-3.5 h-3.5 text-white/40" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={onRename}>
+                <Pencil className="w-3 h-3 mr-2" />
+                Rename
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onDuplicate}>
+                <Copy className="w-3 h-3 mr-2" />
+                Duplicate
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onArchive}>
+                <Archive className="w-3 h-3 mr-2" />
+                {project.status === 'ACTIVE' ? 'Archive' : 'Restore'}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={onDelete} destructive>
+                <Trash2 className="w-3 h-3 mr-2" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -527,24 +568,36 @@ function ProjectRow({
               </span>
             </div>
           </div>
-          <div className="relative">
-            <button
-              onClick={() => setShowMenu(!showMenu)}
-              className="p-1 hover:bg-white/10 transition-colors"
-            >
-              <MoreVertical className="w-3 h-3 text-white/40" />
-            </button>
-            {showMenu && (
-              <ActionMenu
-                project={project}
-                onClose={() => setShowMenu(false)}
-                onRename={onRename}
-                onDuplicate={onDuplicate}
-                onArchive={onArchive}
-                onDelete={onDelete}
-              />
-            )}
-          </div>
+          {/* Slice 2-0: Mobile dropdown with portal */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="p-1 hover:bg-white/10 transition-colors focus:outline-none focus:bg-white/10"
+                aria-label="Project actions"
+              >
+                <MoreVertical className="w-3 h-3 text-white/40" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={onRename}>
+                <Pencil className="w-3 h-3 mr-2" />
+                Rename
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onDuplicate}>
+                <Copy className="w-3 h-3 mr-2" />
+                Duplicate
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onArchive}>
+                <Archive className="w-3 h-3 mr-2" />
+                {project.status === 'ACTIVE' ? 'Archive' : 'Restore'}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={onDelete} destructive>
+                <Trash2 className="w-3 h-3 mr-2" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         <div className="grid grid-cols-3 gap-2 text-[9px] font-mono mb-2">
           <div>
@@ -569,59 +622,6 @@ function ProjectRow({
         </Link>
       </div>
     </div>
-  );
-}
-
-function ActionMenu({
-  project,
-  onClose,
-  onRename,
-  onDuplicate,
-  onArchive,
-  onDelete
-}: {
-  project: ProjectView;
-  onClose: () => void;
-  onRename: () => void;
-  onDuplicate: () => void;
-  onArchive: () => void;
-  onDelete: () => void;
-}) {
-  return (
-    <>
-      <div className="fixed inset-0 z-10" onClick={onClose} />
-      <div className="absolute right-0 mt-1 w-36 bg-black border border-white/20 py-1 z-20">
-        <button
-          onClick={() => { onClose(); onRename(); }}
-          className="flex items-center gap-2 w-full px-3 py-1.5 text-xs font-mono text-white/60 hover:bg-white/10"
-        >
-          <Pencil className="w-3 h-3" />
-          Rename
-        </button>
-        <button
-          onClick={() => { onClose(); onDuplicate(); }}
-          className="flex items-center gap-2 w-full px-3 py-1.5 text-xs font-mono text-white/60 hover:bg-white/10"
-        >
-          <Copy className="w-3 h-3" />
-          Duplicate
-        </button>
-        <button
-          onClick={() => { onClose(); onArchive(); }}
-          className="flex items-center gap-2 w-full px-3 py-1.5 text-xs font-mono text-white/60 hover:bg-white/10"
-        >
-          <Archive className="w-3 h-3" />
-          {project.status === 'ACTIVE' ? 'Archive' : 'Restore'}
-        </button>
-        <div className="border-t border-white/10 my-1" />
-        <button
-          onClick={() => { onClose(); onDelete(); }}
-          className="flex items-center gap-2 w-full px-3 py-1.5 text-xs font-mono text-red-400 hover:bg-red-500/10"
-        >
-          <Trash2 className="w-3 h-3" />
-          Delete
-        </button>
-      </div>
-    </>
   );
 }
 
