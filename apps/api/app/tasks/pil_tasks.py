@@ -536,7 +536,7 @@ Provide the goal summary and domain classification."""
         }
         domain_guess = domain_map.get(domain.lower(), DomainGuess.GENERIC.value)
 
-        # Build LLM proof metadata for audit trail
+        # Build LLM proof metadata for audit trail (Slice 1A: LLM Truth)
         llm_proof = {
             "call_id": getattr(response, "call_id", str(uuid.uuid4())),
             "profile_key": LLMProfileKey.PIL_GOAL_ANALYSIS.value,
@@ -546,6 +546,10 @@ Provide the goal summary and domain classification."""
             "output_tokens": getattr(response, "output_tokens", 0),
             "cost_usd": getattr(response, "cost_usd", 0.0),
             "timestamp": datetime.utcnow().isoformat(),
+            # Slice 1A: Provider verification
+            "provider": getattr(response, "provider", "openrouter"),
+            "fallback_used": getattr(response, "fallback_used", False),
+            "fallback_attempts": getattr(response, "fallback_attempts", 0),
         }
 
         return goal_summary, domain_guess, llm_proof
@@ -686,7 +690,7 @@ Generate 3-5 questions tailored to this specific goal and domain."""
                 "required": True,
             })
 
-        # Build LLM proof metadata
+        # Build LLM proof metadata (Slice 1A: LLM Truth)
         llm_proof = {
             "call_id": getattr(response, "call_id", str(uuid.uuid4())),
             "profile_key": LLMProfileKey.PIL_CLARIFYING_QUESTIONS.value,
@@ -696,6 +700,10 @@ Generate 3-5 questions tailored to this specific goal and domain."""
             "output_tokens": getattr(response, "output_tokens", 0),
             "cost_usd": getattr(response, "cost_usd", 0.0),
             "timestamp": datetime.utcnow().isoformat(),
+            # Slice 1A: Provider verification
+            "provider": getattr(response, "provider", "openrouter"),
+            "fallback_used": getattr(response, "fallback_used", False),
+            "fallback_attempts": getattr(response, "fallback_attempts", 0),
         }
 
         return questions, llm_proof
@@ -836,7 +844,7 @@ Return ONLY valid JSON with this exact structure (keep arrays short, max 2-3 ite
             "key_challenges": result.get("key_challenges", []),
         }
 
-        # Build LLM proof metadata
+        # Build LLM proof metadata (Slice 1A: LLM Truth)
         llm_proof = {
             "call_id": getattr(response, "call_id", str(uuid.uuid4())),
             "profile_key": LLMProfileKey.PIL_BLUEPRINT_GENERATION.value,
@@ -846,6 +854,10 @@ Return ONLY valid JSON with this exact structure (keep arrays short, max 2-3 ite
             "output_tokens": getattr(response, "output_tokens", 0),
             "cost_usd": getattr(response, "cost_usd", 0.0),
             "timestamp": datetime.utcnow().isoformat(),
+            # Slice 1A: Provider verification
+            "provider": getattr(response, "provider", "openrouter"),
+            "fallback_used": getattr(response, "fallback_used", False),
+            "fallback_attempts": getattr(response, "fallback_attempts", 0),
         }
 
         return blueprint_preview, llm_proof
@@ -980,7 +992,7 @@ What are the key risks and challenges?"""
         if not risks:
             risks = ["No significant risks identified at this stage"]
 
-        # Build LLM proof metadata
+        # Build LLM proof metadata (Slice 1A: LLM Truth)
         llm_proof = {
             "call_id": getattr(response, "call_id", str(uuid.uuid4())),
             "profile_key": LLMProfileKey.PIL_RISK_ASSESSMENT.value,
@@ -990,6 +1002,10 @@ What are the key risks and challenges?"""
             "output_tokens": getattr(response, "output_tokens", 0),
             "cost_usd": getattr(response, "cost_usd", 0.0),
             "timestamp": datetime.utcnow().isoformat(),
+            # Slice 1A: Provider verification
+            "provider": getattr(response, "provider", "openrouter"),
+            "fallback_used": getattr(response, "fallback_used", False),
+            "fallback_attempts": getattr(response, "fallback_attempts", 0),
         }
 
         return risks, llm_proof

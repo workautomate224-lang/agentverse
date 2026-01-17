@@ -15,6 +15,30 @@ export interface ClarifyingQuestion {
   required: boolean;
 }
 
+// Slice 1A: LLM Call Proof for verification
+export interface LLMCallProof {
+  call_id: string;
+  profile_key: string;
+  model: string;
+  cache_hit: boolean;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+  timestamp: string;
+  // Slice 1A additions
+  provider: string;  // "openrouter" for real calls
+  fallback_used: boolean;
+  fallback_attempts: number;
+}
+
+// Slice 1A: Aggregated LLM proof for goal analysis
+export interface LLMProof {
+  goal_analysis?: LLMCallProof;
+  clarifying_questions?: LLMCallProof;
+  blueprint_preview?: LLMCallProof;
+  risk_assessment?: LLMCallProof;
+}
+
 // Goal analysis result from /api/goal-analysis
 export interface GoalAnalysisResult {
   goal_summary: string;
@@ -26,6 +50,8 @@ export interface GoalAnalysisResult {
   clarifying_questions: ClarifyingQuestion[];
   risk_notes: string[];
   processing_time_ms: number;
+  // Slice 1A: LLM Provenance for verification
+  llm_proof?: LLMProof;
 }
 
 // Input slot definition (per blueprint_v2.md §4.3)

@@ -72,6 +72,10 @@ class LLMRouterResponse(BaseModel):
     cache_hit: bool
     profile_key: str
     call_id: Optional[str] = None
+    # Slice 1A: LLM Provenance fields for verification
+    provider: str = "openrouter"  # Always "openrouter" for real LLM calls
+    fallback_used: bool = False  # True if a fallback model was used
+    fallback_attempts: int = 0  # Number of models tried before success
     # Advanced feature outputs
     reasoning: Optional[str] = None  # Thinking mode reasoning output
     web_search_results: Optional[List[Dict[str, Any]]] = None  # Web search results
@@ -215,6 +219,10 @@ class LLMRouter:
                     cache_hit=True,
                     profile_key=profile_key,
                     call_id=str(call_id),
+                    # Slice 1A: Provenance for cached responses
+                    provider="openrouter",
+                    fallback_used=False,
+                    fallback_attempts=0,
                 )
 
         # 5. Make the call (with fallback support)
@@ -308,6 +316,10 @@ class LLMRouter:
             cache_hit=False,
             profile_key=profile_key,
             call_id=str(call_id),
+            # Slice 1A: Provenance for fresh LLM calls
+            provider="openrouter",
+            fallback_used=fallback_attempts > 0,
+            fallback_attempts=fallback_attempts,
             reasoning=response.reasoning,
             web_search_results=response.web_search_results,
         )

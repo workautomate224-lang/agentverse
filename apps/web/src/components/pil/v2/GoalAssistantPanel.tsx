@@ -30,6 +30,9 @@ import {
   XCircle,
   Clock,
   RefreshCw,
+  Zap,
+  Database,
+  Shield,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ExitConfirmationModal, useExitConfirmation } from '@/components/pil/ExitConfirmationModal';
@@ -40,6 +43,7 @@ import type {
   ClarifyingQuestion,
   GoalAnalysisResult,
   BlueprintDraft,
+  LLMProof,
 } from '@/types/blueprint-v2';
 
 // VERTICAL SLICE #1: Local storage key for wizard state persistence
@@ -543,6 +547,40 @@ export function GoalAssistantPanel({
                   {analysisResult.scope_guess}
                 </span>
               </div>
+
+              {/* Slice 1A: LLM Provenance Display */}
+              {analysisResult.llm_proof?.goal_analysis && (
+                <div className="mt-3 pt-3 border-t border-white/10">
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <Shield className="w-3 h-3 text-green-400" />
+                    <span className="text-[10px] font-mono font-bold text-green-400 uppercase">LLM Provenance</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[10px] font-mono">
+                    <div className="flex items-center gap-1.5">
+                      <Zap className="w-2.5 h-2.5 text-cyan-400" />
+                      <span className="text-white/50">Provider:</span>
+                      <span className="text-cyan-400">{analysisResult.llm_proof.goal_analysis.provider || 'openrouter'}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Database className="w-2.5 h-2.5 text-cyan-400" />
+                      <span className="text-white/50">Model:</span>
+                      <span className="text-cyan-400">{analysisResult.llm_proof.goal_analysis.model}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-white/50">Cache:</span>
+                      <span className={analysisResult.llm_proof.goal_analysis.cache_hit ? 'text-yellow-400' : 'text-green-400'}>
+                        {analysisResult.llm_proof.goal_analysis.cache_hit ? 'Hit' : 'Bypassed'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-white/50">Fallback:</span>
+                      <span className={analysisResult.llm_proof.goal_analysis.fallback_used ? 'text-red-400' : 'text-green-400'}>
+                        {analysisResult.llm_proof.goal_analysis.fallback_used ? 'Yes' : 'No'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Questions */}
