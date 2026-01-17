@@ -70,6 +70,7 @@ export interface WizardPersistedState {
 
   // Clarification state
   clarificationAnswers: Record<string, string>;
+  userDidSkipClarify: boolean;  // Slice 1D-A: Track if user skipped clarification
 
   // Blueprint state
   blueprintDraft: BlueprintDraft | null;
@@ -84,10 +85,162 @@ export interface WizardPersistedState {
   activeJobType: 'goal_analysis' | 'blueprint_build' | null;
 }
 
+/**
+ * Blueprint Input - canonical structure for LLM blueprint generation.
+ * Slice 1D-A: This is what gets sent to the LLM for blueprint generation.
+ */
+export interface BlueprintInput {
+  goal_text: string;
+  goal_summary: string;
+  domain_guess: string;
+  clarifying_questions: Array<{
+    id: string;
+    question: string;
+    answer: string | null;
+  }>;
+  user_skipped_clarify: boolean;
+  generation_context: {
+    schema_version: number;
+    timestamp: string;
+  };
+}
+
+/**
+ * Build the canonical BlueprintInput from wizard state.
+ * Slice 1D-A: Combines goal_text + answers (or empty answers if skipped),
+ * strips fields not needed by LLM.
+ *
+ * @param state The current wizard persisted state
+ * @returns BlueprintInput ready for LLM blueprint generation
+ */
+export function buildBlueprintInput(state: WizardPersistedState): BlueprintInput {
+  const goalAnalysis = state.goalAnalysisResult;
+  const questions = goalAnalysis?.clarifying_questions || [];
+
+  // Build clarifying questions with answers
+  // If user skipped clarification, answers will be null
+  const clarifyingQuestionsWithAnswers = questions.map(q => ({
+    id: q.id,
+    question: q.question,
+    answer: state.userDidSkipClarify ? null : (state.clarificationAnswers[q.id] || null),
+  }));
+
+  return {
+    goal_text: state.goalText,
+    goal_summary: goalAnalysis?.goal_summary || '',
+    domain_guess: goalAnalysis?.domain_guess || '',
+    clarifying_questions: clarifyingQuestionsWithAnswers,
+    user_skipped_clarify: state.userDidSkipClarify,
+    generation_context: {
+      schema_version: state.schemaVersion,
+      timestamp: new Date().toISOString(),
+    },
+  };
+}
+
+/**
+ * Get the BlueprintInput for the current wizard state.
+ * Convenience function that loads from localStorage and builds the input.
+ */
+export function getCurrentBlueprintInput(): BlueprintInput | null {
+  const state = loadWizardState();
+  if (!state) return null;
+  return buildBlueprintInput(state);
+}
+
 // Constants
-const STORAGE_KEY = 'agentverse:wizard:new_project:v1';
+const STORAGE_KEY_PREFIX = 'agentverse:wizard:project:';
+const STORAGE_KEY_SUFFIX = ':v1';
+const LEGACY_STORAGE_KEY = 'agentverse:wizard:new_project:v1';
 const SCHEMA_VERSION = 1;
 const TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+// Module-level state for tracking current draft project
+// Moved up to be available for localStorage key functions
+let currentDraftProjectId: string | null = null;
+let currentWizardStateVersion: number = 0;
+
+/**
+ * Get the localStorage key for a specific project.
+ * Slice 1D-A: Project-scoped localStorage keys.
+ */
+function getStorageKeyForProject(projectId: string | null): string {
+  if (projectId) {
+    return `${STORAGE_KEY_PREFIX}${projectId}${STORAGE_KEY_SUFFIX}`;
+  }
+  // Fallback to legacy key for backward compatibility during migration
+  return LEGACY_STORAGE_KEY;
+}
+
+/**
+ * Get the current storage key based on active draft project.
+ */
+function getCurrentStorageKey(): string {
+  return getStorageKeyForProject(currentDraftProjectId);
+}
+
+/**
+ * Clean up localStorage for a specific project.
+ * Call this when a project becomes ACTIVE or is deleted.
+ * Slice 1D-A requirement.
+ */
+export function cleanupProjectLocalStorage(projectId: string): void {
+  if (!isStorageAvailable()) return;
+
+  try {
+    const key = getStorageKeyForProject(projectId);
+    window.localStorage.removeItem(key);
+  } catch {
+    // Silently fail
+  }
+}
+
+/**
+ * Clean up all wizard localStorage entries (for development/testing).
+ * Removes both legacy and project-scoped entries.
+ */
+export function cleanupAllWizardLocalStorage(): void {
+  if (!isStorageAvailable()) return;
+
+  try {
+    // Remove legacy key
+    window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+
+    // Find and remove all project-scoped keys
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (key && key.startsWith(STORAGE_KEY_PREFIX)) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(key => window.localStorage.removeItem(key));
+  } catch {
+    // Silently fail
+  }
+}
+
+/**
+ * Migrate legacy localStorage to project-scoped storage.
+ * Called when a draft project is first created.
+ */
+export function migrateToProjectStorage(projectId: string): void {
+  if (!isStorageAvailable()) return;
+
+  try {
+    // Check if legacy key has data
+    const legacyData = window.localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (legacyData) {
+      // Copy to project-scoped key
+      const projectKey = getStorageKeyForProject(projectId);
+      window.localStorage.setItem(projectKey, legacyData);
+      // Remove legacy key
+      window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+    }
+  } catch {
+    // Silently fail
+  }
+}
 
 /**
  * Check if we're in a browser environment with localStorage
@@ -115,6 +268,7 @@ export function createDefaultWizardState(): WizardPersistedState {
     goalAnalysisResult: null,
     goalAnalysisJobId: null,
     clarificationAnswers: {},
+    userDidSkipClarify: false,  // Slice 1D-A
     blueprintDraft: null,
     blueprintJobId: null,
     stage: 'idle',
@@ -125,7 +279,8 @@ export function createDefaultWizardState(): WizardPersistedState {
 }
 
 /**
- * Save wizard state to localStorage
+ * Save wizard state to localStorage.
+ * Slice 1D-A: Uses project-scoped key when draft project exists.
  */
 export function saveWizardState(state: Partial<WizardPersistedState>): void {
   if (!isStorageAvailable()) return;
@@ -140,14 +295,18 @@ export function saveWizardState(state: Partial<WizardPersistedState>): void {
       updatedAt: new Date().toISOString(),
     };
 
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    const storageKey = getCurrentStorageKey();
+    window.localStorage.setItem(storageKey, JSON.stringify(merged));
   } catch {
     // Silently fail - don't break the app if storage fails
   }
 }
 
 /**
- * Load wizard state from localStorage
+ * Load wizard state from localStorage.
+ * Slice 1D-A: Uses project-scoped key when draft project exists,
+ * with fallback to legacy key for migration.
+ *
  * Returns null if:
  * - No state exists
  * - State is expired (TTL exceeded)
@@ -157,7 +316,14 @@ export function loadWizardState(): WizardPersistedState | null {
   if (!isStorageAvailable()) return null;
 
   try {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
+    const storageKey = getCurrentStorageKey();
+    let stored = window.localStorage.getItem(storageKey);
+
+    // Slice 1D-A: If no project-scoped data, try legacy key as fallback
+    if (!stored && currentDraftProjectId) {
+      stored = window.localStorage.getItem(LEGACY_STORAGE_KEY);
+    }
+
     if (!stored) return null;
 
     const parsed = JSON.parse(stored) as WizardPersistedState;
@@ -186,13 +352,19 @@ export function loadWizardState(): WizardPersistedState | null {
 }
 
 /**
- * Clear wizard state from localStorage
+ * Clear wizard state from localStorage.
+ * Slice 1D-A: Clears both project-scoped and legacy keys.
  */
 export function clearWizardState(): void {
   if (!isStorageAvailable()) return;
 
   try {
-    window.localStorage.removeItem(STORAGE_KEY);
+    // Clear project-scoped key if exists
+    const projectKey = getCurrentStorageKey();
+    window.localStorage.removeItem(projectKey);
+
+    // Also clear legacy key for cleanup
+    window.localStorage.removeItem(LEGACY_STORAGE_KEY);
   } catch {
     // Silently fail
   }
@@ -238,29 +410,57 @@ export function updateClarificationAnswer(questionId: string, answer: string): v
  * Get the storage key for debugging purposes
  */
 export function getStorageKey(): string {
-  return STORAGE_KEY;
+  return getCurrentStorageKey();
 }
 
 // =============================================================================
 // Slice 1C: Server Sync (Project-level Persistence)
 // =============================================================================
 
-/**
- * Track the current draft project ID (set when wizard creates a draft)
- */
-let currentDraftProjectId: string | null = null;
-let currentWizardStateVersion: number = 0;
+// Note: currentDraftProjectId and currentWizardStateVersion are now defined
+// earlier in the file (after constants) to support localStorage key functions.
 
 // Debounce timer for autosave
 let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
 const AUTOSAVE_DEBOUNCE_MS = 500;
 
 /**
- * Set the current draft project ID for server sync
+ * Result of an autosave operation.
+ * Slice 1D-A: Enhanced with conflict detection.
+ */
+export type AutosaveResult = {
+  success: boolean;
+  status: 'saved' | 'conflict' | 'error' | 'offline' | 'no_project';
+  message?: string;
+};
+
+// Callback for notifying consumers of autosave results
+type AutosaveCallback = (result: AutosaveResult) => void;
+let autosaveCallback: AutosaveCallback | null = null;
+
+/**
+ * Register a callback to be notified of autosave results.
+ * Used by components to update save status indicators.
+ */
+export function onAutosaveResult(callback: AutosaveCallback | null): void {
+  autosaveCallback = callback;
+}
+
+/**
+ * Set the current draft project ID for server sync.
+ * Slice 1D-A: Migrates legacy localStorage to project-scoped storage.
  */
 export function setDraftProjectId(projectId: string | null, version: number = 0): void {
+  const previousProjectId = currentDraftProjectId;
+
   currentDraftProjectId = projectId;
   currentWizardStateVersion = version;
+
+  // Slice 1D-A: Migrate legacy localStorage to project-scoped storage
+  // when a project ID is first set
+  if (projectId && !previousProjectId) {
+    migrateToProjectStorage(projectId);
+  }
 }
 
 /**
@@ -389,6 +589,7 @@ export function fromServerWizardState(server: WizardState): WizardPersistedState
     } : null,
     goalAnalysisJobId,
     clarificationAnswers: server.clarification_answers as Record<string, string>,
+    userDidSkipClarify: false,  // Slice 1D-A: Default to false; server doesn't track this yet
     blueprintDraft: server.blueprint_draft as unknown as BlueprintDraft | null,
     blueprintJobId,
     stage,
@@ -402,14 +603,18 @@ export function fromServerWizardState(server: WizardState): WizardPersistedState
  * Autosave wizard state to server with debouncing.
  * Uses optimistic concurrency control (409 on version mismatch).
  * Falls back to localStorage only if server is unavailable.
+ *
+ * Slice 1D-A: Enhanced to return detailed result and notify via callback.
  */
-export async function autosaveToServer(state: Partial<WizardPersistedState>): Promise<boolean> {
+export async function autosaveToServer(state: Partial<WizardPersistedState>): Promise<AutosaveResult> {
   // Always save to localStorage first (fallback)
   saveWizardState(state);
 
   // If no draft project, skip server sync
   if (!currentDraftProjectId) {
-    return false;
+    const result: AutosaveResult = { success: false, status: 'no_project' };
+    autosaveCallback?.(result);
+    return result;
   }
 
   // Clear any pending autosave
@@ -420,10 +625,14 @@ export async function autosaveToServer(state: Partial<WizardPersistedState>): Pr
   // Debounced server save
   return new Promise((resolve) => {
     autosaveTimer = setTimeout(async () => {
+      let result: AutosaveResult;
+
       try {
         const fullState = loadWizardState();
         if (!fullState) {
-          resolve(false);
+          result = { success: false, status: 'error', message: 'No state to save' };
+          autosaveCallback?.(result);
+          resolve(result);
           return;
         }
 
@@ -435,18 +644,93 @@ export async function autosaveToServer(state: Partial<WizardPersistedState>): Pr
 
         // Update version for next save
         currentWizardStateVersion = response.wizard_state_version;
-        resolve(true);
+        result = { success: true, status: 'saved' };
+        autosaveCallback?.(result);
+        resolve(result);
       } catch (error: unknown) {
         // Check for version conflict (409)
         if (error && typeof error === 'object' && 'status' in error && error.status === 409) {
-          // Version conflict - someone else updated. Could trigger reload.
-          resolve(false);
+          result = {
+            success: false,
+            status: 'conflict',
+            message: 'This draft was updated elsewhere. Reload to continue.',
+          };
+          autosaveCallback?.(result);
+          resolve(result);
+          return;
         }
-        // Other errors - keep localStorage as fallback
-        resolve(false);
+
+        // Check if offline/network error
+        if (error instanceof TypeError && error.message.includes('fetch')) {
+          result = { success: false, status: 'offline', message: 'Network unavailable' };
+          autosaveCallback?.(result);
+          resolve(result);
+          return;
+        }
+
+        // Other errors
+        const message = error instanceof Error ? error.message : 'Save failed';
+        result = { success: false, status: 'error', message };
+        autosaveCallback?.(result);
+        resolve(result);
       }
     }, AUTOSAVE_DEBOUNCE_MS);
   });
+}
+
+/**
+ * Force an immediate save without debouncing.
+ * Used for retry functionality after errors.
+ */
+export async function forceSaveToServer(): Promise<AutosaveResult> {
+  // Cancel any pending debounced save
+  if (autosaveTimer) {
+    clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+  }
+
+  if (!currentDraftProjectId) {
+    const result: AutosaveResult = { success: false, status: 'no_project' };
+    autosaveCallback?.(result);
+    return result;
+  }
+
+  let result: AutosaveResult;
+
+  try {
+    const fullState = loadWizardState();
+    if (!fullState) {
+      result = { success: false, status: 'error', message: 'No state to save' };
+      autosaveCallback?.(result);
+      return result;
+    }
+
+    const serverState = toServerWizardState(fullState);
+    const response = await api.patchWizardState(currentDraftProjectId, {
+      wizard_state: serverState,
+      expected_version: currentWizardStateVersion,
+    });
+
+    currentWizardStateVersion = response.wizard_state_version;
+    result = { success: true, status: 'saved' };
+    autosaveCallback?.(result);
+    return result;
+  } catch (error: unknown) {
+    if (error && typeof error === 'object' && 'status' in error && error.status === 409) {
+      result = {
+        success: false,
+        status: 'conflict',
+        message: 'This draft was updated elsewhere. Reload to continue.',
+      };
+    } else if (error instanceof TypeError && error.message.includes('fetch')) {
+      result = { success: false, status: 'offline', message: 'Network unavailable' };
+    } else {
+      const message = error instanceof Error ? error.message : 'Save failed';
+      result = { success: false, status: 'error', message };
+    }
+    autosaveCallback?.(result);
+    return result;
+  }
 }
 
 /**
@@ -476,12 +760,51 @@ export async function loadFromServer(projectId: string): Promise<WizardPersisted
 }
 
 /**
+ * Reload wizard state from server after a conflict.
+ * Used when a 409 conflict is detected.
+ * Returns the fresh state and notifies callback.
+ */
+export async function reloadAfterConflict(): Promise<WizardPersistedState | null> {
+  if (!currentDraftProjectId) {
+    return null;
+  }
+
+  try {
+    const response: WizardStateResponse = await api.getWizardState(currentDraftProjectId);
+
+    if (response.wizard_state) {
+      // Update version tracking to latest
+      setDraftProjectId(currentDraftProjectId, response.wizard_state_version);
+
+      // Convert and cache to localStorage
+      const localState = fromServerWizardState(response.wizard_state);
+      saveWizardState(localState);
+
+      // Notify that we're now in sync
+      autosaveCallback?.({ success: true, status: 'saved' });
+
+      return localState;
+    }
+
+    return null;
+  } catch {
+    autosaveCallback?.({ success: false, status: 'error', message: 'Failed to reload' });
+    return null;
+  }
+}
+
+/**
  * Promote draft to active and clear wizard state.
+ * Slice 1D-A: Explicitly cleans up project-scoped localStorage.
  */
 export async function promoteDraftToActive(projectId: string): Promise<boolean> {
   try {
     await api.patchProjectStatus(projectId, 'ACTIVE');
-    clearWizardState();
+
+    // Slice 1D-A: Clean up localStorage for this specific project
+    cleanupProjectLocalStorage(projectId);
+
+    // Reset tracking state
     setDraftProjectId(null, 0);
     return true;
   } catch {
@@ -491,10 +814,21 @@ export async function promoteDraftToActive(projectId: string): Promise<boolean> 
 
 /**
  * Clear all wizard state (localStorage and server tracking).
+ * Slice 1D-A: Cleans up project-scoped localStorage before resetting.
  */
 export function clearAllWizardState(): void {
+  // Clean up current project's localStorage before resetting ID
+  if (currentDraftProjectId) {
+    cleanupProjectLocalStorage(currentDraftProjectId);
+  }
+
+  // Also clear any legacy entries
   clearWizardState();
+
+  // Reset tracking state
   setDraftProjectId(null, 0);
+
+  // Cancel pending autosave
   if (autosaveTimer) {
     clearTimeout(autosaveTimer);
     autosaveTimer = null;

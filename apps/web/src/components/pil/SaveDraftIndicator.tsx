@@ -4,27 +4,33 @@
  * Save Draft Indicator Component
  * Reference: blueprint.md §4.3
  *
- * Shows the current save status for draft data (saving, saved, error).
+ * Shows the current save status for draft data (saving, saved, error, conflict).
  * Used with ClarifyPanel and other forms that auto-save.
+ *
+ * Slice 1D-A: Enhanced with conflict (409) handling and retry/reload buttons.
  */
 
 import { useMemo } from 'react';
-import { Check, Loader2, AlertCircle, Cloud, CloudOff } from 'lucide-react';
+import { Check, Loader2, AlertCircle, Cloud, CloudOff, RefreshCw, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error' | 'offline';
+export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error' | 'offline' | 'conflict';
 
 interface SaveDraftIndicatorProps {
   /** Current save status */
   status: SaveStatus;
   /** Last saved timestamp */
   lastSavedAt?: Date | string | null;
-  /** Error message if status is 'error' */
+  /** Error message if status is 'error' or 'conflict' */
   errorMessage?: string;
   /** Additional CSS classes */
   className?: string;
   /** Whether to show in compact mode */
   compact?: boolean;
+  /** Callback for retry button (shown on 'error' status) */
+  onRetry?: () => void;
+  /** Callback for reload button (shown on 'conflict' status) */
+  onReload?: () => void;
 }
 
 export function SaveDraftIndicator({
@@ -33,6 +39,8 @@ export function SaveDraftIndicator({
   errorMessage,
   className,
   compact = false,
+  onRetry,
+  onReload,
 }: SaveDraftIndicatorProps) {
   const formattedTime = useMemo(() => {
     if (!lastSavedAt) return null;
@@ -84,6 +92,14 @@ export function SaveDraftIndicator({
           bgColor: 'bg-yellow-400/10',
           animate: false,
         };
+      case 'conflict':
+        return {
+          icon: AlertTriangle,
+          label: errorMessage || 'Draft updated elsewhere',
+          color: 'text-orange-400',
+          bgColor: 'bg-orange-400/10',
+          animate: false,
+        };
       default:
         return {
           icon: Cloud,
@@ -113,17 +129,48 @@ export function SaveDraftIndicator({
     );
   }
 
+  // Determine border color based on status
+  const getBorderColor = () => {
+    if (status === 'error') return 'border-red-400/30';
+    if (status === 'conflict') return 'border-orange-400/30';
+    return 'border-white/10';
+  };
+
   return (
     <div
       className={cn(
         'flex items-center gap-2 px-3 py-1.5 rounded border',
         config.bgColor,
-        status === 'error' ? 'border-red-400/30' : 'border-white/10',
+        getBorderColor(),
         className
       )}
     >
       <Icon className={cn('h-3.5 w-3.5', config.color, config.animate && 'animate-spin')} />
       <span className={cn('text-xs font-mono', config.color)}>{config.label}</span>
+
+      {/* Retry button for error state */}
+      {status === 'error' && onRetry && (
+        <button
+          onClick={onRetry}
+          className="ml-1 flex items-center gap-1 px-2 py-0.5 text-xs font-mono text-red-400 hover:text-red-300 hover:bg-red-400/20 rounded transition-colors"
+          title="Retry save"
+        >
+          <RefreshCw className="h-3 w-3" />
+          Retry
+        </button>
+      )}
+
+      {/* Reload button for conflict state */}
+      {status === 'conflict' && onReload && (
+        <button
+          onClick={onReload}
+          className="ml-1 flex items-center gap-1 px-2 py-0.5 text-xs font-mono text-orange-400 hover:text-orange-300 hover:bg-orange-400/20 rounded transition-colors"
+          title="Reload latest draft"
+        >
+          <RefreshCw className="h-3 w-3" />
+          Reload
+        </button>
+      )}
     </div>
   );
 }

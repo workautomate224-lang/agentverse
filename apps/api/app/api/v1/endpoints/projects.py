@@ -1,11 +1,24 @@
 """
 Project Management Endpoints
+
+DEPRECATED: This module is deprecated as of Slice 1D-A (2026-01-17).
+Use /api/v1/project-specs endpoints instead.
+
+All endpoints in this file will be removed in a future release.
+Frontend and API clients should migrate to:
+- POST /api/v1/project-specs - Create project
+- GET /api/v1/project-specs - List projects
+- GET /api/v1/project-specs/{id} - Get project
+- PATCH /api/v1/project-specs/{id} - Update project
+- DELETE /api/v1/project-specs/{id} - Delete project
+- PATCH /api/v1/project-specs/{id}/wizard-state - Update wizard state
+- POST /api/v1/project-specs/{id}/status - Change project status
 """
 
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -17,9 +30,22 @@ from app.schemas.simulation import ProjectCreate, ProjectResponse, ProjectUpdate
 
 router = APIRouter()
 
+# Deprecation date for all endpoints in this module
+DEPRECATION_DATE = "2026-01-17"
+SUNSET_DATE = "2026-04-01"  # 3 months from deprecation
+MIGRATION_URL = "/api/v1/project-specs"
 
-@router.get("/", response_model=list[ProjectResponse])
+
+def add_deprecation_headers(response: Response) -> None:
+    """Add RFC 8594 deprecation headers to response."""
+    response.headers["Deprecation"] = DEPRECATION_DATE
+    response.headers["Sunset"] = SUNSET_DATE
+    response.headers["Link"] = f'<{MIGRATION_URL}>; rel="successor-version"'
+
+
+@router.get("/", response_model=list[ProjectResponse], deprecated=True)
 async def list_projects(
+    response: Response,
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     domain: Optional[str] = Query(None, pattern="^(marketing|political|finance|custom)$"),
@@ -29,7 +55,11 @@ async def list_projects(
 ) -> list[Project]:
     """
     List all projects for current user.
+
+    DEPRECATED: Use GET /api/v1/project-specs instead.
+    This endpoint will be removed after 2026-04-01.
     """
+    add_deprecation_headers(response)
     query = select(Project).where(Project.user_id == current_user.id)
 
     if domain:
@@ -44,15 +74,20 @@ async def list_projects(
     return result.scalars().all()
 
 
-@router.post("/", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED, deprecated=True)
 async def create_project(
     project_in: ProjectCreate,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Project:
     """
     Create a new project.
+
+    DEPRECATED: Use POST /api/v1/project-specs instead.
+    This endpoint will be removed after 2026-04-01.
     """
+    add_deprecation_headers(response)
     project = Project(
         user_id=current_user.id,
         name=project_in.name,
@@ -68,15 +103,20 @@ async def create_project(
     return project
 
 
-@router.get("/{project_id}", response_model=ProjectResponse)
+@router.get("/{project_id}", response_model=ProjectResponse, deprecated=True)
 async def get_project(
     project_id: UUID,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Project:
     """
     Get project by ID.
+
+    DEPRECATED: Use GET /api/v1/project-specs/{id} instead.
+    This endpoint will be removed after 2026-04-01.
     """
+    add_deprecation_headers(response)
     result = await db.execute(
         select(Project).where(
             Project.id == project_id,
@@ -94,16 +134,21 @@ async def get_project(
     return project
 
 
-@router.put("/{project_id}", response_model=ProjectResponse)
+@router.put("/{project_id}", response_model=ProjectResponse, deprecated=True)
 async def update_project(
     project_id: UUID,
     project_update: ProjectUpdate,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Project:
     """
     Update project by ID.
+
+    DEPRECATED: Use PATCH /api/v1/project-specs/{id} instead.
+    This endpoint will be removed after 2026-04-01.
     """
+    add_deprecation_headers(response)
     result = await db.execute(
         select(Project).where(
             Project.id == project_id,
@@ -129,15 +174,20 @@ async def update_project(
     return project
 
 
-@router.delete("/{project_id}")
+@router.delete("/{project_id}", deprecated=True)
 async def delete_project(
     project_id: UUID,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """
     Delete project by ID (cascades to scenarios and runs).
+
+    DEPRECATED: Use DELETE /api/v1/project-specs/{id} instead.
+    This endpoint will be removed after 2026-04-01.
     """
+    add_deprecation_headers(response)
     result = await db.execute(
         select(Project).where(
             Project.id == project_id,
@@ -157,16 +207,21 @@ async def delete_project(
     return {"message": "Project deleted successfully"}
 
 
-@router.post("/{project_id}/duplicate", response_model=ProjectResponse)
+@router.post("/{project_id}/duplicate", response_model=ProjectResponse, deprecated=True)
 async def duplicate_project(
     project_id: UUID,
+    response: Response,
     new_name: Optional[str] = Query(None, max_length=255),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Project:
     """
     Duplicate a project with all its scenarios.
+
+    DEPRECATED: Use POST /api/v1/project-specs/{id}/duplicate instead.
+    This endpoint will be removed after 2026-04-01.
     """
+    add_deprecation_headers(response)
     result = await db.execute(
         select(Project)
         .where(
@@ -199,15 +254,20 @@ async def duplicate_project(
     return duplicate
 
 
-@router.get("/{project_id}/stats")
+@router.get("/{project_id}/stats", deprecated=True)
 async def get_project_stats(
     project_id: UUID,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """
     Get statistics for a project.
+
+    DEPRECATED: Use GET /api/v1/project-specs/{id}/stats instead.
+    This endpoint will be removed after 2026-04-01.
     """
+    add_deprecation_headers(response)
     from app.models.simulation import Scenario, SimulationRun
 
     result = await db.execute(

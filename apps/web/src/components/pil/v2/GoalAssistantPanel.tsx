@@ -57,8 +57,12 @@ import {
   clearWizardState as clearState,
   hasRestorableState,
   autosaveToServer,
+  forceSaveToServer,
+  reloadAfterConflict,
+  onAutosaveResult,
   type WizardPersistedState,
   type WizardGoalAnalysisResult,
+  type AutosaveResult,
 } from '@/lib/wizardPersistence';
 
 interface GoalAssistantPanelProps {
@@ -102,11 +106,52 @@ export function GoalAssistantPanel({
   const [goalAnalysisJobId, setGoalAnalysisJobId] = useState<string | null>(null);
   const [blueprintJobId, setBlueprintJobId] = useState<string | null>(null);
 
+  // Slice 1D-A: Track if user skipped clarification
+  const [userDidSkipClarify, setUserDidSkipClarify] = useState(false);
+
   // VERTICAL SLICE #1: State persistence
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+  const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   const [showExitModal, setShowExitModal] = useState(false);
   const [hasRestoredState, setHasRestoredState] = useState(false);
+
+  // Slice 1D-A: Set up autosave result callback for enhanced status updates
+  useEffect(() => {
+    const handleAutosaveResult = (result: AutosaveResult) => {
+      if (result.success) {
+        setSaveStatus('saved');
+        setLastSavedAt(new Date());
+        setSaveErrorMessage(null);
+      } else {
+        // Map result status to SaveStatus
+        switch (result.status) {
+          case 'conflict':
+            setSaveStatus('conflict');
+            setSaveErrorMessage(result.message || 'Draft updated elsewhere');
+            break;
+          case 'offline':
+            setSaveStatus('offline');
+            setSaveErrorMessage(result.message || 'Network unavailable');
+            break;
+          case 'error':
+            setSaveStatus('error');
+            setSaveErrorMessage(result.message || 'Save failed');
+            break;
+          default:
+            // no_project or other - keep current status
+            break;
+        }
+      }
+    };
+
+    onAutosaveResult(handleAutosaveResult);
+
+    // Cleanup on unmount
+    return () => {
+      onAutosaveResult(null);
+    };
+  }, []);
 
   // VERTICAL SLICE #1: PIL Job hooks for background processing
   const createJobMutation = useCreatePILJob();
@@ -183,6 +228,10 @@ export function GoalAssistantPanel({
     setAnswers(saved.clarificationAnswers || {});
     if (saved.blueprintDraft) {
       setBlueprintDraft(saved.blueprintDraft);
+    }
+    // Slice 1D-A: Restore userDidSkipClarify flag
+    if (saved.userDidSkipClarify) {
+      setUserDidSkipClarify(saved.userDidSkipClarify);
     }
 
     // Restore stage
@@ -288,6 +337,7 @@ export function GoalAssistantPanel({
         blueprintJobId,
         goalAnalysisResult: analysisResult as unknown as WizardGoalAnalysisResult | null,
         clarificationAnswers: answers as Record<string, string>,
+        userDidSkipClarify,  // Slice 1D-A: Track if user skipped clarification
         blueprintDraft,
         hasCompletedAnalysis: stage !== 'idle' && stage !== 'analyzing',
         activeJobId: stage === 'analyzing' ? goalAnalysisJobId : (stage === 'generating_blueprint' ? blueprintJobId : null),
@@ -306,7 +356,7 @@ export function GoalAssistantPanel({
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [goalText, stage, goalAnalysisJobId, blueprintJobId, analysisResult, answers, blueprintDraft, hasRestoredState]);
+  }, [goalText, stage, goalAnalysisJobId, blueprintJobId, analysisResult, answers, blueprintDraft, userDidSkipClarify, hasRestoredState]);
 
   // Slice 1B Fix: DON'T clear state when blueprint is preview
   // Only clear when user explicitly starts a new project or moves to next step
@@ -364,6 +414,7 @@ export function GoalAssistantPanel({
 
     setStage('generating_blueprint');
     setError(null);
+    setUserDidSkipClarify(true);  // Slice 1D-A: Track that user skipped clarification
 
     try {
       // Slice 1C: Create draft project if callback provided
@@ -453,6 +504,39 @@ export function GoalAssistantPanel({
     }
   }, [stage, goalAnalysisJobId, blueprintJobId, retryJobMutation]);
 
+  // Slice 1D-A: Retry save after error
+  const handleRetrySave = useCallback(async () => {
+    setSaveStatus('saving');
+    await forceSaveToServer();
+  }, []);
+
+  // Slice 1D-A: Reload after conflict (409)
+  const handleReloadAfterConflict = useCallback(async () => {
+    setSaveStatus('saving');
+    const reloadedState = await reloadAfterConflict();
+    if (reloadedState) {
+      // Restore state from server
+      if (reloadedState.goalAnalysisResult) {
+        setAnalysisResult(reloadedState.goalAnalysisResult as unknown as GoalAnalysisResult);
+      }
+      if (reloadedState.clarificationAnswers) {
+        setAnswers(reloadedState.clarificationAnswers);
+      }
+      if (reloadedState.blueprintDraft) {
+        setBlueprintDraft(reloadedState.blueprintDraft);
+      }
+      // Map stage back
+      const stageMap: Record<string, Stage> = {
+        'idle': 'idle',
+        'analyzing': 'analyzing',
+        'clarifying': 'clarifying',
+        'generating': 'generating_blueprint',
+        'preview': 'preview',
+      };
+      setStage(stageMap[reloadedState.stage] || 'idle');
+    }
+  }, []);
+
   // Handle answer change
   const handleAnswerChange = useCallback((questionId: string, value: string | string[]) => {
     setAnswers(prev => ({ ...prev, [questionId]: value }));
@@ -479,12 +563,15 @@ export function GoalAssistantPanel({
         <Brain className="w-4 h-4 text-cyan-400" />
         <span className="text-sm font-mono font-bold text-white">Goal Assistant</span>
 
-        {/* PHASE 3: Save status indicator */}
+        {/* PHASE 3: Save status indicator - Slice 1D-A: Enhanced with error/conflict handling */}
         {stage === 'clarifying' && (
           <SaveDraftIndicator
             status={saveStatus}
             lastSavedAt={lastSavedAt}
-            compact
+            errorMessage={saveErrorMessage || undefined}
+            compact={saveStatus !== 'error' && saveStatus !== 'conflict'}
+            onRetry={handleRetrySave}
+            onReload={handleReloadAfterConflict}
             className="ml-2"
           />
         )}
