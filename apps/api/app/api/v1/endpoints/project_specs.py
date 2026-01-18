@@ -183,11 +183,17 @@ class WizardLLMProvenance(BaseModel):
     output_tokens: Optional[int] = None
 
 
+class WizardQuestionOption(BaseModel):
+    """Option for a clarifying question - supports {label, value} objects from frontend."""
+    label: str
+    value: str
+
+
 class WizardClarifyingQuestion(BaseModel):
     """Clarifying question from goal analysis."""
     id: str
     question: str
-    options: List[str] = Field(default_factory=list)
+    options: List[WizardQuestionOption] = Field(default_factory=list)
     rationale: str = ""
     required: bool = False
 
