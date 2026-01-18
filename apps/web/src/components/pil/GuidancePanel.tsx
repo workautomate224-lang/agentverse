@@ -316,6 +316,9 @@ export function GuidancePanel({
         suggestedActions: projectGuidance.suggested_actions,
         isProjectSpecific: true,
         blueprintVersion: projectGuidance.blueprint_version,
+        // Slice 2D: Blueprint traceability
+        projectFingerprint: projectGuidance.project_fingerprint,
+        sourceRefs: projectGuidance.source_refs,
       };
     }
     return {
@@ -488,11 +491,31 @@ export function GuidancePanel({
       {/* Content */}
       {isExpanded && (
         <div className="px-4 pb-4 space-y-4">
-          {/* Provenance indicator for project-specific guidance */}
+          {/* Slice 2D: Enhanced provenance indicator for project-specific guidance */}
           {sectionConfig.isProjectSpecific && (
-            <div className="flex items-center gap-2 text-[10px] font-mono text-cyan-400/70">
-              <Sparkles className="h-3 w-3" />
-              <span>AI-generated from your Blueprint v{sectionConfig.blueprintVersion}</span>
+            <div className="p-2 bg-cyan-500/5 border border-cyan-500/20 rounded space-y-1.5">
+              <div className="flex items-center gap-2 text-[10px] font-mono text-cyan-400">
+                <Sparkles className="h-3 w-3" />
+                <span className="font-medium">Derived from Blueprint v{sectionConfig.blueprintVersion}</span>
+              </div>
+              {sectionConfig.projectFingerprint && (
+                <div className="flex flex-wrap gap-2 text-[9px] font-mono text-gray-400">
+                  <span className="px-1.5 py-0.5 bg-white/5 border border-white/10 rounded">
+                    {sectionConfig.projectFingerprint.domain}
+                  </span>
+                  <span className="px-1.5 py-0.5 bg-white/5 border border-white/10 rounded">
+                    {sectionConfig.projectFingerprint.core_strategy}
+                  </span>
+                  <span className="px-1.5 py-0.5 bg-white/5 border border-white/10 rounded" title="Blueprint Fingerprint">
+                    #{sectionConfig.projectFingerprint.goal_hash}
+                  </span>
+                </div>
+              )}
+              {sectionConfig.sourceRefs && sectionConfig.sourceRefs.length > 0 && (
+                <div className="text-[9px] font-mono text-gray-500">
+                  Sources: {sectionConfig.sourceRefs.join(', ')}
+                </div>
+              )}
             </div>
           )}
 

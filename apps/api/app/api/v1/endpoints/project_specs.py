@@ -1140,12 +1140,16 @@ async def publish_project(
     1. Project status is DRAFT
     2. wizard_state.step is 'blueprint_preview' or 'blueprint_ready'
 
+    Slice 2D: Additionally requires:
+    3. An active blueprint MUST exist for the project (no silent skip)
+
     On success:
     - Sets status = 'ACTIVE'
     - Sets published_at = current timestamp
     - Sets wizard_state.step = 'complete'
+    - Triggers PROJECT_GENESIS job to generate blueprint-driven guidance
 
-    Returns 400 if validation fails (wrong status or wizard step).
+    Returns 400 if validation fails (wrong status, wizard step, or missing blueprint).
     """
     from datetime import datetime
     from sqlalchemy import text
@@ -1201,6 +1205,25 @@ async def publish_project(
             detail=f"Cannot publish: wizard step is '{current_step}', expected one of {valid_steps}",
         )
 
+    # Slice 2D: REQUIRE active blueprint before allowing publish
+    # Blueprint must exist and be active - no silent skip
+    blueprint_check_query = text("""
+        SELECT id, version FROM blueprints
+        WHERE project_id = :project_id AND is_active = true
+        ORDER BY version DESC LIMIT 1
+    """)
+    blueprint_check_result = await db.execute(
+        blueprint_check_query,
+        {"project_id": project_id},
+    )
+    blueprint_row = blueprint_check_result.fetchone()
+
+    if not blueprint_row:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot publish: No active blueprint found. Please complete the blueprint wizard first.",
+        )
+
     # Update to ACTIVE with published_at and set wizard step to complete
     now = datetime.utcnow()
 
@@ -1230,49 +1253,38 @@ async def publish_project(
     await db.commit()
 
     # Slice 2C: Trigger PROJECT_GENESIS job to generate project-specific guidance
-    # This is done after publish to avoid generating guidance for unpublished projects
+    # Slice 2D: Blueprint is now guaranteed by check above
+    genesis_job_id = None
     try:
         from app.models.pil_job import PILJob, PILJobStatus, PILJobType, PILJobPriority
         from app.tasks.pil_tasks import dispatch_pil_job
         from uuid import UUID as UUIDType
 
-        # Get the blueprint for this project
-        blueprint_query = text("""
-            SELECT id, version FROM blueprint_v2
-            WHERE project_id = :project_id AND is_active = true
-            ORDER BY version DESC LIMIT 1
-        """)
-        blueprint_result = await db.execute(
-            blueprint_query,
-            {"project_id": project_id},
+        # Create PROJECT_GENESIS job (blueprint_row guaranteed by Slice 2D check above)
+        genesis_job = PILJob(
+            tenant_id=UUIDType(str(tenant_ctx.tenant_id)),
+            project_id=UUIDType(project_id),
+            blueprint_id=blueprint_row.id,
+            job_type=PILJobType.PROJECT_GENESIS.value,
+            job_name=f"Project Genesis (auto-triggered on publish)",
+            status=PILJobStatus.QUEUED.value,
+            priority=PILJobPriority.HIGH.value,
+            input_params={
+                "project_id": project_id,
+                "blueprint_id": str(blueprint_row.id),
+                "blueprint_version": blueprint_row.version,
+                "trigger": "publish",
+            },
         )
-        blueprint_row = blueprint_result.fetchone()
+        db.add(genesis_job)
+        await db.commit()
+        await db.refresh(genesis_job)
+        genesis_job_id = str(genesis_job.id)
 
-        if blueprint_row:
-            # Create PROJECT_GENESIS job
-            genesis_job = PILJob(
-                tenant_id=UUIDType(str(tenant_ctx.tenant_id)),
-                project_id=UUIDType(project_id),
-                blueprint_id=blueprint_row.id,
-                job_type=PILJobType.PROJECT_GENESIS.value,
-                job_name=f"Project Genesis (auto-triggered on publish)",
-                status=PILJobStatus.QUEUED.value,
-                priority=PILJobPriority.HIGH.value,
-                input_params={
-                    "project_id": project_id,
-                    "blueprint_id": str(blueprint_row.id),
-                    "blueprint_version": blueprint_row.version,
-                    "trigger": "publish",
-                },
-            )
-            db.add(genesis_job)
-            await db.commit()
-            await db.refresh(genesis_job)
-
-            # Dispatch to Celery worker
-            dispatch_pil_job.delay(str(genesis_job.id))
+        # Dispatch to Celery worker
+        dispatch_pil_job.delay(genesis_job_id)
     except Exception as e:
-        # Log but don't fail the publish - genesis can be triggered manually
+        # Log but don't fail the publish - genesis can be triggered manually via UI
         import logging
         logging.getLogger(__name__).warning(f"Failed to trigger PROJECT_GENESIS on publish: {e}")
 

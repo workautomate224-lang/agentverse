@@ -7634,6 +7634,15 @@ export interface GuidanceWhatToInput {
 }
 
 /** Project guidance response for a single section */
+/** Slice 2D: Project fingerprint for Blueprint traceability */
+export interface ProjectFingerprint {
+  goal_hash: string;
+  domain?: string;
+  core_strategy?: string;
+  blueprint_id: string;
+  blueprint_version: number;
+}
+
 export interface ProjectGuidanceResponse {
   id: string;
   project_id: string;
@@ -7649,6 +7658,10 @@ export interface ProjectGuidanceResponse {
   checklist?: GuidanceChecklistItem[];
   suggested_actions?: GuidanceSuggestedAction[];
   tips?: string[];
+  /** Slice 2D: Fingerprint proving guidance derived from this blueprint */
+  project_fingerprint?: ProjectFingerprint;
+  /** Slice 2D: List of blueprint fields used to generate this guidance */
+  source_refs?: string[];
   job_id?: string;
   llm_call_id?: string;
   created_at?: string;

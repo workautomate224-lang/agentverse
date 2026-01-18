@@ -180,6 +180,14 @@ class ProjectGuidance(Base):
         JSONB, nullable=True
     )  # List of helpful tips for this section
 
+    # Slice 2D: Blueprint traceability (proves guidance is derived from blueprint)
+    project_fingerprint: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSONB, nullable=True
+    )  # {goal_hash: str, domain: str, core_strategy: str, blueprint_version: int}
+    source_refs: Mapped[Optional[List[str]]] = mapped_column(
+        JSONB, nullable=True
+    )  # List of blueprint fields used: ["goal_text", "domain_guess", "horizon.start_date", ...]
+
     # Provenance (audit trail)
     job_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
@@ -240,6 +248,8 @@ class ProjectGuidance(Base):
             "checklist": self.checklist,
             "suggested_actions": self.suggested_actions,
             "tips": self.tips,
+            "project_fingerprint": self.project_fingerprint,
+            "source_refs": self.source_refs,
             "job_id": str(self.job_id) if self.job_id else None,
             "artifact_id": str(self.artifact_id) if self.artifact_id else None,
             "llm_call_id": self.llm_call_id,

@@ -2946,6 +2946,7 @@ async def _project_genesis_async(task, job_id: str, context: dict):
                         job_id=job_uuid,
                         llm_call_id=llm_call_id,
                         tenant_id=job.tenant_id,
+                        blueprint_context=blueprint_context,  # Slice 2D: Pass for fingerprint
                     )
 
                     generated_guidance.append({
@@ -3023,9 +3024,25 @@ async def _project_genesis_async(task, job_id: str, context: dict):
 
 def _extract_blueprint_context(blueprint: Blueprint) -> Dict[str, Any]:
     """Extract relevant context from blueprint for guidance generation."""
+    import hashlib
+
+    goal_text = blueprint.goal_text or ""
+    goal_summary = blueprint.goal_summary or goal_text[:200]
+
+    # Slice 2D: Generate project fingerprint for traceability
+    # This proves the guidance was derived from THIS specific blueprint
+    goal_hash = hashlib.sha256(goal_text.encode()).hexdigest()[:12]
+    project_fingerprint = {
+        "goal_hash": goal_hash,
+        "domain": blueprint.domain_guess,
+        "core_strategy": blueprint.recommended_core,
+        "blueprint_id": str(blueprint.id),
+        "blueprint_version": blueprint.version,
+    }
+
     return {
-        "goal_text": blueprint.goal_text,
-        "goal_summary": blueprint.goal_summary or blueprint.goal_text[:200],
+        "goal_text": goal_text,
+        "goal_summary": goal_summary,
         "domain": blueprint.domain_guess,
         "recommended_core": blueprint.recommended_core,
         "target_outputs": blueprint.target_outputs or [],
@@ -3036,6 +3053,8 @@ def _extract_blueprint_context(blueprint: Blueprint) -> Dict[str, Any]:
         "clarification_answers": blueprint.clarification_answers or {},
         "calibration_plan": blueprint.calibration_plan or {},
         "is_backtest": blueprint.clarification_answers.get("temporal_mode") == "backtest" if blueprint.clarification_answers else False,
+        # Slice 2D: Include fingerprint for downstream saving
+        "project_fingerprint": project_fingerprint,
     }
 
 
@@ -3170,8 +3189,12 @@ Return a JSON object with this exact structure:
             "description": "What this action does"
         }}
     ],
-    "tips": ["Helpful tip 1", "Helpful tip 2"]
+    "tips": ["Helpful tip 1", "Helpful tip 2"],
+    "source_refs": ["goal_text", "domain", "horizon", "scope"]
 }}
+
+IMPORTANT: The "source_refs" field MUST list which project context fields you used to generate this guidance.
+Valid source_refs include: goal_text, goal_summary, domain, recommended_core, is_backtest, horizon, scope, target_outputs, success_metrics, primary_drivers, clarification_answers, calibration_plan.
 
 Make the guidance specific to the project goal: "{blueprint_context['goal_text'][:200]}"
 Focus on what would be most helpful for this particular simulation."""
@@ -3231,6 +3254,8 @@ def _get_default_guidance(
         "tips": [
             f"This guidance is tailored to your project: {blueprint_context['goal_summary'][:100]}...",
         ],
+        # Slice 2D: Include source_refs for default fallback
+        "source_refs": ["goal_summary"],
     }
 
 
@@ -3243,6 +3268,7 @@ async def _save_section_guidance(
     job_id: UUID,
     llm_call_id: Optional[str],
     tenant_id: UUID,
+    blueprint_context: Dict[str, Any],  # Slice 2D: Added for fingerprint
 ) -> ProjectGuidance:
     """Save or update guidance record for a section."""
 
@@ -3286,6 +3312,9 @@ async def _save_section_guidance(
         checklist=guidance_data.get("checklist", []),
         suggested_actions=guidance_data.get("suggested_actions", []),
         tips=guidance_data.get("tips", []),
+        # Slice 2D: Blueprint traceability fields
+        project_fingerprint=blueprint_context.get("project_fingerprint"),
+        source_refs=guidance_data.get("source_refs", []),
         job_id=job_id,
         llm_call_id=llm_call_id,
         is_active=True,
