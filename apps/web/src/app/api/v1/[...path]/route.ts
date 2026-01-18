@@ -78,6 +78,14 @@ async function proxyRequest(
       }
     });
 
+    // Handle 204 No Content - MUST NOT have a body per HTTP spec
+    if (response.status === 204) {
+      return new NextResponse(null, {
+        status: 204,
+        headers: responseHeaders,
+      });
+    }
+
     return new NextResponse(responseBody, {
       status: response.status,
       statusText: response.statusText,
