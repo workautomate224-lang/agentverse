@@ -15,3 +15,6 @@ export { BlueprintV2Preview } from './BlueprintV2Preview';
 
 // Slice 2B: Editable Blueprint components
 export { EditableBlueprintPage } from './EditableBlueprintPage';
+
+// Slice 2C: Project Genesis components
+export { ProjectGuidancePanel } from './ProjectGuidancePanel';

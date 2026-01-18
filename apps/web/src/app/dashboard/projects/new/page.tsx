@@ -639,6 +639,15 @@ export default function CreateProjectWizardPage() {
         skip_clarification: true,
       });
 
+      // Slice 2C: Trigger PROJECT_GENESIS to generate project-specific guidance
+      // This generates AI-powered guidance for each workspace section based on the blueprint
+      try {
+        await api.triggerProjectGenesis(projectId, false);
+      } catch (genesisError) {
+        // Don't block project creation if genesis fails - it can be triggered manually
+        console.warn('Failed to trigger PROJECT_GENESIS:', genesisError);
+      }
+
       // Slice 2-0: Emit invalidation event for cross-tab sync
       // If we promoted a draft, emit published; otherwise emit created
       if (draftProjectId) {

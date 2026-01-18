@@ -1229,6 +1229,53 @@ async def publish_project(
 
     await db.commit()
 
+    # Slice 2C: Trigger PROJECT_GENESIS job to generate project-specific guidance
+    # This is done after publish to avoid generating guidance for unpublished projects
+    try:
+        from app.models.pil_job import PILJob, PILJobStatus, PILJobType, PILJobPriority
+        from app.tasks.pil_tasks import dispatch_pil_job
+        from uuid import UUID as UUIDType
+
+        # Get the blueprint for this project
+        blueprint_query = text("""
+            SELECT id, version FROM blueprint_v2
+            WHERE project_id = :project_id AND is_active = true
+            ORDER BY version DESC LIMIT 1
+        """)
+        blueprint_result = await db.execute(
+            blueprint_query,
+            {"project_id": project_id},
+        )
+        blueprint_row = blueprint_result.fetchone()
+
+        if blueprint_row:
+            # Create PROJECT_GENESIS job
+            genesis_job = PILJob(
+                tenant_id=UUIDType(str(tenant_ctx.tenant_id)),
+                project_id=UUIDType(project_id),
+                blueprint_id=blueprint_row.id,
+                job_type=PILJobType.PROJECT_GENESIS.value,
+                job_name=f"Project Genesis (auto-triggered on publish)",
+                status=PILJobStatus.QUEUED.value,
+                priority=PILJobPriority.HIGH.value,
+                input_params={
+                    "project_id": project_id,
+                    "blueprint_id": str(blueprint_row.id),
+                    "blueprint_version": blueprint_row.version,
+                    "trigger": "publish",
+                },
+            )
+            db.add(genesis_job)
+            await db.commit()
+            await db.refresh(genesis_job)
+
+            # Dispatch to Celery worker
+            dispatch_pil_job.delay(str(genesis_job.id))
+    except Exception as e:
+        # Log but don't fail the publish - genesis can be triggered manually
+        import logging
+        logging.getLogger(__name__).warning(f"Failed to trigger PROJECT_GENESIS on publish: {e}")
+
     return PublishResponse(
         id=project_id,
         status="ACTIVE",

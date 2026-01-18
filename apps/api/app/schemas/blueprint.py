@@ -975,3 +975,145 @@ class BlueprintV2SaveRequest(BaseModel):
     overrides: List[BlueprintV2OverrideMetadata] = Field(
         default_factory=list, description="Override tracking metadata"
     )
+
+
+# ============================================================================
+# Project Guidance Schemas (Slice 2C: Project Genesis)
+# ============================================================================
+
+class GuidanceSection(str, Enum):
+    """Workspace sections that receive project-specific guidance."""
+    DATA = "data"
+    PERSONAS = "personas"
+    RULES = "rules"
+    RUN_PARAMS = "run_params"
+    EVENT_LAB = "event_lab"
+    SCENARIO_LAB = "scenario_lab"
+    CALIBRATE = "calibrate"
+    BACKTEST = "backtest"
+    RELIABILITY = "reliability"
+    RUN = "run"
+    PREDICT = "predict"
+    UNIVERSE_MAP = "universe_map"
+    REPORTS = "reports"
+
+
+class GuidanceStatus(str, Enum):
+    """Status of guidance generation."""
+    PENDING = "pending"
+    GENERATING = "generating"
+    READY = "ready"
+    STALE = "stale"
+    FAILED = "failed"
+
+
+class GuidanceChecklistItem(BaseModel):
+    """A single checklist item in section guidance."""
+    id: str = Field(..., description="Unique identifier for the checklist item")
+    label: str = Field(..., description="Display label for the item")
+    description: Optional[str] = Field(None, description="Extended description")
+    required: bool = Field(default=False, description="Whether this item is required")
+    completed: bool = Field(default=False, description="Whether item is completed")
+    action_type: Optional[str] = Field(None, description="Type of action to complete")
+
+
+class GuidanceRecommendedSource(BaseModel):
+    """A recommended data source for a section."""
+    name: str = Field(..., description="Source name")
+    type: str = Field(..., description="Source type (e.g., 'csv', 'api', 'database')")
+    description: str = Field(..., description="Description of what this source provides")
+    priority: str = Field(default="recommended", description="Priority level")
+    example_providers: Optional[List[str]] = Field(None, description="Example provider names")
+
+
+class GuidanceSuggestedAction(BaseModel):
+    """A suggested AI-assisted action for a section."""
+    action_type: str = Field(..., description="Action type (ai_generate, ai_research, etc.)")
+    label: str = Field(..., description="Display label for the action")
+    description: str = Field(..., description="What this action does")
+    endpoint: Optional[str] = Field(None, description="API endpoint for the action")
+    enabled: bool = Field(default=True, description="Whether action is currently available")
+
+
+class GuidanceWhatToInput(BaseModel):
+    """Description of what data to input for a section."""
+    description: str = Field(..., description="Overview of what's needed")
+    required_items: List[str] = Field(default_factory=list, description="Required data items")
+    optional_items: List[str] = Field(default_factory=list, description="Optional data items")
+    format_hints: Optional[Dict[str, str]] = Field(None, description="Format hints for data")
+
+
+class ProjectGuidanceResponse(BaseModel):
+    """Response schema for project guidance."""
+    id: UUID = Field(..., description="Guidance record ID")
+    project_id: UUID = Field(..., description="Project ID")
+    blueprint_id: Optional[UUID] = Field(None, description="Source blueprint ID")
+    blueprint_version: int = Field(..., description="Blueprint version used")
+    guidance_version: int = Field(..., description="Guidance version number")
+    section: str = Field(..., description="Workspace section")
+    status: str = Field(..., description="Guidance status")
+
+    # Guidance content
+    section_title: str = Field(..., description="Section display title")
+    section_description: Optional[str] = Field(None, description="Section description")
+    what_to_input: Optional[GuidanceWhatToInput] = Field(None, description="What to input")
+    recommended_sources: List[GuidanceRecommendedSource] = Field(
+        default_factory=list, description="Recommended data sources"
+    )
+    checklist: List[GuidanceChecklistItem] = Field(
+        default_factory=list, description="Checklist items"
+    )
+    suggested_actions: List[GuidanceSuggestedAction] = Field(
+        default_factory=list, description="Suggested AI actions"
+    )
+    tips: List[str] = Field(default_factory=list, description="Helpful tips")
+
+    # Provenance
+    job_id: Optional[UUID] = Field(None, description="Generating job ID")
+    llm_call_id: Optional[str] = Field(None, description="LLM call ID for audit")
+    is_active: bool = Field(default=True, description="Whether this is the active guidance")
+
+    # Timestamps
+    created_at: datetime = Field(..., description="Creation timestamp")
+    updated_at: datetime = Field(..., description="Last update timestamp")
+
+    class Config:
+        from_attributes = True
+
+
+class ProjectGuidanceListResponse(BaseModel):
+    """Response containing all guidance sections for a project."""
+    project_id: UUID = Field(..., description="Project ID")
+    blueprint_id: Optional[UUID] = Field(None, description="Source blueprint ID")
+    blueprint_version: int = Field(..., description="Blueprint version")
+    status: str = Field(..., description="Overall status (ready if all sections ready)")
+    sections: List[ProjectGuidanceResponse] = Field(
+        default_factory=list, description="Guidance for each section"
+    )
+    generated_at: Optional[datetime] = Field(None, description="When guidance was generated")
+    provenance_message: str = Field(
+        default="Generated from your Blueprint v2 configuration",
+        description="Message about guidance source"
+    )
+
+
+class TriggerGenesisRequest(BaseModel):
+    """Request to trigger project genesis guidance generation."""
+    project_id: UUID = Field(..., description="Project ID to generate guidance for")
+    force_regenerate: bool = Field(
+        default=False, description="Force regeneration even if guidance exists"
+    )
+    sections: Optional[List[str]] = Field(
+        None, description="Specific sections to generate (None = all)"
+    )
+
+
+class TriggerGenesisResponse(BaseModel):
+    """Response from triggering genesis job."""
+    job_id: UUID = Field(..., description="PIL job ID for tracking")
+    project_id: UUID = Field(..., description="Project ID")
+    status: str = Field(..., description="Job status")
+    message: str = Field(..., description="Status message")
+    sections_to_generate: List[str] = Field(
+        default_factory=list, description="Sections being generated"
+    )

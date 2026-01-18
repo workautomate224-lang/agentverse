@@ -4616,6 +4616,81 @@ class ApiClient {
       message: response.message,
     };
   }
+
+  // ===========================================================================
+  // Project Guidance Methods (Slice 2C: Project Genesis)
+  // ===========================================================================
+
+  /**
+   * Trigger PROJECT_GENESIS job to generate project-specific guidance.
+   * @param projectId - The project ID
+   * @param forceRegenerate - Force regenerate existing guidance
+   */
+  async triggerProjectGenesis(
+    projectId: string,
+    forceRegenerate: boolean = false
+  ): Promise<TriggerGenesisResponse> {
+    return this.request<TriggerGenesisResponse>(
+      `/api/v1/blueprints/projects/${projectId}/genesis`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ force_regenerate: forceRegenerate }),
+      }
+    );
+  }
+
+  /**
+   * Get all project guidance sections.
+   * @param projectId - The project ID
+   * @param includeStale - Include stale guidance (default: false)
+   */
+  async getProjectGuidance(
+    projectId: string,
+    includeStale: boolean = false
+  ): Promise<ProjectGuidanceListResponse> {
+    const query = includeStale ? '?include_stale=true' : '';
+    return this.request<ProjectGuidanceListResponse>(
+      `/api/v1/blueprints/projects/${projectId}/guidance${query}`
+    );
+  }
+
+  /**
+   * Get guidance for a specific section.
+   * @param projectId - The project ID
+   * @param section - The guidance section
+   */
+  async getSectionGuidance(
+    projectId: string,
+    section: GuidanceSection
+  ): Promise<ProjectGuidanceResponse> {
+    return this.request<ProjectGuidanceResponse>(
+      `/api/v1/blueprints/projects/${projectId}/guidance/${section}`
+    );
+  }
+
+  /**
+   * Regenerate all project guidance.
+   * Marks existing guidance as stale and triggers new genesis job.
+   * @param projectId - The project ID
+   */
+  async regenerateProjectGuidance(
+    projectId: string
+  ): Promise<TriggerGenesisResponse> {
+    return this.request<TriggerGenesisResponse>(
+      `/api/v1/blueprints/projects/${projectId}/guidance/regenerate`,
+      { method: 'POST' }
+    );
+  }
+
+  /**
+   * Get genesis job status.
+   * @param projectId - The project ID
+   */
+  async getGenesisJobStatus(projectId: string): Promise<GenesisJobStatus> {
+    return this.request<GenesisJobStatus>(
+      `/api/v1/blueprints/projects/${projectId}/genesis/status`
+    );
+  }
 }
 
 // Data Source Types
@@ -7501,6 +7576,124 @@ export interface BlueprintV2SaveResponse {
   projectId: string;
   warnings: BlueprintV2ValidationError[];
   message: string;
+}
+
+// =============================================================================
+// Project Guidance Types (Slice 2C: Project Genesis)
+// =============================================================================
+
+/** Guidance sections corresponding to workspace pages */
+export type GuidanceSection =
+  | 'data'
+  | 'personas'
+  | 'rules'
+  | 'run_params'
+  | 'event_lab'
+  | 'scenario_lab'
+  | 'calibrate'
+  | 'backtest'
+  | 'reliability'
+  | 'run'
+  | 'predict'
+  | 'universe_map'
+  | 'reports';
+
+/** Status of guidance generation */
+export type GuidanceStatus = 'pending' | 'generating' | 'ready' | 'stale' | 'failed';
+
+/** Checklist item for a guidance section */
+export interface GuidanceChecklistItem {
+  id: string;
+  label: string;
+  description?: string;
+  required: boolean;
+  completed: boolean;
+}
+
+/** Recommended data source */
+export interface GuidanceRecommendedSource {
+  name: string;
+  type: string;
+  description: string;
+  priority: 'required' | 'recommended' | 'optional';
+}
+
+/** Suggested action with endpoint */
+export interface GuidanceSuggestedAction {
+  action_type: string;
+  label: string;
+  description: string;
+  endpoint?: string;
+}
+
+/** What to input for a section */
+export interface GuidanceWhatToInput {
+  description: string;
+  required_items: string[];
+  optional_items: string[];
+}
+
+/** Project guidance response for a single section */
+export interface ProjectGuidanceResponse {
+  id: string;
+  project_id: string;
+  blueprint_id?: string;
+  blueprint_version: number;
+  guidance_version: number;
+  section: GuidanceSection;
+  status: GuidanceStatus;
+  section_title: string;
+  section_description?: string;
+  what_to_input?: GuidanceWhatToInput;
+  recommended_sources?: GuidanceRecommendedSource[];
+  checklist?: GuidanceChecklistItem[];
+  suggested_actions?: GuidanceSuggestedAction[];
+  tips?: string[];
+  job_id?: string;
+  llm_call_id?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/** List of all guidance sections for a project */
+export interface ProjectGuidanceListResponse {
+  project_id: string;
+  blueprint_id?: string;
+  blueprint_version?: number;
+  sections: ProjectGuidanceResponse[];
+  total_sections: number;
+  ready_sections: number;
+}
+
+/** Request to trigger genesis job */
+export interface TriggerGenesisRequest {
+  force_regenerate?: boolean;
+}
+
+/** Response from triggering genesis job */
+export interface TriggerGenesisResponse {
+  job_id: string;
+  status: string;
+  message: string;
+  project_id: string;
+  blueprint_id: string;
+  blueprint_version: number;
+}
+
+/** Genesis job status response */
+export interface GenesisJobStatus {
+  has_job: boolean;
+  job_id?: string;
+  status?: string;
+  progress_percent?: number;
+  stage_name?: string;
+  stages_completed?: number;
+  stages_total?: number;
+  error_message?: string;
+  created_at?: string;
+  started_at?: string;
+  completed_at?: string;
+  message?: string;
 }
 
 export const api = new ApiClient(API_URL);

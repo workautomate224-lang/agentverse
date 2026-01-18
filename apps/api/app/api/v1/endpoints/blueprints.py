@@ -3,7 +3,8 @@ Blueprint API Endpoints
 Reference: blueprint.md §3, §4, §5
 """
 
-from typing import Any, Dict, Optional
+from datetime import datetime as dt
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -21,6 +22,18 @@ from app.models.blueprint import (
     AlertState,
     PLATFORM_SECTIONS,
 )
+from app.models.project_guidance import (
+    ProjectGuidance,
+    GuidanceSection,
+    GuidanceStatus,
+)
+from app.services.guidance_service import (
+    mark_guidance_stale,
+    trigger_guidance_regeneration,
+    get_guidance_status_summary,
+)
+from app.models.pil_job import PILJob, PILJobType, PILJobStatus
+from app.models.project_spec import ProjectSpec
 from app.schemas.blueprint import (
     # Blueprint schemas
     BlueprintCreate,
@@ -53,6 +66,12 @@ from app.schemas.blueprint import (
     BlueprintV2SaveRequest,
     CoreType,
     TemporalMode,
+    # Project Guidance (Slice 2C)
+    GuidanceSection as GuidanceSectionSchema,
+    ProjectGuidanceResponse,
+    ProjectGuidanceListResponse,
+    TriggerGenesisRequest,
+    TriggerGenesisResponse,
 )
 from app.tasks.pil_tasks import dispatch_pil_job
 
@@ -352,6 +371,10 @@ async def publish_blueprint(
 
     blueprint.is_draft = False
     blueprint.is_active = True
+
+    # Slice 2C: Mark existing guidance as stale (new blueprint version)
+    # This prompts users to regenerate guidance based on the updated blueprint
+    stale_count = await mark_guidance_stale(db, blueprint.project_id, "blueprint_published")
 
     await db.commit()
 
@@ -1723,4 +1746,397 @@ async def save_blueprint_v2_edits(
         "project_id": str(project.id),
         "warnings": [w.model_dump() for w in validation_result.warnings],
         "message": "Blueprint v2 edits saved successfully",
+    }
+
+
+# =============================================================================
+# Project Guidance Endpoints (Slice 2C: Project Genesis)
+# =============================================================================
+
+@router.post(
+    "/projects/{project_id}/genesis",
+    response_model=TriggerGenesisResponse,
+    summary="Trigger Project Genesis Job",
+    description="Start the PROJECT_GENESIS job to generate project-specific guidance.",
+)
+async def trigger_project_genesis(
+    project_id: UUID,
+    request: TriggerGenesisRequest = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TriggerGenesisResponse:
+    """
+    Trigger PROJECT_GENESIS job to generate project-specific guidance.
+
+    This job:
+    1. Reads the Blueprint v2 configuration
+    2. Generates guidance for each workspace section
+    3. Stores guidance in project_guidance table with provenance
+
+    Reference: blueprint.md §7 - Section Guidance
+    """
+    # Validate project exists and user has access
+    stmt = select(ProjectSpec).where(
+        ProjectSpec.id == project_id,
+        ProjectSpec.tenant_id == current_user.id,
+    )
+    result = await db.execute(stmt)
+    project = result.scalar_one_or_none()
+
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {project_id} not found"
+        )
+
+    # Get the latest active blueprint for this project
+    blueprint_stmt = select(Blueprint).where(
+        Blueprint.project_id == project_id,
+        Blueprint.tenant_id == current_user.id,
+        Blueprint.is_active == True,
+    ).order_by(Blueprint.version.desc()).limit(1)
+
+    blueprint_result = await db.execute(blueprint_stmt)
+    blueprint = blueprint_result.scalar_one_or_none()
+
+    if not blueprint:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active blueprint found. Complete the blueprint setup first."
+        )
+
+    # Check for existing running genesis job
+    running_job_stmt = select(PILJob).where(
+        PILJob.project_id == project_id,
+        PILJob.job_type == PILJobType.PROJECT_GENESIS.value,
+        PILJob.status.in_([PILJobStatus.QUEUED.value, PILJobStatus.RUNNING.value]),
+    )
+    running_result = await db.execute(running_job_stmt)
+    running_job = running_result.scalar_one_or_none()
+
+    if running_job:
+        # Return existing job instead of creating new one
+        return TriggerGenesisResponse(
+            job_id=str(running_job.id),
+            status=running_job.status,
+            message="Genesis job already in progress",
+            project_id=str(project_id),
+            blueprint_id=str(blueprint.id),
+            blueprint_version=blueprint.version,
+        )
+
+    # Create new PIL job for genesis
+    job = PILJob(
+        tenant_id=current_user.id,
+        project_id=project_id,
+        blueprint_id=blueprint.id,
+        job_type=PILJobType.PROJECT_GENESIS.value,
+        job_name=f"Project Genesis for {project.name}",
+        input_params={
+            "project_id": str(project_id),
+            "blueprint_id": str(blueprint.id),
+            "blueprint_version": blueprint.version,
+            "force_regenerate": request.force_regenerate if request else False,
+        },
+        created_by=current_user.id,
+        status=PILJobStatus.QUEUED.value,
+        stages_total=len(GuidanceSection),  # One stage per section
+    )
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+
+    # Dispatch the job to Celery
+    dispatch_pil_job(str(job.id))
+
+    return TriggerGenesisResponse(
+        job_id=str(job.id),
+        status=job.status,
+        message="Project genesis job queued successfully",
+        project_id=str(project_id),
+        blueprint_id=str(blueprint.id),
+        blueprint_version=blueprint.version,
+    )
+
+
+@router.get(
+    "/projects/{project_id}/guidance",
+    response_model=ProjectGuidanceListResponse,
+    summary="Get All Project Guidance",
+    description="Get AI-generated guidance for all workspace sections.",
+)
+async def get_project_guidance(
+    project_id: UUID,
+    include_stale: bool = Query(False, description="Include stale guidance"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ProjectGuidanceListResponse:
+    """
+    Get project-specific guidance for all workspace sections.
+
+    Returns guidance generated by PROJECT_GENESIS job including:
+    - what_to_input: What data to provide
+    - recommended_sources: Suggested data sources
+    - checklist: Actionable items
+    - suggested_actions: AI-assisted actions
+    - provenance: Audit trail for the guidance
+    """
+    # Validate project access
+    stmt = select(ProjectSpec).where(
+        ProjectSpec.id == project_id,
+        ProjectSpec.tenant_id == current_user.id,
+    )
+    result = await db.execute(stmt)
+    project = result.scalar_one_or_none()
+
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {project_id} not found"
+        )
+
+    # Get active blueprint for version info
+    blueprint_stmt = select(Blueprint).where(
+        Blueprint.project_id == project_id,
+        Blueprint.is_active == True,
+    ).order_by(Blueprint.version.desc()).limit(1)
+    blueprint_result = await db.execute(blueprint_stmt)
+    blueprint = blueprint_result.scalar_one_or_none()
+
+    # Query guidance for all sections
+    guidance_stmt = select(ProjectGuidance).where(
+        ProjectGuidance.project_id == project_id,
+        ProjectGuidance.tenant_id == current_user.id,
+        ProjectGuidance.is_active == True,
+    )
+
+    if not include_stale:
+        guidance_stmt = guidance_stmt.where(
+            ProjectGuidance.status != GuidanceStatus.STALE.value
+        )
+
+    guidance_stmt = guidance_stmt.order_by(ProjectGuidance.section)
+    guidance_result = await db.execute(guidance_stmt)
+    guidance_records = guidance_result.scalars().all()
+
+    # Convert to response models
+    sections = []
+    for record in guidance_records:
+        sections.append(ProjectGuidanceResponse(
+            id=str(record.id),
+            project_id=str(record.project_id),
+            blueprint_id=str(record.blueprint_id) if record.blueprint_id else None,
+            blueprint_version=record.blueprint_version,
+            guidance_version=record.guidance_version,
+            section=record.section,
+            status=record.status,
+            section_title=record.section_title,
+            section_description=record.section_description,
+            what_to_input=record.what_to_input,
+            recommended_sources=record.recommended_sources,
+            checklist=record.checklist,
+            suggested_actions=record.suggested_actions,
+            tips=record.tips,
+            job_id=str(record.job_id) if record.job_id else None,
+            llm_call_id=record.llm_call_id,
+            created_at=record.created_at.isoformat() if record.created_at else None,
+            updated_at=record.updated_at.isoformat() if record.updated_at else None,
+        ))
+
+    return ProjectGuidanceListResponse(
+        project_id=str(project_id),
+        blueprint_id=str(blueprint.id) if blueprint else None,
+        blueprint_version=blueprint.version if blueprint else None,
+        sections=sections,
+        total_sections=len(sections),
+        ready_sections=len([s for s in sections if s.status == GuidanceStatus.READY.value]),
+    )
+
+
+@router.get(
+    "/projects/{project_id}/guidance/{section}",
+    response_model=ProjectGuidanceResponse,
+    summary="Get Section Guidance",
+    description="Get AI-generated guidance for a specific workspace section.",
+)
+async def get_section_guidance(
+    project_id: UUID,
+    section: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ProjectGuidanceResponse:
+    """
+    Get project-specific guidance for a single workspace section.
+    """
+    # Validate section name
+    try:
+        section_enum = GuidanceSection(section)
+    except ValueError:
+        valid_sections = [s.value for s in GuidanceSection]
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid section: {section}. Valid sections: {valid_sections}"
+        )
+
+    # Validate project access
+    project_stmt = select(ProjectSpec).where(
+        ProjectSpec.id == project_id,
+        ProjectSpec.tenant_id == current_user.id,
+    )
+    project_result = await db.execute(project_stmt)
+    project = project_result.scalar_one_or_none()
+
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {project_id} not found"
+        )
+
+    # Query guidance for specific section
+    guidance_stmt = select(ProjectGuidance).where(
+        ProjectGuidance.project_id == project_id,
+        ProjectGuidance.tenant_id == current_user.id,
+        ProjectGuidance.section == section,
+        ProjectGuidance.is_active == True,
+    )
+    guidance_result = await db.execute(guidance_stmt)
+    record = guidance_result.scalar_one_or_none()
+
+    if not record:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No guidance found for section '{section}'. Run project genesis first."
+        )
+
+    return ProjectGuidanceResponse(
+        id=str(record.id),
+        project_id=str(record.project_id),
+        blueprint_id=str(record.blueprint_id) if record.blueprint_id else None,
+        blueprint_version=record.blueprint_version,
+        guidance_version=record.guidance_version,
+        section=record.section,
+        status=record.status,
+        section_title=record.section_title,
+        section_description=record.section_description,
+        what_to_input=record.what_to_input,
+        recommended_sources=record.recommended_sources,
+        checklist=record.checklist,
+        suggested_actions=record.suggested_actions,
+        tips=record.tips,
+        job_id=str(record.job_id) if record.job_id else None,
+        llm_call_id=record.llm_call_id,
+        created_at=record.created_at.isoformat() if record.created_at else None,
+        updated_at=record.updated_at.isoformat() if record.updated_at else None,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/guidance/regenerate",
+    response_model=TriggerGenesisResponse,
+    summary="Regenerate Project Guidance",
+    description="Mark all guidance as stale and trigger regeneration.",
+)
+async def regenerate_project_guidance(
+    project_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TriggerGenesisResponse:
+    """
+    Regenerate all project guidance.
+
+    This endpoint:
+    1. Marks all existing guidance as stale
+    2. Triggers a new PROJECT_GENESIS job
+    3. New guidance will have incremented guidance_version
+    """
+    # Validate project access
+    project_stmt = select(ProjectSpec).where(
+        ProjectSpec.id == project_id,
+        ProjectSpec.tenant_id == current_user.id,
+    )
+    project_result = await db.execute(project_stmt)
+    project = project_result.scalar_one_or_none()
+
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {project_id} not found"
+        )
+
+    # Mark all existing guidance as stale
+    from sqlalchemy import update
+    await db.execute(
+        update(ProjectGuidance)
+        .where(
+            ProjectGuidance.project_id == project_id,
+            ProjectGuidance.is_active == True,
+        )
+        .values(status=GuidanceStatus.STALE.value, updated_at=dt.utcnow())
+    )
+    await db.commit()
+
+    # Trigger new genesis job with force_regenerate
+    request = TriggerGenesisRequest(force_regenerate=True)
+    return await trigger_project_genesis(
+        project_id=project_id,
+        request=request,
+        db=db,
+        current_user=current_user,
+    )
+
+
+@router.get(
+    "/projects/{project_id}/genesis/status",
+    summary="Get Genesis Job Status",
+    description="Check the status of the current or latest genesis job.",
+)
+async def get_genesis_job_status(
+    project_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Get the status of the current or latest PROJECT_GENESIS job.
+    """
+    # Validate project access
+    project_stmt = select(ProjectSpec).where(
+        ProjectSpec.id == project_id,
+        ProjectSpec.tenant_id == current_user.id,
+    )
+    project_result = await db.execute(project_stmt)
+    project = project_result.scalar_one_or_none()
+
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {project_id} not found"
+        )
+
+    # Get latest genesis job
+    job_stmt = select(PILJob).where(
+        PILJob.project_id == project_id,
+        PILJob.job_type == PILJobType.PROJECT_GENESIS.value,
+    ).order_by(PILJob.created_at.desc()).limit(1)
+
+    job_result = await db.execute(job_stmt)
+    job = job_result.scalar_one_or_none()
+
+    if not job:
+        return {
+            "has_job": False,
+            "message": "No genesis job found. Trigger genesis to generate guidance.",
+        }
+
+    return {
+        "has_job": True,
+        "job_id": str(job.id),
+        "status": job.status,
+        "progress_percent": job.progress_percent,
+        "stage_name": job.stage_name,
+        "stages_completed": job.stages_completed,
+        "stages_total": job.stages_total,
+        "error_message": job.error_message,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "completed_at": job.completed_at.isoformat() if job.completed_at else None,
     }

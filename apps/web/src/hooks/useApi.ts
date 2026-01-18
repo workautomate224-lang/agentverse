@@ -189,6 +189,13 @@ import api, {
   BlueprintV2ValidationResult,
   BlueprintV2SaveRequest,
   BlueprintV2SaveResponse,
+  // Project Guidance types (Slice 2C)
+  GuidanceSection,
+  GuidanceStatus,
+  ProjectGuidanceResponse,
+  ProjectGuidanceListResponse,
+  TriggerGenesisResponse,
+  GenesisJobStatus,
 } from '@/lib/api';
 
 // Extended session user type for type safety
@@ -4065,5 +4072,114 @@ export function useSaveBlueprintV2Edits() {
       queryClient.invalidateQueries({ queryKey: ['blueprint-v2'] });
       queryClient.invalidateQueries({ queryKey: ['blueprint-v2-project'] });
     },
+  });
+}
+
+// =============================================================================
+// Project Guidance Hooks (Slice 2C: Project Genesis)
+// =============================================================================
+
+/**
+ * Get all project guidance sections.
+ * Returns AI-generated guidance for each workspace section.
+ */
+export function useProjectGuidance(
+  projectId: string | undefined,
+  options?: { includeStale?: boolean; enabled?: boolean }
+) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['project-guidance', projectId, options?.includeStale],
+    queryFn: () => api.getProjectGuidance(projectId!, options?.includeStale ?? false),
+    enabled: isReady && !!projectId && (options?.enabled !== false),
+    staleTime: CACHE_TIMES.MEDIUM,
+  });
+}
+
+/**
+ * Get guidance for a specific section.
+ * Returns AI-generated guidance for a single workspace section.
+ */
+export function useSectionGuidance(
+  projectId: string | undefined,
+  section: GuidanceSection | undefined,
+  options?: { enabled?: boolean }
+) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['project-guidance', projectId, 'section', section],
+    queryFn: () => api.getSectionGuidance(projectId!, section!),
+    enabled: isReady && !!projectId && !!section && (options?.enabled !== false),
+    staleTime: CACHE_TIMES.MEDIUM,
+  });
+}
+
+/**
+ * Trigger PROJECT_GENESIS job to generate guidance.
+ * Returns the job ID for tracking progress.
+ */
+export function useTriggerProjectGenesis() {
+  const { isReady } = useApiAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ projectId, forceRegenerate = false }: { projectId: string; forceRegenerate?: boolean }) =>
+      api.triggerProjectGenesis(projectId, forceRegenerate),
+    onSuccess: (response, { projectId }) => {
+      // Invalidate guidance and genesis status queries
+      queryClient.invalidateQueries({ queryKey: ['project-guidance', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['genesis-job-status', projectId] });
+    },
+  });
+}
+
+/**
+ * Regenerate all project guidance.
+ * Marks existing guidance as stale and triggers new genesis job.
+ */
+export function useRegenerateProjectGuidance() {
+  const { isReady } = useApiAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (projectId: string) => api.regenerateProjectGuidance(projectId),
+    onSuccess: (response, projectId) => {
+      // Invalidate all guidance queries for this project
+      queryClient.invalidateQueries({ queryKey: ['project-guidance', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['genesis-job-status', projectId] });
+    },
+  });
+}
+
+/**
+ * Poll genesis job status.
+ * Polls every 2 seconds while job is active.
+ */
+export function useGenesisJobStatus(
+  projectId: string | undefined,
+  options?: { enabled?: boolean; onSuccess?: (data: GenesisJobStatus) => void }
+) {
+  const { isReady } = useApiAuth();
+  const queryClient = useQueryClient();
+
+  return useQuery({
+    queryKey: ['genesis-job-status', projectId],
+    queryFn: () => api.getGenesisJobStatus(projectId!),
+    enabled: isReady && !!projectId && (options?.enabled !== false),
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      // Stop polling when job is complete or failed
+      if (data?.status === 'succeeded' || data?.status === 'failed' || data?.status === 'cancelled' || !data?.has_job) {
+        // Invalidate guidance queries on completion
+        if (data?.status === 'succeeded') {
+          queryClient.invalidateQueries({ queryKey: ['project-guidance', projectId] });
+        }
+        return false;
+      }
+      return 2000; // Poll every 2 seconds
+    },
+    staleTime: 1000,
   });
 }

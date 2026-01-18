@@ -142,6 +142,13 @@ from app.services.data_manifest import (
     get_data_manifest_service,
     finalize_run_manifest,
 )
+# Guidance Service (Slice 2C: Project Genesis)
+from app.services.guidance_service import (
+    mark_guidance_stale,
+    trigger_guidance_regeneration,
+    get_guidance_status_summary,
+    deactivate_old_guidance,
+)
 
 __all__ = [
     "OpenRouterService",
@@ -261,4 +268,9 @@ __all__ = [
     "IsolationViolation",
     "get_data_manifest_service",
     "finalize_run_manifest",
+    # Guidance Service (Slice 2C)
+    "mark_guidance_stale",
+    "trigger_guidance_regeneration",
+    "get_guidance_status_summary",
+    "deactivate_old_guidance",
 ]

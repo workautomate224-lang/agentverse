@@ -221,6 +221,13 @@ from app.models.pil_job import (
     PILJobPriority,
     ArtifactType,
 )
+# Project Guidance Models (Slice 2C: Project Genesis)
+from app.models.project_guidance import (
+    ProjectGuidance,
+    GuidanceSection,
+    GuidanceStatus,
+    GUIDANCE_SECTION_CONFIG,
+)
 # STEP 10: Production Readiness Models
 from app.models.production import (
     # Enums
@@ -467,4 +474,9 @@ __all__ = [
     "PILJobType",
     "PILJobPriority",
     "ArtifactType",
+    # Project Guidance Models (Slice 2C)
+    "ProjectGuidance",
+    "GuidanceSection",
+    "GuidanceStatus",
+    "GUIDANCE_SECTION_CONFIG",
 ]

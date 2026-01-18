@@ -59,6 +59,12 @@ from app.models.blueprint import (
     TaskAction,
     PLATFORM_SECTIONS,
 )
+from app.models.project_guidance import (
+    ProjectGuidance,
+    GuidanceSection,
+    GuidanceStatus,
+    GUIDANCE_SECTION_CONFIG,
+)
 from app.models.llm import LLMProfileKey
 from app.services.llm_router import LLMRouter, LLMRouterContext
 from app.services.slot_status_handler import (
@@ -2828,6 +2834,470 @@ async def _slot_compilation_async(task, job_id: str, context: dict):
 
 
 # =============================================================================
+# Project Genesis Task - Slice 2C
+# =============================================================================
+
+@celery_app.task(bind=True, base=TenantAwareTask, max_retries=3)
+def project_genesis_task(self, job_id: str, context: dict):
+    """
+    Generate project-specific guidance from Blueprint v2.
+
+    Slice 2C: Project Genesis - workspace initialization.
+
+    Creates tailored guidance for each workspace section based on:
+    - Blueprint v2 configuration (goal, core type, temporal mode)
+    - Selected settings (core_strategy, temporal_settings)
+    - Domain-specific recommendations
+
+    Each section receives:
+    - what_to_input: Description of required/recommended data
+    - recommended_sources: Suggested data sources
+    - checklist: Actionable items to complete
+    - suggested_actions: Available AI-assisted actions
+    - tips: Helpful context for the section
+    """
+    return _run_async(_project_genesis_async(self, job_id, context))
+
+
+async def _project_genesis_async(task, job_id: str, context: dict):
+    """Async implementation of project genesis guidance generation."""
+    job_uuid = UUID(job_id)
+    AsyncSessionLocal = get_async_session()
+    start_time = time.time()
+
+    async with AsyncSessionLocal() as session:
+        try:
+            await mark_job_running(session, job_uuid, task.request.id)
+
+            result = await session.execute(
+                select(PILJob).where(PILJob.id == job_uuid)
+            )
+            job = result.scalar_one_or_none()
+
+            if not job:
+                raise ValueError(f"Job {job_id} not found")
+
+            project_id = job.project_id
+            blueprint_id = job.blueprint_id
+            sections_to_generate = job.input_params.get("sections", None)
+
+            # Load blueprint
+            if not blueprint_id:
+                raise ValueError("No blueprint_id provided for genesis job")
+
+            bp_result = await session.execute(
+                select(Blueprint).where(Blueprint.id == blueprint_id)
+            )
+            blueprint = bp_result.scalar_one_or_none()
+
+            if not blueprint:
+                raise ValueError(f"Blueprint {blueprint_id} not found")
+
+            # Stage 1: Preparing context (10%)
+            await update_job_progress(
+                session, job_uuid, 10,
+                stage_name="Analyzing blueprint configuration",
+                stages_completed=1,
+                stages_total=4
+            )
+
+            # Determine which sections to generate
+            if sections_to_generate:
+                target_sections = [s for s in GuidanceSection if s.value in sections_to_generate]
+            else:
+                target_sections = list(GuidanceSection)
+
+            # Extract blueprint context for LLM
+            blueprint_context = _extract_blueprint_context(blueprint)
+
+            # Stage 2: Generate guidance for each section (20-80%)
+            await update_job_progress(
+                session, job_uuid, 20,
+                stage_name="Generating section guidance with AI",
+                stages_completed=2
+            )
+
+            generated_guidance = []
+            section_count = len(target_sections)
+
+            for idx, section in enumerate(target_sections):
+                progress = 20 + int((idx / section_count) * 60)
+                await update_job_progress(
+                    session, job_uuid, progress,
+                    stage_name=f"Generating guidance for {section.value}"
+                )
+
+                try:
+                    guidance_data, llm_call_id = await _generate_section_guidance(
+                        session=session,
+                        blueprint=blueprint,
+                        blueprint_context=blueprint_context,
+                        section=section,
+                        tenant_id=job.tenant_id,
+                    )
+
+                    # Create or update ProjectGuidance record
+                    guidance_record = await _save_section_guidance(
+                        session=session,
+                        project_id=project_id,
+                        blueprint=blueprint,
+                        section=section,
+                        guidance_data=guidance_data,
+                        job_id=job_uuid,
+                        llm_call_id=llm_call_id,
+                        tenant_id=job.tenant_id,
+                    )
+
+                    generated_guidance.append({
+                        "section": section.value,
+                        "guidance_id": str(guidance_record.id),
+                        "status": GuidanceStatus.READY.value,
+                    })
+
+                except Exception as e:
+                    logger.warning(
+                        "Failed to generate guidance for section",
+                        section=section.value,
+                        error=str(e)
+                    )
+                    generated_guidance.append({
+                        "section": section.value,
+                        "status": GuidanceStatus.FAILED.value,
+                        "error": str(e),
+                    })
+
+            # Stage 3: Create artifact (90%)
+            await update_job_progress(
+                session, job_uuid, 90,
+                stage_name="Saving guidance artifact",
+                stages_completed=3
+            )
+
+            genesis_result = {
+                "project_id": str(project_id),
+                "blueprint_id": str(blueprint_id),
+                "blueprint_version": blueprint.version,
+                "sections_generated": len([g for g in generated_guidance if g.get("status") == GuidanceStatus.READY.value]),
+                "sections_failed": len([g for g in generated_guidance if g.get("status") == GuidanceStatus.FAILED.value]),
+                "guidance": generated_guidance,
+                "generated_at": datetime.utcnow().isoformat(),
+            }
+
+            # Create artifact for audit
+            artifact = await create_artifact(
+                session,
+                tenant_id=job.tenant_id,
+                project_id=project_id,
+                artifact_type=ArtifactType.PROJECT_GUIDANCE_PACK,
+                artifact_name=f"Project Genesis - {blueprint.goal_summary or 'Guidance Pack'}",
+                content=genesis_result,
+                blueprint_id=blueprint_id,
+                job_id=job_uuid,
+            )
+
+            # Stage 4: Complete (100%)
+            await mark_job_succeeded(
+                session, job_uuid,
+                result=genesis_result,
+                artifact_ids=[str(artifact.id)],
+            )
+
+            processing_time_ms = int((time.time() - start_time) * 1000)
+            logger.info(
+                "Project genesis completed",
+                project_id=str(project_id),
+                sections_generated=genesis_result["sections_generated"],
+                processing_time_ms=processing_time_ms
+            )
+
+            return {
+                "status": "success",
+                "result": genesis_result,
+            }
+
+        except Exception as e:
+            logger.error("Project genesis failed", error=str(e), job_id=job_id)
+            await mark_job_failed(session, job_uuid, str(e))
+            raise
+
+
+def _extract_blueprint_context(blueprint: Blueprint) -> Dict[str, Any]:
+    """Extract relevant context from blueprint for guidance generation."""
+    return {
+        "goal_text": blueprint.goal_text,
+        "goal_summary": blueprint.goal_summary or blueprint.goal_text[:200],
+        "domain": blueprint.domain_guess,
+        "recommended_core": blueprint.recommended_core,
+        "target_outputs": blueprint.target_outputs or [],
+        "horizon": blueprint.horizon or {},
+        "scope": blueprint.scope or {},
+        "success_metrics": blueprint.success_metrics or {},
+        "primary_drivers": blueprint.primary_drivers or [],
+        "clarification_answers": blueprint.clarification_answers or {},
+        "calibration_plan": blueprint.calibration_plan or {},
+        "is_backtest": blueprint.clarification_answers.get("temporal_mode") == "backtest" if blueprint.clarification_answers else False,
+    }
+
+
+async def _generate_section_guidance(
+    session: AsyncSession,
+    blueprint: Blueprint,
+    blueprint_context: Dict[str, Any],
+    section: GuidanceSection,
+    tenant_id: UUID,
+) -> tuple[Dict[str, Any], Optional[str]]:
+    """
+    Generate AI-powered guidance for a specific section.
+
+    Returns (guidance_data, llm_call_id).
+    """
+    section_config = GUIDANCE_SECTION_CONFIG.get(section, {})
+
+    # Build prompt for section-specific guidance
+    prompt = _build_guidance_prompt(blueprint_context, section, section_config)
+
+    try:
+        router = LLMRouter(session)
+        context = LLMRouterContext(
+            tenant_id=str(tenant_id),
+            project_id=str(blueprint.project_id) if blueprint.project_id else None,
+            phase="genesis",
+            strict_llm=False,  # Allow fallback for guidance generation
+        )
+
+        response = await router.complete(
+            profile_key=LLMProfileKey.PIL_GOAL_ANALYSIS.value,  # Reuse goal analysis profile
+            messages=[{"role": "user", "content": prompt}],
+            context=context,
+        )
+
+        llm_call_id = response.call_id
+
+        # Parse JSON response
+        try:
+            guidance_data = json.loads(response.content)
+        except json.JSONDecodeError:
+            # Try to extract JSON from response
+            import re
+            json_match = re.search(r'\{[\s\S]*\}', response.content)
+            if json_match:
+                guidance_data = json.loads(json_match.group())
+            else:
+                # Return default structure if parsing fails
+                guidance_data = _get_default_guidance(section, section_config, blueprint_context)
+
+        return guidance_data, llm_call_id
+
+    except Exception as e:
+        logger.warning(
+            "LLM guidance generation failed, using defaults",
+            section=section.value,
+            error=str(e)
+        )
+        return _get_default_guidance(section, section_config, blueprint_context), None
+
+
+def _build_guidance_prompt(
+    blueprint_context: Dict[str, Any],
+    section: GuidanceSection,
+    section_config: Dict[str, Any],
+) -> str:
+    """Build the LLM prompt for generating section guidance."""
+
+    section_descriptions = {
+        GuidanceSection.DATA: "uploading and connecting data sources for the simulation",
+        GuidanceSection.PERSONAS: "defining the population or agents to be simulated",
+        GuidanceSection.RULES: "configuring business rules and simulation constraints",
+        GuidanceSection.RUN_PARAMS: "setting simulation parameters and run configuration",
+        GuidanceSection.EVENT_LAB: "creating what-if scenarios and events to simulate",
+        GuidanceSection.SCENARIO_LAB: "building complex multi-event scenario bundles",
+        GuidanceSection.CALIBRATE: "tuning model parameters against ground truth data",
+        GuidanceSection.BACKTEST: "validating predictions against historical data",
+        GuidanceSection.RELIABILITY: "assessing prediction confidence and model stability",
+        GuidanceSection.RUN: "executing simulations and monitoring progress",
+        GuidanceSection.PREDICT: "viewing and analyzing prediction outcomes",
+        GuidanceSection.UNIVERSE_MAP: "exploring the simulation node graph and relationships",
+        GuidanceSection.REPORTS: "generating and exporting analysis reports",
+    }
+
+    return f"""You are an AI assistant helping configure a predictive simulation project.
+
+PROJECT CONTEXT:
+- Goal: {blueprint_context['goal_summary']}
+- Domain: {blueprint_context['domain']}
+- Core Strategy: {blueprint_context['recommended_core']}
+- Is Backtest Mode: {blueprint_context['is_backtest']}
+- Time Horizon: {json.dumps(blueprint_context['horizon'])}
+- Scope: {json.dumps(blueprint_context['scope'])}
+
+SECTION TO CONFIGURE: {section.value}
+Section Purpose: {section_descriptions.get(section, 'Configure this section')}
+
+Generate specific guidance for this section tailored to the project goal.
+
+Return a JSON object with this exact structure:
+{{
+    "section_title": "Display title for this section",
+    "section_description": "Brief description tailored to this project's goal",
+    "what_to_input": {{
+        "description": "What data/configuration is needed for this section",
+        "required_items": ["List of required items"],
+        "optional_items": ["List of optional items"],
+        "format_hints": {{"item_name": "format hint"}}
+    }},
+    "recommended_sources": [
+        {{
+            "name": "Source name",
+            "type": "csv|api|database|manual",
+            "description": "What this source provides for this project",
+            "priority": "required|recommended|optional",
+            "example_providers": ["Example 1", "Example 2"]
+        }}
+    ],
+    "checklist": [
+        {{
+            "id": "unique_id",
+            "label": "Checklist item label",
+            "description": "What to do",
+            "required": true,
+            "action_type": "upload|configure|review|ai_generate"
+        }}
+    ],
+    "suggested_actions": [
+        {{
+            "action_type": "ai_generate|ai_research|manual_add|connect_source",
+            "label": "Action button label",
+            "description": "What this action does"
+        }}
+    ],
+    "tips": ["Helpful tip 1", "Helpful tip 2"]
+}}
+
+Make the guidance specific to the project goal: "{blueprint_context['goal_text'][:200]}"
+Focus on what would be most helpful for this particular simulation."""
+
+
+def _get_default_guidance(
+    section: GuidanceSection,
+    section_config: Dict[str, Any],
+    blueprint_context: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Return default guidance structure when LLM generation fails."""
+
+    default_checklists = {
+        GuidanceSection.DATA: [
+            {"id": "upload_data", "label": "Upload data source", "required": True, "action_type": "upload"},
+            {"id": "validate_data", "label": "Validate data format", "required": True, "action_type": "review"},
+        ],
+        GuidanceSection.PERSONAS: [
+            {"id": "define_segments", "label": "Define persona segments", "required": True, "action_type": "configure"},
+            {"id": "set_attributes", "label": "Set persona attributes", "required": True, "action_type": "configure"},
+        ],
+        GuidanceSection.RULES: [
+            {"id": "add_rules", "label": "Add business rules", "required": False, "action_type": "manual_add"},
+            {"id": "set_constraints", "label": "Configure constraints", "required": False, "action_type": "configure"},
+        ],
+        GuidanceSection.EVENT_LAB: [
+            {"id": "create_event", "label": "Create what-if event", "required": False, "action_type": "ai_generate"},
+            {"id": "set_timing", "label": "Configure event timing", "required": False, "action_type": "configure"},
+        ],
+        GuidanceSection.CALIBRATE: [
+            {"id": "upload_ground_truth", "label": "Upload ground truth data", "required": True, "action_type": "upload"},
+            {"id": "run_calibration", "label": "Run calibration", "required": True, "action_type": "configure"},
+        ],
+        GuidanceSection.RUN: [
+            {"id": "configure_run", "label": "Configure run parameters", "required": True, "action_type": "configure"},
+            {"id": "start_run", "label": "Start simulation run", "required": True, "action_type": "configure"},
+        ],
+    }
+
+    return {
+        "section_title": section_config.get("title", section.value.replace("_", " ").title()),
+        "section_description": section_config.get("default_description", f"Configure the {section.value} section for your project."),
+        "what_to_input": {
+            "description": f"Provide the necessary configuration for {section.value}.",
+            "required_items": [],
+            "optional_items": [],
+        },
+        "recommended_sources": [],
+        "checklist": default_checklists.get(section, []),
+        "suggested_actions": [
+            {
+                "action_type": "ai_generate",
+                "label": "Generate with AI",
+                "description": f"Let AI help configure this section based on your project goal.",
+            }
+        ],
+        "tips": [
+            f"This guidance is tailored to your project: {blueprint_context['goal_summary'][:100]}...",
+        ],
+    }
+
+
+async def _save_section_guidance(
+    session: AsyncSession,
+    project_id: UUID,
+    blueprint: Blueprint,
+    section: GuidanceSection,
+    guidance_data: Dict[str, Any],
+    job_id: UUID,
+    llm_call_id: Optional[str],
+    tenant_id: UUID,
+) -> ProjectGuidance:
+    """Save or update guidance record for a section."""
+
+    # Mark any existing guidance for this section as inactive
+    await session.execute(
+        update(ProjectGuidance)
+        .where(
+            ProjectGuidance.project_id == project_id,
+            ProjectGuidance.section == section.value,
+            ProjectGuidance.is_active == True
+        )
+        .values(is_active=False)
+    )
+
+    # Get next guidance version
+    result = await session.execute(
+        select(ProjectGuidance)
+        .where(
+            ProjectGuidance.project_id == project_id,
+            ProjectGuidance.section == section.value
+        )
+        .order_by(ProjectGuidance.guidance_version.desc())
+        .limit(1)
+    )
+    existing = result.scalar_one_or_none()
+    next_version = (existing.guidance_version + 1) if existing else 1
+
+    # Create new guidance record
+    guidance = ProjectGuidance(
+        tenant_id=tenant_id,
+        project_id=project_id,
+        blueprint_id=blueprint.id,
+        blueprint_version=blueprint.version,
+        guidance_version=next_version,
+        section=section.value,
+        status=GuidanceStatus.READY.value,
+        section_title=guidance_data.get("section_title", section.value.replace("_", " ").title()),
+        section_description=guidance_data.get("section_description"),
+        what_to_input=guidance_data.get("what_to_input"),
+        recommended_sources=guidance_data.get("recommended_sources", []),
+        checklist=guidance_data.get("checklist", []),
+        suggested_actions=guidance_data.get("suggested_actions", []),
+        tips=guidance_data.get("tips", []),
+        job_id=job_id,
+        llm_call_id=llm_call_id,
+        is_active=True,
+    )
+
+    session.add(guidance)
+    await session.flush()
+
+    return guidance
+
+
+# =============================================================================
 # Dispatch Entry Point
 # =============================================================================
 
@@ -2872,6 +3342,9 @@ async def _dispatch_pil_job_async(task, job_id: str):
             slot_alignment_scoring_task.delay(job_id, context)
         elif job.job_type == PILJobType.SLOT_COMPILATION:
             slot_compilation_task.delay(job_id, context)
+        elif job.job_type == PILJobType.PROJECT_GENESIS:
+            # Slice 2C: Project Genesis
+            project_genesis_task.delay(job_id, context)
         else:
             # For unimplemented job types, mark as partial
             await session.execute(

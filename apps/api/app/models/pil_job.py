@@ -71,6 +71,9 @@ class PILJobType(str, Enum):
     TASK_VALIDATION = "task_validation"
     TASK_GUIDANCE_GENERATE = "task_guidance_generate"
 
+    # Project Genesis (Slice 2C) - Generate project-specific guidance
+    PROJECT_GENESIS = "project_genesis"
+
     # Calibration & Quality (blueprint.md §3.1.E)
     CALIBRATION_CHECK = "calibration_check"
     BACKTEST_VALIDATION = "backtest_validation"
@@ -419,6 +422,9 @@ class ArtifactType(str, Enum):
     # Task Processing
     TASK_GUIDANCE = "task_guidance"
     TASK_VALIDATION_REPORT = "task_validation_report"
+
+    # Project Genesis (Slice 2C)
+    PROJECT_GUIDANCE_PACK = "project_guidance_pack"
 
     # Calibration
     CALIBRATION_REPORT = "calibration_report"
