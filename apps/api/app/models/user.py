@@ -4,7 +4,7 @@ User database models
 
 from datetime import datetime
 from typing import Optional
-from uuid import uuid4
+from uuid import UUID as UUIDType, uuid4
 
 from sqlalchemy import Boolean, DateTime, Enum, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -58,6 +58,20 @@ class User(Base):
     # Relationships
     projects = relationship("Project", back_populates="user", lazy="dynamic")
     simulation_runs = relationship("SimulationRun", back_populates="user", lazy="dynamic")
+
+    @property
+    def tenant_id(self) -> UUID:
+        """
+        Return tenant_id for multi-tenant operations.
+
+        MVP: For the MVP, user_id == tenant_id.
+        This allows code to consistently use current_user.tenant_id
+        instead of current_user.id for tenant scoping.
+
+        TODO: In proper multi-tenancy, this would return the user's
+        organization/team tenant_id instead of user's own ID.
+        """
+        return self.id
 
     def __repr__(self) -> str:
         return f"<User {self.email}>"
