@@ -1943,13 +1943,26 @@ async def get_project_guidance(
             updated_at=record.updated_at.isoformat() if record.updated_at else None,
         ))
 
+    # Compute overall status
+    total = len(sections)
+    ready = len([s for s in sections if s.status == GuidanceStatus.READY.value])
+    if total == 0:
+        overall_status = "pending"
+    elif ready == total:
+        overall_status = "ready"
+    elif ready > 0:
+        overall_status = "partial"
+    else:
+        overall_status = "pending"
+
     return ProjectGuidanceListResponse(
-        project_id=str(project_id),
-        blueprint_id=str(blueprint.id) if blueprint else None,
+        project_id=project_id,
+        blueprint_id=blueprint.id if blueprint else None,
         blueprint_version=blueprint.version if blueprint else None,
+        status=overall_status,
         sections=sections,
-        total_sections=len(sections),
-        ready_sections=len([s for s in sections if s.status == GuidanceStatus.READY.value]),
+        total_sections=total,
+        ready_sections=ready,
     )
 
 

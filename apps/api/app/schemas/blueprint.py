@@ -346,7 +346,7 @@ class BlueprintUpdate(BaseModel):
     required_modules: Optional[List[str]] = None
     calibration_plan: Optional[CalibrationPlan] = None
     branching_plan: Optional[BranchingPlan] = None
-    clarification_answers: Optional[Dict[str, str]] = None
+    clarification_answers: Optional[Dict[str, Any]] = None  # Can be str or List[str]
     constraints_applied: Optional[List[str]] = None
     risk_notes: Optional[List[str]] = None
     is_draft: Optional[bool] = None
@@ -375,7 +375,7 @@ class BlueprintResponse(BlueprintBase):
     calibration_plan: Optional[Dict[str, Any]] = None
     branching_plan: Optional[Dict[str, Any]] = None
     # Audit
-    clarification_answers: Optional[Dict[str, str]] = None
+    clarification_answers: Optional[Dict[str, Any]] = None  # Can be str or List[str]
     constraints_applied: Optional[List[str]] = None
     risk_notes: Optional[List[str]] = None
     created_by: Optional[UUID] = None
@@ -1101,11 +1101,13 @@ class ProjectGuidanceListResponse(BaseModel):
     """Response containing all guidance sections for a project."""
     project_id: UUID = Field(..., description="Project ID")
     blueprint_id: Optional[UUID] = Field(None, description="Source blueprint ID")
-    blueprint_version: int = Field(..., description="Blueprint version")
-    status: str = Field(..., description="Overall status (ready if all sections ready)")
+    blueprint_version: Optional[int] = Field(None, description="Blueprint version")
+    status: str = Field(default="pending", description="Overall status (ready if all sections ready)")
     sections: List[ProjectGuidanceResponse] = Field(
         default_factory=list, description="Guidance for each section"
     )
+    total_sections: int = Field(default=0, description="Total number of sections")
+    ready_sections: int = Field(default=0, description="Number of ready sections")
     generated_at: Optional[datetime] = Field(None, description="When guidance was generated")
     provenance_message: str = Field(
         default="Generated from your Blueprint v2 configuration",
