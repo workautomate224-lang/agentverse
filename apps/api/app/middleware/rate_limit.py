@@ -50,6 +50,16 @@ DEFAULT_RATE_LIMITS = {
     "/api/v1/projects": RateLimitConfig(requests=100, window_seconds=60),
     "/api/v1/personas": RateLimitConfig(requests=100, window_seconds=60),
 
+    # Blueprints - frequently polled by frontend (both with and without trailing slash)
+    "/api/v1/blueprints/project/*/active": RateLimitConfig(requests=300, window_seconds=60),
+    "/api/v1/blueprints/project/*/active/": RateLimitConfig(requests=300, window_seconds=60),
+    "/api/v1/blueprints/project/*/checklist": RateLimitConfig(requests=300, window_seconds=60),
+    "/api/v1/blueprints/project/*/checklist/": RateLimitConfig(requests=300, window_seconds=60),
+
+    # PIL Jobs - frequently polled for status
+    "/api/v1/pil-jobs/active": RateLimitConfig(requests=300, window_seconds=60),
+    "/api/v1/pil-jobs/active/": RateLimitConfig(requests=300, window_seconds=60),
+
     # Auth (prevent brute force)
     "/api/v1/auth/login": RateLimitConfig(requests=10, window_seconds=300),
     "/api/v1/auth/register": RateLimitConfig(requests=5, window_seconds=300),
