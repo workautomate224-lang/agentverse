@@ -168,6 +168,7 @@ PIL_EXPECTED_MODELS = {
     "PIL_CLARIFYING_QUESTIONS": "openai/gpt-5.2",
     "PIL_RISK_ASSESSMENT": "openai/gpt-5.2",
     "PIL_BLUEPRINT_GENERATION": "openai/gpt-5.2",
+    "PIL_FINAL_BLUEPRINT_BUILD": "openai/gpt-5.2",  # Slice 2A: Blueprint v2
 }
 
 
@@ -1808,6 +1809,447 @@ def _generate_branching_plan(domain: str) -> Dict:
 
 
 # =============================================================================
+# Final Blueprint Build Task - Blueprint v2 (Slice 2A)
+# =============================================================================
+
+@celery_app.task(bind=True, base=TenantAwareTask, max_retries=3)
+def final_blueprint_build_task(self, job_id: str, context: dict):
+    """
+    Build complete Blueprint v2 from clarified goals after Q&A completion.
+
+    Slice 2A: Blueprint v2 Data Contract + Final Blueprint Build pipeline.
+
+    Features:
+    - Structured Blueprint v2 schema with all required sections
+    - Uses OpenRouter with gpt-5.2 model (no fallback allowed)
+    - Deterministic JSON output with validation
+    - Full LLM provenance for auditability
+    - Fails job on invalid JSON shape (no silent degradation)
+    """
+    return _run_async(_final_blueprint_build_async(self, job_id, context))
+
+
+async def _final_blueprint_build_async(task, job_id: str, context: dict):
+    """Async implementation of final blueprint v2 building."""
+    job_uuid = UUID(job_id)
+    AsyncSessionLocal = get_async_session()
+    start_time = time.time()
+
+    async with AsyncSessionLocal() as session:
+        try:
+            await mark_job_running(session, job_uuid, task.request.id)
+
+            result = await session.execute(
+                select(PILJob).where(PILJob.id == job_uuid)
+            )
+            job = result.scalar_one_or_none()
+
+            if not job:
+                raise ValueError(f"Job {job_id} not found")
+
+            goal_text = job.input_params.get("goal_text", "")
+            clarification_answers = job.input_params.get("clarification_answers", {})
+            goal_summary = job.input_params.get("goal_summary", goal_text[:200])
+            domain_guess = job.input_params.get("domain_guess", DomainGuess.GENERIC.value)
+
+            # Stage 1: Preparing context (10%)
+            await update_job_progress(
+                session, job_uuid, 10,
+                stage_name="Preparing context for Blueprint v2",
+                stages_completed=1,
+                stages_total=4
+            )
+
+            # Stage 2: LLM Blueprint v2 Generation (50%)
+            await update_job_progress(
+                session, job_uuid, 30,
+                stage_name="Generating Blueprint v2 with AI",
+                stages_completed=2
+            )
+
+            try:
+                # Call LLM with full context to generate Blueprint v2
+                blueprint_v2_data, llm_proof = await _llm_build_blueprint_v2(
+                    session=session,
+                    goal_text=goal_text,
+                    goal_summary=goal_summary,
+                    domain=domain_guess,
+                    clarification_answers=clarification_answers,
+                    skip_cache=True,  # Slice 2A: Always fresh generation
+                )
+
+            except PILLLMError:
+                # Re-raise LLM errors (Slice 2A: no silent fallback)
+                raise
+            except PILProvenanceError:
+                # Re-raise provenance errors
+                raise
+            except PILModelMismatchError:
+                # Re-raise model mismatch errors
+                raise
+            except Exception as e:
+                # Wrap unexpected errors
+                raise PILLLMError(
+                    LLMProfileKey.PIL_FINAL_BLUEPRINT_BUILD.value,
+                    e
+                ) from e
+
+            # Stage 3: Validating output shape (70%)
+            await update_job_progress(
+                session, job_uuid, 70,
+                stage_name="Validating Blueprint v2 structure",
+                stages_completed=3
+            )
+
+            # Validate Blueprint v2 structure (Slice 2A: fail on invalid shape)
+            validation_errors = _validate_blueprint_v2_shape(blueprint_v2_data)
+            if validation_errors:
+                error_msg = f"Blueprint v2 validation failed: {'; '.join(validation_errors)}"
+                raise ValueError(error_msg)
+
+            # Stage 4: Persisting blueprint (90%)
+            await update_job_progress(
+                session, job_uuid, 90,
+                stage_name="Persisting Blueprint v2",
+                stages_completed=4
+            )
+
+            # Create or update Blueprint record
+            blueprint = None
+            if job.blueprint_id:
+                bp_result = await session.execute(
+                    select(Blueprint).where(Blueprint.id == job.blueprint_id)
+                )
+                blueprint = bp_result.scalar_one_or_none()
+
+            if not blueprint:
+                blueprint = Blueprint(
+                    tenant_id=job.tenant_id,
+                    project_id=job.project_id,
+                    goal_text=goal_text,
+                    goal_summary=goal_summary,
+                    domain_guess=domain_guess,
+                    is_draft=False,  # Blueprint v2 is final
+                    version=1,
+                )
+                session.add(blueprint)
+                await session.flush()
+                job.blueprint_id = blueprint.id
+
+            # Store Blueprint v2 data in blueprint record
+            blueprint.clarification_answers = clarification_answers
+            blueprint.calibration_plan = blueprint_v2_data.get("evaluation_plan", {})
+            blueprint.branching_plan = blueprint_v2_data.get("branching_plan", {})
+            blueprint.risk_notes = blueprint_v2_data.get("risk_notes", [])
+            blueprint.is_draft = False  # Final blueprint
+            blueprint.updated_at = datetime.utcnow()
+
+            await session.commit()
+
+            # Calculate processing time
+            processing_time_ms = int((time.time() - start_time) * 1000)
+
+            # Build full Blueprint v2 response
+            blueprint_v2_response = {
+                "schema_version": "2.0.0",
+                "intent": blueprint_v2_data.get("intent", {}),
+                "prediction_target": blueprint_v2_data.get("prediction_target", {}),
+                "horizon": blueprint_v2_data.get("horizon", {}),
+                "output_format": blueprint_v2_data.get("output_format", {}),
+                "evaluation_plan": blueprint_v2_data.get("evaluation_plan", {}),
+                "required_inputs": blueprint_v2_data.get("required_inputs", []),
+                "section_tasks": blueprint_v2_data.get("section_tasks", {}),
+                "branching_plan": blueprint_v2_data.get("branching_plan", {}),
+                "clarification_answers": clarification_answers,
+                "risk_notes": blueprint_v2_data.get("risk_notes", []),
+                "warnings": blueprint_v2_data.get("warnings", []),
+                "provenance": {
+                    "call_id": llm_proof.get("call_id", ""),
+                    "model": llm_proof.get("model", ""),
+                    "provider": llm_proof.get("provider", "openrouter"),
+                    "input_tokens": llm_proof.get("input_tokens", 0),
+                    "output_tokens": llm_proof.get("output_tokens", 0),
+                    "cost_usd": llm_proof.get("cost_usd", 0.0),
+                    "cache_hit": llm_proof.get("cache_hit", False),
+                    "timestamp": llm_proof.get("timestamp", datetime.utcnow().isoformat()),
+                    "fallback_used": False,  # Slice 2A: never use fallback
+                },
+                "generated_at": datetime.utcnow().isoformat(),
+                "processing_time_ms": processing_time_ms,
+                "blueprint_id": str(blueprint.id),
+            }
+
+            # Mark succeeded with Blueprint v2 data
+            await mark_job_succeeded(
+                session, job_uuid,
+                result=blueprint_v2_response,
+            )
+
+            return {"status": "success", "blueprint_id": str(blueprint.id)}
+
+        except Exception as e:
+            await session.rollback()
+            await mark_job_failed(session, job_uuid, str(e))
+            raise
+
+
+async def _llm_build_blueprint_v2(
+    session: AsyncSession,
+    goal_text: str,
+    goal_summary: str,
+    domain: str,
+    clarification_answers: Dict[str, Any],
+    skip_cache: bool = True,
+) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Use LLM to generate Blueprint v2 structured output.
+
+    Slice 2A: This function generates the complete Blueprint v2 schema with:
+    - intent, prediction_target, horizon, output_format
+    - evaluation_plan, required_inputs, section_tasks
+    - branching_plan, risk_notes, warnings
+
+    Args:
+        goal_text: Original goal/prediction description
+        goal_summary: Analyzed summary from goal_analysis
+        domain: Classified domain (election, market_demand, etc.)
+        clarification_answers: User's answers to clarifying questions
+        skip_cache: Whether to bypass LLM cache (default True)
+
+    Returns:
+        Tuple of (blueprint_v2_data, llm_proof)
+
+    Raises:
+        PILLLMError: If LLM call fails (no fallback allowed)
+        PILProvenanceError: If provenance verification fails
+        PILModelMismatchError: If model doesn't match expected gpt-5.2
+    """
+    profile_key = LLMProfileKey.PIL_FINAL_BLUEPRINT_BUILD.value
+
+    # Format clarification answers for the prompt
+    answers_text = ""
+    if clarification_answers:
+        answer_lines = []
+        for q_id, answer in clarification_answers.items():
+            if isinstance(answer, list):
+                answer_str = ", ".join(str(a) for a in answer)
+            else:
+                answer_str = str(answer)
+            q_label = q_id.replace("_", " ").title()
+            answer_lines.append(f"- {q_label}: {answer_str}")
+        answers_text = "\n".join(answer_lines)
+    else:
+        answers_text = "(No clarification answers provided)"
+
+    # Build the Blueprint v2 prompt
+    system_prompt = """You are an expert simulation architect for a predictive AI platform.
+Your task is to generate a complete Blueprint v2 structured document based on the user's goal and clarification answers.
+
+The Blueprint v2 MUST include ALL of the following sections:
+
+1. INTENT: Captures the user's goal
+   - goal_text: Original text
+   - summary: AI concise summary
+   - domain: One of (election|market_demand|consumer_behavior|geopolitical|opinion_polling|sports|entertainment|generic)
+   - confidence_score: 0.0-1.0
+
+2. PREDICTION_TARGET: What to predict
+   - primary_metric: Main quantity being predicted
+   - metric_type: distribution|point_estimate|ranked_outcomes|paths
+   - entity_type: What entity is being predicted
+   - aggregation_level: population|individual|segment
+
+3. HORIZON: Time boundaries
+   - prediction_window: e.g., "6 months"
+   - granularity: daily|weekly|monthly|event_based
+   - start_date: optional
+   - end_date: optional
+
+4. OUTPUT_FORMAT: How results should be structured
+   - output_types: Array of (probability_distribution|ranked_outcomes|point_estimate|time_series|report)
+   - visualization_requirements: Array of visualization types
+   - export_formats: Array of formats (json, csv, pdf)
+   - confidence_intervals: boolean
+
+5. EVALUATION_PLAN: How to validate predictions
+   - evaluation_metrics: Array of metrics
+   - calibration_requirements: {backtest_windows, min_sample_size, confidence_threshold}
+   - backtest_windows: Array of window descriptions
+   - success_criteria: Optional string
+
+6. REQUIRED_INPUTS: Data needed (array of objects)
+   Each input: {slot_id, name, description, data_type, required_level, example_sources, schema_hint}
+   - data_type: persona_set|table|timeseries|document|event_script_set|ruleset|graph
+   - required_level: required|recommended|optional
+   - example_sources: Array of (manual_upload|connect_api|ai_generation|ai_research)
+
+7. SECTION_TASKS: Tasks organized by section
+   Keys: overview, inputs, personas, rules, run_params, reliability
+   Values: Array of {task_id, title, why_it_matters}
+
+8. BRANCHING_PLAN: For scenario exploration
+   - branchable_variables: Array of variable names
+   - scenario_suggestions: Array of scenario descriptions
+   - default_branch_count: integer
+
+9. RISK_NOTES: Array of risk strings
+
+10. WARNINGS: Array of warning strings
+
+Respond ONLY with valid JSON matching this exact structure. No markdown, no explanation."""
+
+    user_prompt = f"""Generate a Blueprint v2 for the following prediction project:
+
+**GOAL:**
+{goal_text}
+
+**ANALYZED SUMMARY:**
+{goal_summary}
+
+**DOMAIN:**
+{domain}
+
+**USER'S CLARIFICATION ANSWERS:**
+{answers_text}
+
+Generate a COMPLETE Blueprint v2 document. Ensure all sections are populated.
+CRITICAL: Return ONLY valid JSON. No markdown code blocks. Just the raw JSON object."""
+
+    try:
+        llm_router = LLMRouter(session)
+        context = LLMRouterContext(
+            strict_llm=True,  # Slice 2A: No fallback allowed
+            skip_cache=skip_cache,
+        )
+
+        response = await llm_router.complete(
+            profile_key=profile_key,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            context=context,
+            temperature_override=0.2,  # Low temperature for deterministic output
+            max_tokens_override=6000,  # Large output for full blueprint
+            skip_cache=skip_cache,
+            response_format={"type": "json_object"},
+        )
+
+        # Build LLM proof with Slice 2A verification (verify_model=True)
+        llm_proof = build_llm_proof_from_response(response, profile_key, verify_model=True)
+
+        # Parse the LLM response
+        content = response.content.strip()
+        # Remove markdown code blocks if present
+        if content.startswith("```json"):
+            content = content[7:]
+        if content.startswith("```"):
+            content = content[3:]
+        if content.endswith("```"):
+            content = content[:-3]
+
+        blueprint_v2_data = json.loads(content.strip())
+        return blueprint_v2_data, llm_proof
+
+    except json.JSONDecodeError as e:
+        raise PILLLMError(
+            profile_key,
+            Exception(f"LLM returned invalid JSON: {str(e)}")
+        )
+    except Exception as e:
+        # Slice 2A: No fallback - fail fast
+        raise PILLLMError(
+            profile_key,
+            Exception(f"Blueprint v2 generation failed: {str(e)}. "
+                     f"PIL_ALLOW_FALLBACK is disabled - no fallback used.")
+        )
+
+
+def _validate_blueprint_v2_shape(data: Dict[str, Any]) -> List[str]:
+    """
+    Validate Blueprint v2 JSON structure.
+
+    Slice 2A: This validation ensures all required sections are present.
+    Returns list of validation errors (empty if valid).
+    """
+    errors = []
+
+    # Required top-level sections
+    required_sections = [
+        "intent",
+        "prediction_target",
+        "horizon",
+        "output_format",
+        "evaluation_plan",
+        "required_inputs",
+    ]
+
+    for section in required_sections:
+        if section not in data:
+            errors.append(f"Missing required section: {section}")
+
+    # Validate intent structure
+    if "intent" in data:
+        intent = data["intent"]
+        if not isinstance(intent, dict):
+            errors.append("intent must be an object")
+        else:
+            for field in ["goal_text", "summary", "domain"]:
+                if field not in intent:
+                    errors.append(f"intent missing required field: {field}")
+
+    # Validate prediction_target structure
+    if "prediction_target" in data:
+        pt = data["prediction_target"]
+        if not isinstance(pt, dict):
+            errors.append("prediction_target must be an object")
+        else:
+            if "primary_metric" not in pt:
+                errors.append("prediction_target missing required field: primary_metric")
+
+    # Validate horizon structure
+    if "horizon" in data:
+        horizon = data["horizon"]
+        if not isinstance(horizon, dict):
+            errors.append("horizon must be an object")
+        else:
+            if "prediction_window" not in horizon:
+                errors.append("horizon missing required field: prediction_window")
+
+    # Validate output_format structure
+    if "output_format" in data:
+        of = data["output_format"]
+        if not isinstance(of, dict):
+            errors.append("output_format must be an object")
+        else:
+            if "output_types" not in of:
+                errors.append("output_format missing required field: output_types")
+
+    # Validate evaluation_plan structure
+    if "evaluation_plan" in data:
+        ep = data["evaluation_plan"]
+        if not isinstance(ep, dict):
+            errors.append("evaluation_plan must be an object")
+        else:
+            if "evaluation_metrics" not in ep:
+                errors.append("evaluation_plan missing required field: evaluation_metrics")
+
+    # Validate required_inputs is an array
+    if "required_inputs" in data:
+        ri = data["required_inputs"]
+        if not isinstance(ri, list):
+            errors.append("required_inputs must be an array")
+        else:
+            for idx, inp in enumerate(ri):
+                if not isinstance(inp, dict):
+                    errors.append(f"required_inputs[{idx}] must be an object")
+                elif "slot_id" not in inp or "name" not in inp:
+                    errors.append(f"required_inputs[{idx}] missing slot_id or name")
+
+    return errors
+
+
+# =============================================================================
 # Slot Validation Task (blueprint.md §6.3)
 # =============================================================================
 
@@ -2419,6 +2861,9 @@ async def _dispatch_pil_job_async(task, job_id: str):
             goal_analysis_task.delay(job_id, context)
         elif job.job_type == PILJobType.BLUEPRINT_BUILD:
             blueprint_build_task.delay(job_id, context)
+        elif job.job_type == PILJobType.FINAL_BLUEPRINT_BUILD:
+            # Slice 2A: Blueprint v2 generation
+            final_blueprint_build_task.delay(job_id, context)
         elif job.job_type == PILJobType.SLOT_VALIDATION:
             slot_validation_task.delay(job_id, context)
         elif job.job_type == PILJobType.SLOT_SUMMARIZATION:

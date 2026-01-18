@@ -3,7 +3,7 @@ Blueprint API Endpoints
 Reference: blueprint.md §3, §4, §5
 """
 
-from typing import Optional
+from typing import Any, Dict, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -43,6 +43,16 @@ from app.schemas.blueprint import (
     ChecklistItem,
     # Guidance
     GuidancePanel,
+    # Blueprint v2 (Slice 2A)
+    BlueprintV2CreateRequest,
+    BlueprintV2Response,
+    # Blueprint v2 Edit Validation (Slice 2B)
+    BlueprintV2ValidationRequest,
+    BlueprintV2ValidationResult,
+    BlueprintV2ValidationError,
+    BlueprintV2SaveRequest,
+    CoreType,
+    TemporalMode,
 )
 from app.tasks.pil_tasks import dispatch_pil_job
 
@@ -1036,3 +1046,681 @@ async def get_project_checklist_by_project(
         not_started_count=not_started,
         overall_readiness=overall,
     )
+
+
+# =============================================================================
+# BLUEPRINT V2 ENDPOINTS (Slice 2A)
+# =============================================================================
+
+@router.post(
+    "/v2/build",
+    response_model=Dict[str, Any],
+    summary="Trigger Blueprint v2 Build",
+    description="Triggers the final_blueprint_build PIL job to generate Blueprint v2.",
+)
+async def trigger_blueprint_v2_build(
+    request: BlueprintV2CreateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Trigger the final_blueprint_build PIL job.
+
+    This creates a new PIL job that will:
+    1. Gather all Q/A context from the project
+    2. Call OpenRouter with gpt-5.2 to generate Blueprint v2
+    3. Validate the JSON structure (fail if invalid)
+    4. Store the result with full provenance
+
+    Returns the job_id to poll for status.
+    """
+    from app.models.pil_job import PILJob, PILJobStatus, PILJobType
+    from app.tasks.pil_tasks import dispatch_pil_job
+
+    # Verify project exists and user has access
+    project = await db.get(ProjectSpec, request.project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {request.project_id} not found"
+        )
+
+    # Check tenant access
+    if project.tenant_id != current_user.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied to this project"
+        )
+
+    # Create PIL job for final blueprint build
+    job = PILJob(
+        tenant_id=current_user.tenant_id,
+        project_id=request.project_id,
+        job_type=PILJobType.FINAL_BLUEPRINT_BUILD,
+        status=PILJobStatus.QUEUED,
+        created_by_id=current_user.id,
+        input_data={
+            "project_id": str(request.project_id),
+            "trigger_source": request.trigger_source or "manual",
+            "force_rebuild": request.force_rebuild or False,
+        },
+    )
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+
+    # Dispatch to Celery
+    dispatch_pil_job.delay(str(job.id))
+
+    return {
+        "job_id": str(job.id),
+        "status": job.status.value,
+        "message": "Blueprint v2 build job queued successfully",
+    }
+
+
+@router.get(
+    "/v2/{blueprint_id}",
+    response_model=BlueprintV2Response,
+    summary="Get Blueprint v2",
+    description="Retrieve a Blueprint v2 by its ID.",
+)
+async def get_blueprint_v2(
+    blueprint_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BlueprintV2Response:
+    """
+    Get Blueprint v2 by ID.
+
+    Returns the full Blueprint v2 data including all structured sections
+    and provenance information.
+    """
+    from sqlalchemy import select
+    from app.schemas.blueprint import BlueprintV2, BlueprintV2Provenance
+
+    # Get blueprint with version 2
+    stmt = select(Blueprint).where(
+        Blueprint.id == blueprint_id,
+        Blueprint.version == 2,
+    )
+    result = await db.execute(stmt)
+    blueprint = result.scalar_one_or_none()
+
+    if not blueprint:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Blueprint v2 {blueprint_id} not found"
+        )
+
+    # Check tenant access
+    project = await db.get(ProjectSpec, blueprint.project_id)
+    if project and project.tenant_id != current_user.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied to this blueprint"
+        )
+
+    # Get the v2 data from blueprint_json
+    v2_data = blueprint.blueprint_json or {}
+
+    # Build provenance from metadata
+    provenance = None
+    if blueprint.metadata and "provenance" in blueprint.metadata:
+        prov_data = blueprint.metadata["provenance"]
+        provenance = BlueprintV2Provenance(
+            model=prov_data.get("model"),
+            model_version=prov_data.get("model_version"),
+            generated_at=prov_data.get("generated_at"),
+            input_tokens=prov_data.get("input_tokens"),
+            output_tokens=prov_data.get("output_tokens"),
+            job_id=prov_data.get("job_id"),
+        )
+
+    # Parse the v2 data
+    from app.schemas.blueprint import (
+        BlueprintV2Intent,
+        BlueprintV2PredictionTarget,
+        BlueprintV2Horizon,
+        BlueprintV2OutputFormat,
+        BlueprintV2EvaluationPlan,
+        BlueprintV2RequiredInput,
+    )
+
+    return BlueprintV2Response(
+        id=blueprint.id,
+        project_id=blueprint.project_id,
+        version=blueprint.version,
+        status=blueprint.status,
+        intent=BlueprintV2Intent(**v2_data.get("intent", {})) if v2_data.get("intent") else None,
+        prediction_target=BlueprintV2PredictionTarget(**v2_data.get("prediction_target", {})) if v2_data.get("prediction_target") else None,
+        horizon=BlueprintV2Horizon(**v2_data.get("horizon", {})) if v2_data.get("horizon") else None,
+        output_format=BlueprintV2OutputFormat(**v2_data.get("output_format", {})) if v2_data.get("output_format") else None,
+        evaluation_plan=BlueprintV2EvaluationPlan(**v2_data.get("evaluation_plan", {})) if v2_data.get("evaluation_plan") else None,
+        required_inputs=[BlueprintV2RequiredInput(**inp) for inp in v2_data.get("required_inputs", [])] if v2_data.get("required_inputs") else [],
+        provenance=provenance,
+        created_at=blueprint.created_at,
+        updated_at=blueprint.updated_at,
+    )
+
+
+@router.get(
+    "/v2/project/{project_id}",
+    response_model=BlueprintV2Response,
+    summary="Get Blueprint v2 by Project",
+    description="Retrieve the latest Blueprint v2 for a project.",
+)
+async def get_blueprint_v2_by_project(
+    project_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BlueprintV2Response:
+    """
+    Get the latest Blueprint v2 for a project.
+
+    Returns the most recent Blueprint v2 data for the given project.
+    """
+    from sqlalchemy import select
+    from app.schemas.blueprint import BlueprintV2, BlueprintV2Provenance
+
+    # Verify project exists and user has access
+    project = await db.get(ProjectSpec, project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {project_id} not found"
+        )
+
+    if project.tenant_id != current_user.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied to this project"
+        )
+
+    # Get latest blueprint v2 for project
+    stmt = select(Blueprint).where(
+        Blueprint.project_id == project_id,
+        Blueprint.version == 2,
+    ).order_by(Blueprint.created_at.desc()).limit(1)
+
+    result = await db.execute(stmt)
+    blueprint = result.scalar_one_or_none()
+
+    if not blueprint:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No Blueprint v2 found for project {project_id}"
+        )
+
+    # Get the v2 data from blueprint_json
+    v2_data = blueprint.blueprint_json or {}
+
+    # Build provenance from metadata
+    provenance = None
+    if blueprint.metadata and "provenance" in blueprint.metadata:
+        prov_data = blueprint.metadata["provenance"]
+        provenance = BlueprintV2Provenance(
+            model=prov_data.get("model"),
+            model_version=prov_data.get("model_version"),
+            generated_at=prov_data.get("generated_at"),
+            input_tokens=prov_data.get("input_tokens"),
+            output_tokens=prov_data.get("output_tokens"),
+            job_id=prov_data.get("job_id"),
+        )
+
+    # Parse the v2 data
+    from app.schemas.blueprint import (
+        BlueprintV2Intent,
+        BlueprintV2PredictionTarget,
+        BlueprintV2Horizon,
+        BlueprintV2OutputFormat,
+        BlueprintV2EvaluationPlan,
+        BlueprintV2RequiredInput,
+    )
+
+    return BlueprintV2Response(
+        id=blueprint.id,
+        project_id=blueprint.project_id,
+        version=blueprint.version,
+        status=blueprint.status,
+        intent=BlueprintV2Intent(**v2_data.get("intent", {})) if v2_data.get("intent") else None,
+        prediction_target=BlueprintV2PredictionTarget(**v2_data.get("prediction_target", {})) if v2_data.get("prediction_target") else None,
+        horizon=BlueprintV2Horizon(**v2_data.get("horizon", {})) if v2_data.get("horizon") else None,
+        output_format=BlueprintV2OutputFormat(**v2_data.get("output_format", {})) if v2_data.get("output_format") else None,
+        evaluation_plan=BlueprintV2EvaluationPlan(**v2_data.get("evaluation_plan", {})) if v2_data.get("evaluation_plan") else None,
+        required_inputs=[BlueprintV2RequiredInput(**inp) for inp in v2_data.get("required_inputs", [])] if v2_data.get("required_inputs") else [],
+        provenance=provenance,
+        created_at=blueprint.created_at,
+        updated_at=blueprint.updated_at,
+    )
+
+
+@router.get(
+    "/v2/job/{job_id}/status",
+    response_model=Dict[str, Any],
+    summary="Get Blueprint v2 Build Job Status",
+    description="Check the status of a Blueprint v2 build job.",
+)
+async def get_blueprint_v2_job_status(
+    job_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Get the status of a Blueprint v2 build job.
+
+    Returns the current status, progress, and any error information.
+    """
+    from app.models.pil_job import PILJob
+
+    job = await db.get(PILJob, job_id)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job {job_id} not found"
+        )
+
+    # Check tenant access
+    if job.tenant_id != current_user.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied to this job"
+        )
+
+    response = {
+        "job_id": str(job.id),
+        "status": job.status.value,
+        "job_type": job.job_type.value,
+        "progress": job.progress or 0,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+    }
+
+    # Add error info if failed
+    if job.status.value == "failed":
+        response["error"] = job.error_message
+        response["error_code"] = job.error_code
+
+    # Add result info if succeeded
+    if job.status.value == "succeeded" and job.output_data:
+        response["blueprint_id"] = job.output_data.get("blueprint_id")
+        response["blueprint_version"] = job.output_data.get("blueprint_version")
+
+    return response
+
+
+# =============================================================================
+# BLUEPRINT V2 EDIT VALIDATION ENDPOINTS (Slice 2B)
+# =============================================================================
+
+# Field constraints (mirrors client-side blueprintConstraints.ts)
+FIELD_CONSTRAINTS = {
+    "projectName": {"minLength": 3, "maxLength": 100},
+    "tags": {"maxCount": 5, "maxLength": 30},
+}
+
+
+def validate_core_type_conflicts(
+    core_type: CoreType,
+    required_inputs: list,
+) -> list[BlueprintV2ValidationError]:
+    """
+    Validate core type conflicts based on required inputs.
+    Mirrors client-side validateCoreTypeConflicts.
+    """
+    errors = []
+
+    # Check if personas are required
+    personas_required = any(
+        inp.get("type") == "PERSONA_SET" and inp.get("required", False)
+        for inp in required_inputs
+    )
+
+    # If personas are required, targeted-only is not allowed
+    if personas_required and core_type == CoreType.TARGETED:
+        errors.append(BlueprintV2ValidationError(
+            field="coreType",
+            code="CORE_REQUIRES_HYBRID",
+            message='Blueprint requires personas. Use "Hybrid" mode to include both collective dynamics and targeted personas.',
+            severity="error",
+        ))
+
+    # Check if events are required
+    events_required = any(
+        inp.get("type") == "EVENT_SCRIPT_SET" and inp.get("required", False)
+        for inp in required_inputs
+    )
+
+    # If events are required, pure collective may need hybrid
+    if events_required and core_type == CoreType.COLLECTIVE:
+        errors.append(BlueprintV2ValidationError(
+            field="coreType",
+            code="CORE_MISSING_EVENTS",
+            message='Blueprint includes required event simulations. Consider "Hybrid" mode for full event support.',
+            severity="warning",
+        ))
+
+    return errors
+
+
+def validate_temporal_settings(
+    fields: "BlueprintV2EditableFields",
+    recommendations: "BlueprintV2Recommendations",
+) -> list[BlueprintV2ValidationError]:
+    """
+    Validate temporal settings.
+    Mirrors client-side validateTemporalSettings.
+    """
+    from datetime import datetime as dt
+
+    errors = []
+
+    # Backtest mode requires date/time
+    if fields.temporal_mode == TemporalMode.BACKTEST:
+        if not fields.as_of_date:
+            errors.append(BlueprintV2ValidationError(
+                field="asOfDate",
+                code="BACKTEST_REQUIRES_DATE",
+                message="Backtest mode requires an as-of date.",
+                severity="error",
+            ))
+
+        if not fields.as_of_time:
+            errors.append(BlueprintV2ValidationError(
+                field="asOfTime",
+                code="BACKTEST_REQUIRES_TIME",
+                message="Backtest mode requires an as-of time.",
+                severity="error",
+            ))
+
+        # Validate date is not in future
+        if fields.as_of_date and fields.as_of_time:
+            try:
+                as_of_datetime = dt.fromisoformat(f"{fields.as_of_date}T{fields.as_of_time}")
+                if as_of_datetime > dt.now():
+                    errors.append(BlueprintV2ValidationError(
+                        field="asOfDate",
+                        code="FUTURE_DATE_NOT_ALLOWED",
+                        message="As-of date cannot be in the future for backtesting.",
+                        severity="error",
+                    ))
+            except ValueError:
+                errors.append(BlueprintV2ValidationError(
+                    field="asOfDate",
+                    code="INVALID_DATE_FORMAT",
+                    message="Invalid date/time format. Use ISO format.",
+                    severity="error",
+                ))
+
+        # Isolation level must be set for backtest
+        if not fields.isolation_level:
+            errors.append(BlueprintV2ValidationError(
+                field="isolationLevel",
+                code="BACKTEST_REQUIRES_ISOLATION",
+                message="Backtest mode requires an isolation level.",
+                severity="error",
+            ))
+
+    # Warn if changing from recommended temporal mode
+    if fields.temporal_mode != recommendations.temporal_mode:
+        rationale = recommendations.temporal_rationale or ""
+        errors.append(BlueprintV2ValidationError(
+            field="temporalMode",
+            code="TEMPORAL_MODE_OVERRIDE",
+            message=f'Blueprint recommended "{recommendations.temporal_mode.value}" mode. {rationale}',
+            severity="warning",
+        ))
+
+    return errors
+
+
+@router.post(
+    "/v2/validate",
+    response_model=BlueprintV2ValidationResult,
+    summary="Validate Blueprint v2 Edits",
+    description="Server-side validation of Blueprint v2 editable fields against constraints.",
+)
+async def validate_blueprint_v2_fields(
+    request: BlueprintV2ValidationRequest,
+    current_user: User = Depends(get_current_user),
+) -> BlueprintV2ValidationResult:
+    """
+    Validate Blueprint v2 editable fields against constraints.
+
+    This endpoint mirrors the client-side validation in blueprintConstraints.ts
+    and provides server-side validation before allowing finalization.
+
+    Returns validation errors (blocking) and warnings (non-blocking).
+    """
+    from app.schemas.blueprint import BlueprintV2EditableFields, BlueprintV2Recommendations
+
+    fields = request.fields
+    recommendations = request.recommendations
+
+    errors: list[BlueprintV2ValidationError] = []
+    warnings: list[BlueprintV2ValidationError] = []
+
+    # 1. Required field validation
+    required_fields = ["project_name", "core_type", "temporal_mode"]
+    for field_name in required_fields:
+        value = getattr(fields, field_name, None)
+        if not value or (isinstance(value, str) and not value.strip()):
+            errors.append(BlueprintV2ValidationError(
+                field=field_name,
+                code="FIELD_REQUIRED",
+                message=f"{field_name} is required.",
+                severity="error",
+            ))
+
+    # 2. Project name validation
+    if fields.project_name:
+        min_len = FIELD_CONSTRAINTS["projectName"]["minLength"]
+        max_len = FIELD_CONSTRAINTS["projectName"]["maxLength"]
+        if len(fields.project_name) < min_len:
+            errors.append(BlueprintV2ValidationError(
+                field="projectName",
+                code="NAME_TOO_SHORT",
+                message=f"Project name must be at least {min_len} characters.",
+                severity="error",
+            ))
+        if len(fields.project_name) > max_len:
+            errors.append(BlueprintV2ValidationError(
+                field="projectName",
+                code="NAME_TOO_LONG",
+                message=f"Project name cannot exceed {max_len} characters.",
+                severity="error",
+            ))
+
+    # 3. Tags validation
+    max_tags = FIELD_CONSTRAINTS["tags"]["maxCount"]
+    max_tag_len = FIELD_CONSTRAINTS["tags"]["maxLength"]
+    if len(fields.tags) > max_tags:
+        errors.append(BlueprintV2ValidationError(
+            field="tags",
+            code="TOO_MANY_TAGS",
+            message=f"Maximum {max_tags} tags allowed.",
+            severity="error",
+        ))
+    for tag in fields.tags:
+        if len(tag) > max_tag_len:
+            errors.append(BlueprintV2ValidationError(
+                field="tags",
+                code="TAG_TOO_LONG",
+                message=f'Tag "{tag}" exceeds {max_tag_len} characters.',
+                severity="error",
+            ))
+
+    # 4. Core type validation
+    if fields.core_type and fields.core_type not in recommendations.allowed_cores:
+        allowed = ", ".join(c.value for c in recommendations.allowed_cores)
+        errors.append(BlueprintV2ValidationError(
+            field="coreType",
+            code="CORE_NOT_ALLOWED",
+            message=f'"{fields.core_type.value}" is not compatible with this blueprint. Allowed: {allowed}.',
+            severity="error",
+        ))
+
+    # 5. Core type conflict validation
+    core_conflicts = validate_core_type_conflicts(
+        fields.core_type,
+        [inp for inp in recommendations.required_inputs],
+    )
+    for conflict in core_conflicts:
+        if conflict.severity == "error":
+            errors.append(conflict)
+        else:
+            warnings.append(conflict)
+
+    # 6. Warn if core differs from recommendation
+    if fields.core_type != recommendations.recommended_core:
+        rationale = recommendations.core_rationale or ""
+        warnings.append(BlueprintV2ValidationError(
+            field="coreType",
+            code="CORE_OVERRIDE",
+            message=f'Blueprint recommended "{recommendations.recommended_core.value}". {rationale}',
+            severity="warning",
+        ))
+
+    # 7. Temporal settings validation
+    temporal_errors = validate_temporal_settings(fields, recommendations)
+    for err in temporal_errors:
+        if err.severity == "error":
+            errors.append(err)
+        else:
+            warnings.append(err)
+
+    return BlueprintV2ValidationResult(
+        valid=len(errors) == 0,
+        errors=errors,
+        warnings=warnings,
+    )
+
+
+@router.post(
+    "/v2/save",
+    response_model=Dict[str, Any],
+    summary="Save Blueprint v2 Edits",
+    description="Save Blueprint v2 edits after validation. Stores override metadata for audit.",
+)
+async def save_blueprint_v2_edits(
+    request: BlueprintV2SaveRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Save Blueprint v2 edits after server-side validation.
+
+    This endpoint:
+    1. Re-validates all fields server-side
+    2. Stores the edited configuration
+    3. Records override metadata for audit trail
+    4. Returns the updated blueprint ID
+
+    Will reject if validation fails (errors present).
+    """
+    from datetime import datetime as dt
+
+    # First, get the latest Blueprint v2 for this project to get recommendations
+    from app.models.blueprint import Blueprint as BlueprintModel
+    from app.schemas.blueprint import BlueprintV2Recommendations as RecsSchema
+
+    # Get the project
+    from app.models.project import ProjectSpec
+    project = await db.get(ProjectSpec, request.project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project {request.project_id} not found"
+        )
+
+    # Check tenant access
+    if project.tenant_id != current_user.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied to this project"
+        )
+
+    # Get latest blueprint v2 for this project
+    stmt = select(BlueprintModel).where(
+        BlueprintModel.project_id == request.project_id,
+        BlueprintModel.version == 2,
+    ).order_by(BlueprintModel.created_at.desc()).limit(1)
+
+    result = await db.execute(stmt)
+    blueprint = result.scalar_one_or_none()
+
+    if not blueprint:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No Blueprint v2 found for project {request.project_id}"
+        )
+
+    # Extract recommendations from blueprint
+    v2_data = blueprint.blueprint_json or {}
+    required_inputs = v2_data.get("required_inputs", [])
+
+    # Build recommendations object for validation
+    # (In production, this would come from the stored blueprint recommendations)
+    recommendations = RecsSchema(
+        project_name=v2_data.get("intent", {}).get("summary", "Untitled Project"),
+        tags=[],  # Extract from blueprint if available
+        recommended_core=CoreType.COLLECTIVE,  # Default
+        allowed_cores=[CoreType.COLLECTIVE, CoreType.HYBRID, CoreType.TARGETED],
+        temporal_mode=TemporalMode.LIVE,
+        required_inputs=required_inputs,
+    )
+
+    # Re-run validation
+    validation_request = BlueprintV2ValidationRequest(
+        fields=request.fields,
+        recommendations=recommendations,
+    )
+    validation_result = await validate_blueprint_v2_fields(
+        validation_request, current_user
+    )
+
+    if not validation_result.valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "message": "Validation failed",
+                "errors": [e.model_dump() for e in validation_result.errors],
+            }
+        )
+
+    # Update project with editable fields
+    project.name = request.fields.project_name
+    # Store additional config in project metadata or blueprint
+    if not blueprint.metadata:
+        blueprint.metadata = {}
+
+    blueprint.metadata["edits"] = {
+        "project_name": request.fields.project_name,
+        "tags": request.fields.tags,
+        "core_type": request.fields.core_type.value,
+        "temporal_mode": request.fields.temporal_mode.value,
+        "as_of_date": request.fields.as_of_date,
+        "as_of_time": request.fields.as_of_time,
+        "timezone": request.fields.timezone,
+        "isolation_level": request.fields.isolation_level.value if request.fields.isolation_level else None,
+        "updated_at": dt.utcnow().isoformat(),
+        "updated_by": str(current_user.id),
+    }
+
+    # Store override metadata
+    if request.overrides:
+        blueprint.metadata["overrides"] = [
+            override.model_dump() for override in request.overrides
+        ]
+
+    await db.commit()
+    await db.refresh(blueprint)
+
+    return {
+        "success": True,
+        "blueprint_id": str(blueprint.id),
+        "project_id": str(project.id),
+        "warnings": [w.model_dump() for w in validation_result.warnings],
+        "message": "Blueprint v2 edits saved successfully",
+    }

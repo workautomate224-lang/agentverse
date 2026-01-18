@@ -180,6 +180,15 @@ import api, {
   GuidancePanel,
   GoalAnalysisResult,
   ClarifyingQuestion,
+  // Blueprint v2 types (Slice 2A)
+  BlueprintV2Response,
+  BlueprintV2CreateRequest,
+  BlueprintV2JobStatus,
+  // Blueprint v2 validation types (Slice 2B)
+  BlueprintV2ValidationRequest,
+  BlueprintV2ValidationResult,
+  BlueprintV2SaveRequest,
+  BlueprintV2SaveResponse,
 } from '@/lib/api';
 
 // Extended session user type for type safety
@@ -3946,5 +3955,115 @@ export function useGoalAnalysisResult(projectId: string | undefined) {
     queryFn: () => api.getGoalAnalysisResult(projectId!),
     enabled: isReady && !!projectId,
     staleTime: CACHE_TIMES.MEDIUM,
+  });
+}
+
+// =============================================================================
+// BLUEPRINT V2 HOOKS (Slice 2A)
+// =============================================================================
+
+/**
+ * Trigger Blueprint v2 build job.
+ */
+export function useTriggerBlueprintV2Build() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: (data: BlueprintV2CreateRequest) => api.triggerBlueprintV2Build(data),
+    onSuccess: (result, variables) => {
+      // Invalidate related queries
+      queryClient.invalidateQueries({ queryKey: ['blueprint-v2', variables.project_id] });
+      queryClient.invalidateQueries({ queryKey: ['pil-jobs'] });
+    },
+  });
+}
+
+/**
+ * Get Blueprint v2 by ID.
+ */
+export function useBlueprintV2(blueprintId: string | undefined) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['blueprint-v2', blueprintId],
+    queryFn: () => api.getBlueprintV2(blueprintId!),
+    enabled: isReady && !!blueprintId,
+    staleTime: CACHE_TIMES.MEDIUM,
+  });
+}
+
+/**
+ * Get Blueprint v2 by project ID.
+ */
+export function useBlueprintV2ByProject(projectId: string | undefined) {
+  const { isReady } = useApiAuth();
+
+  return useQuery({
+    queryKey: ['blueprint-v2', 'project', projectId],
+    queryFn: () => api.getBlueprintV2ByProject(projectId!),
+    enabled: isReady && !!projectId,
+    staleTime: CACHE_TIMES.MEDIUM,
+  });
+}
+
+/**
+ * Poll Blueprint v2 build job status.
+ * Polls every 2 seconds while job is active.
+ */
+export function useBlueprintV2JobStatus(
+  jobId: string | undefined,
+  options?: { enabled?: boolean; onSuccess?: (data: BlueprintV2JobStatus) => void }
+) {
+  const { isReady } = useApiAuth();
+  const queryClient = useQueryClient();
+
+  return useQuery({
+    queryKey: ['blueprint-v2-job', jobId],
+    queryFn: () => api.getBlueprintV2JobStatus(jobId!),
+    enabled: isReady && !!jobId && (options?.enabled !== false),
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      // Stop polling when job is complete or failed
+      if (data?.status === 'succeeded' || data?.status === 'failed' || data?.status === 'cancelled') {
+        // Invalidate related queries on completion
+        if (data?.status === 'succeeded') {
+          queryClient.invalidateQueries({ queryKey: ['blueprint-v2'] });
+        }
+        return false;
+      }
+      return 2000; // Poll every 2 seconds
+    },
+    staleTime: 1000,
+  });
+}
+
+/**
+ * Validate Blueprint v2 editable fields.
+ * Returns validation result with errors and warnings.
+ */
+export function useValidateBlueprintV2Fields() {
+  const { isReady } = useApiAuth();
+
+  return useMutation({
+    mutationFn: (data: BlueprintV2ValidationRequest) => api.validateBlueprintV2Fields(data),
+  });
+}
+
+/**
+ * Save Blueprint v2 edits with override tracking.
+ * Validates before saving and stores override metadata.
+ */
+export function useSaveBlueprintV2Edits() {
+  const { isReady } = useApiAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: BlueprintV2SaveRequest) => api.saveBlueprintV2Edits(data),
+    onSuccess: (response) => {
+      // Invalidate blueprint queries to refresh data
+      queryClient.invalidateQueries({ queryKey: ['blueprint-v2'] });
+      queryClient.invalidateQueries({ queryKey: ['blueprint-v2-project'] });
+    },
   });
 }

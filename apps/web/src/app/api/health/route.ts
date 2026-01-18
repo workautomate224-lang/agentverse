@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// Prevent static generation - this endpoint must be dynamic
+export const dynamic = 'force-dynamic';
+
 // Runtime API route handler for /api/health
 // This proxies to the backend health endpoint at runtime (not build time)
 const BACKEND_URL = process.env.BACKEND_API_URL || 'http://localhost:8000';

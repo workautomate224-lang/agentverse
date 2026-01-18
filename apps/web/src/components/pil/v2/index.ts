@@ -8,3 +8,10 @@
 
 export { GoalAssistantPanel } from './GoalAssistantPanel';
 export { GuidancePanel } from './GuidancePanel';
+
+// Slice 2A: Blueprint v2 components
+export { BlueprintBuildingState } from './BlueprintBuildingState';
+export { BlueprintV2Preview } from './BlueprintV2Preview';
+
+// Slice 2B: Editable Blueprint components
+export { EditableBlueprintPage } from './EditableBlueprintPage';

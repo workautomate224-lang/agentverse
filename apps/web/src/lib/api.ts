@@ -4478,6 +4478,144 @@ class ApiClient {
       return null;
     }
   }
+
+  // ===========================================================================
+  // BLUEPRINT V2 METHODS (Slice 2A)
+  // ===========================================================================
+
+  /**
+   * Trigger Blueprint v2 build job.
+   * Creates a PIL job that generates Blueprint v2 using LLM.
+   */
+  async triggerBlueprintV2Build(
+    data: BlueprintV2CreateRequest
+  ): Promise<{ job_id: string; status: string; message: string }> {
+    return this.request<{ job_id: string; status: string; message: string }>(
+      '/api/v1/blueprints/v2/build',
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+  }
+
+  /**
+   * Get Blueprint v2 by ID.
+   */
+  async getBlueprintV2(blueprintId: string): Promise<BlueprintV2Response> {
+    return this.request<BlueprintV2Response>(`/api/v1/blueprints/v2/${blueprintId}`);
+  }
+
+  /**
+   * Get Blueprint v2 by project ID.
+   * Returns the latest Blueprint v2 for the project.
+   */
+  async getBlueprintV2ByProject(projectId: string): Promise<BlueprintV2Response> {
+    return this.request<BlueprintV2Response>(`/api/v1/blueprints/v2/project/${projectId}`);
+  }
+
+  /**
+   * Get Blueprint v2 build job status.
+   */
+  async getBlueprintV2JobStatus(jobId: string): Promise<BlueprintV2JobStatus> {
+    return this.request<BlueprintV2JobStatus>(`/api/v1/blueprints/v2/job/${jobId}/status`);
+  }
+
+  // ===========================================================================
+  // BLUEPRINT V2 EDIT VALIDATION METHODS (Slice 2B)
+  // ===========================================================================
+
+  /**
+   * Validate Blueprint v2 editable fields.
+   * Server-side validation that mirrors client-side constraints.
+   */
+  async validateBlueprintV2Fields(
+    data: BlueprintV2ValidationRequest
+  ): Promise<BlueprintV2ValidationResult> {
+    // Convert camelCase to snake_case for backend
+    const payload = {
+      fields: {
+        project_name: data.fields.projectName,
+        tags: data.fields.tags,
+        core_type: data.fields.coreType,
+        temporal_mode: data.fields.temporalMode,
+        as_of_date: data.fields.asOfDate,
+        as_of_time: data.fields.asOfTime,
+        timezone: data.fields.timezone,
+        isolation_level: data.fields.isolationLevel,
+      },
+      recommendations: {
+        project_name: data.recommendations.projectName,
+        project_name_rationale: data.recommendations.projectNameRationale,
+        tags: data.recommendations.tags,
+        tags_rationale: data.recommendations.tagsRationale,
+        recommended_core: data.recommendations.recommendedCore,
+        core_rationale: data.recommendations.coreRationale,
+        allowed_cores: data.recommendations.allowedCores,
+        temporal_mode: data.recommendations.temporalMode,
+        temporal_rationale: data.recommendations.temporalRationale,
+        suggested_cutoff_date: data.recommendations.suggestedCutoffDate,
+        suggested_isolation_level: data.recommendations.suggestedIsolationLevel,
+        required_inputs: data.recommendations.requiredInputs,
+      },
+    };
+    return this.request<BlueprintV2ValidationResult>(
+      '/api/v1/blueprints/v2/validate',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  /**
+   * Save Blueprint v2 edits after validation.
+   * Stores edits and override metadata for audit trail.
+   */
+  async saveBlueprintV2Edits(
+    data: BlueprintV2SaveRequest
+  ): Promise<BlueprintV2SaveResponse> {
+    // Convert camelCase to snake_case for backend
+    const payload = {
+      project_id: data.projectId,
+      fields: {
+        project_name: data.fields.projectName,
+        tags: data.fields.tags,
+        core_type: data.fields.coreType,
+        temporal_mode: data.fields.temporalMode,
+        as_of_date: data.fields.asOfDate,
+        as_of_time: data.fields.asOfTime,
+        timezone: data.fields.timezone,
+        isolation_level: data.fields.isolationLevel,
+      },
+      overrides: data.overrides.map((o) => ({
+        field: o.field,
+        original_value: o.originalValue,
+        new_value: o.newValue,
+        timestamp: o.timestamp,
+        reason: o.reason,
+        user_id: o.userId,
+      })),
+    };
+    const response = await this.request<{
+      success: boolean;
+      blueprint_id: string;
+      project_id: string;
+      warnings: BlueprintV2ValidationError[];
+      message: string;
+    }>('/api/v1/blueprints/v2/save', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    // Convert snake_case response to camelCase
+    return {
+      success: response.success,
+      blueprintId: response.blueprint_id,
+      projectId: response.project_id,
+      warnings: response.warnings,
+      message: response.message,
+    };
+  }
 }
 
 // Data Source Types
@@ -7170,6 +7308,199 @@ export interface GuidancePanel {
   recommended_slots: BlueprintSlot[];
   overall_status: AlertState;
   next_suggested_action: NextAction | null;
+}
+
+// =============================================================================
+// BLUEPRINT V2 TYPES (Slice 2A)
+// =============================================================================
+
+/** Blueprint v2 intent section */
+export interface BlueprintV2Intent {
+  business_question: string;
+  decision_context: string;
+  success_criteria: string[];
+}
+
+/** Blueprint v2 prediction target */
+export interface BlueprintV2PredictionTarget {
+  primary_metric: string;
+  metric_definition: string;
+  target_population: string;
+  segmentation: string[];
+}
+
+/** Blueprint v2 horizon */
+export interface BlueprintV2Horizon {
+  prediction_window: string;
+  data_freshness_requirement: string;
+  update_frequency: string;
+}
+
+/** Blueprint v2 output format */
+export interface BlueprintV2OutputFormat {
+  format_type: string;
+  granularity: string;
+  confidence_intervals: boolean;
+  explanation_depth: string;
+}
+
+/** Blueprint v2 evaluation plan */
+export interface BlueprintV2EvaluationPlan {
+  validation_approach: string;
+  backtesting_period: string | null;
+  accuracy_thresholds: Record<string, number>;
+  comparison_benchmarks: string[];
+}
+
+/** Blueprint v2 required input */
+export interface BlueprintV2RequiredInput {
+  input_name: string;
+  input_type: string;
+  description: string;
+  required: boolean;
+  source_suggestion: string | null;
+}
+
+/** Blueprint v2 provenance */
+export interface BlueprintV2Provenance {
+  model: string | null;
+  model_version: string | null;
+  generated_at: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  job_id: string | null;
+}
+
+/** Blueprint v2 response */
+export interface BlueprintV2Response {
+  id: string;
+  project_id: string;
+  version: number;
+  status: string;
+  intent: BlueprintV2Intent | null;
+  prediction_target: BlueprintV2PredictionTarget | null;
+  horizon: BlueprintV2Horizon | null;
+  output_format: BlueprintV2OutputFormat | null;
+  evaluation_plan: BlueprintV2EvaluationPlan | null;
+  required_inputs: BlueprintV2RequiredInput[];
+  provenance: BlueprintV2Provenance | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Blueprint v2 create request */
+export interface BlueprintV2CreateRequest {
+  project_id: string;
+  trigger_source?: string;
+  force_rebuild?: boolean;
+}
+
+/** Blueprint v2 build job status response */
+export interface BlueprintV2JobStatus {
+  job_id: string;
+  status: string;
+  job_type: string;
+  progress: number;
+  created_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  error?: string;
+  error_code?: string;
+  blueprint_id?: string;
+  blueprint_version?: number;
+}
+
+// =============================================================================
+// BLUEPRINT V2 EDIT VALIDATION TYPES (Slice 2B)
+// =============================================================================
+
+/** Core simulation type */
+export type CoreType = 'collective' | 'targeted' | 'hybrid';
+
+/** Temporal mode for simulations */
+export type TemporalMode = 'live' | 'backtest';
+
+/** Isolation level for backtest mode */
+export type IsolationLevel = 1 | 2 | 3;
+
+/** Editable fields for Blueprint v2 configuration */
+export interface BlueprintV2EditableFields {
+  projectName: string;
+  tags: string[];
+  coreType: CoreType;
+  temporalMode: TemporalMode;
+  asOfDate?: string;
+  asOfTime?: string;
+  timezone?: string;
+  isolationLevel?: IsolationLevel;
+}
+
+/** AI-generated recommendations from Blueprint v2 analysis */
+export interface BlueprintV2Recommendations {
+  projectName: string;
+  projectNameRationale?: string;
+  tags: string[];
+  tagsRationale?: string;
+  recommendedCore: CoreType;
+  coreRationale?: string;
+  allowedCores: CoreType[];
+  temporalMode: TemporalMode;
+  temporalRationale?: string;
+  suggestedCutoffDate?: string;
+  suggestedIsolationLevel?: IsolationLevel;
+  requiredInputs: {
+    name: string;
+    type: string;
+    required: boolean;
+    description: string;
+  }[];
+}
+
+/** Single validation error or warning */
+export interface BlueprintV2ValidationError {
+  field: string;
+  code: string;
+  message: string;
+  severity: 'error' | 'warning';
+}
+
+/** Request to validate Blueprint v2 editable fields */
+export interface BlueprintV2ValidationRequest {
+  fields: BlueprintV2EditableFields;
+  recommendations: BlueprintV2Recommendations;
+}
+
+/** Result of Blueprint v2 field validation */
+export interface BlueprintV2ValidationResult {
+  valid: boolean;
+  errors: BlueprintV2ValidationError[];
+  warnings: BlueprintV2ValidationError[];
+}
+
+/** Metadata for tracking field overrides */
+export interface BlueprintV2OverrideMetadata {
+  field: string;
+  originalValue: unknown;
+  newValue: unknown;
+  timestamp: string;
+  reason?: string;
+  userId?: string;
+}
+
+/** Request to save Blueprint v2 edits */
+export interface BlueprintV2SaveRequest {
+  projectId: string;
+  fields: BlueprintV2EditableFields;
+  overrides: BlueprintV2OverrideMetadata[];
+}
+
+/** Response from save Blueprint v2 edits */
+export interface BlueprintV2SaveResponse {
+  success: boolean;
+  blueprintId: string;
+  projectId: string;
+  warnings: BlueprintV2ValidationError[];
+  message: string;
 }
 
 export const api = new ApiClient(API_URL);

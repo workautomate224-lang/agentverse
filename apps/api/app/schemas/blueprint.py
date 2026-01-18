@@ -110,6 +110,7 @@ class PILJobType(str, Enum):
     GOAL_ANALYSIS = "goal_analysis"
     CLARIFICATION_GENERATE = "clarification_generate"
     BLUEPRINT_BUILD = "blueprint_build"
+    FINAL_BLUEPRINT_BUILD = "final_blueprint_build"  # Slice 2A: Blueprint v2
     SLOT_VALIDATION = "slot_validation"
     SLOT_SUMMARIZATION = "slot_summarization"
     SLOT_ALIGNMENT_SCORING = "slot_alignment_scoring"
@@ -624,3 +625,353 @@ class JobNotification(BaseModel):
     message: str
     artifact_ids: Optional[List[str]] = None
     timestamp: datetime
+
+
+# ============================================================================
+# Blueprint v2 Schemas (Slice 2A: Final Blueprint Build)
+# ============================================================================
+
+class BlueprintV2Intent(BaseModel):
+    """Blueprint v2: Intent section - captures the user's goal and objective."""
+    goal_text: str = Field(..., description="Original user goal text")
+    summary: str = Field(..., description="AI-generated concise summary")
+    domain: DomainGuess = Field(..., description="Classified domain category")
+    confidence_score: float = Field(
+        ..., ge=0, le=1, description="Confidence in domain classification"
+    )
+
+
+class BlueprintV2PredictionTarget(BaseModel):
+    """Blueprint v2: Prediction Target section - what the simulation aims to predict."""
+    primary_metric: str = Field(..., description="The main quantity being predicted")
+    metric_type: str = Field(
+        default="distribution",
+        description="Type: distribution | point_estimate | ranked_outcomes | paths"
+    )
+    entity_type: str = Field(..., description="What entity is being predicted for")
+    aggregation_level: str = Field(
+        default="population", description="Level of aggregation for predictions"
+    )
+
+
+class BlueprintV2Horizon(BaseModel):
+    """Blueprint v2: Horizon section - time boundaries for the prediction."""
+    prediction_window: str = Field(..., description="How far ahead to predict, e.g., '6 months'")
+    granularity: str = Field(
+        default="monthly",
+        description="Time granularity: daily | weekly | monthly | event_based"
+    )
+    start_date: Optional[str] = Field(None, description="Optional explicit start date")
+    end_date: Optional[str] = Field(None, description="Optional explicit end date")
+
+
+class BlueprintV2OutputFormat(BaseModel):
+    """Blueprint v2: Output Format section - how results should be structured."""
+    output_types: List[TargetOutput] = Field(
+        ..., description="Types of output required"
+    )
+    visualization_requirements: List[str] = Field(
+        default_factory=list, description="Required visualization types"
+    )
+    export_formats: List[str] = Field(
+        default_factory=lambda: ["json", "csv"],
+        description="Required export formats"
+    )
+    confidence_intervals: bool = Field(
+        default=True, description="Include confidence intervals in output"
+    )
+
+
+class BlueprintV2EvaluationPlan(BaseModel):
+    """Blueprint v2: Evaluation Plan section - how to validate the predictions."""
+    evaluation_metrics: List[str] = Field(
+        ..., description="Metrics to evaluate prediction quality"
+    )
+    calibration_requirements: CalibrationPlan = Field(
+        ..., description="Calibration plan details"
+    )
+    backtest_windows: List[str] = Field(
+        default_factory=list, description="Historical windows for backtesting"
+    )
+    success_criteria: Optional[str] = Field(
+        None, description="What constitutes a successful prediction"
+    )
+
+
+class BlueprintV2RequiredInput(BaseModel):
+    """Blueprint v2: Single required input specification."""
+    slot_id: str = Field(..., description="Unique identifier for this input slot")
+    name: str = Field(..., description="Human-readable name")
+    description: str = Field(..., description="What this input is for")
+    data_type: SlotType = Field(..., description="Type of data expected")
+    required_level: RequiredLevel = Field(..., description="How critical this input is")
+    example_sources: List[str] = Field(
+        default_factory=list, description="Where this data might come from"
+    )
+    schema_hint: Optional[Dict[str, Any]] = Field(
+        None, description="Optional schema requirements"
+    )
+
+
+class BlueprintV2Provenance(BaseModel):
+    """Blueprint v2: Provenance metadata - LLM proof for auditability."""
+    call_id: str = Field(..., description="Unique identifier for the LLM call")
+    model: str = Field(..., description="Model used for generation")
+    provider: str = Field(..., description="LLM provider (e.g., openrouter)")
+    input_tokens: int = Field(..., description="Number of input tokens")
+    output_tokens: int = Field(..., description="Number of output tokens")
+    cost_usd: float = Field(..., description="Cost of the LLM call in USD")
+    cache_hit: bool = Field(..., description="Whether this was served from cache")
+    timestamp: str = Field(..., description="ISO timestamp of generation")
+    fallback_used: bool = Field(default=False, description="Whether fallback was used")
+
+
+class BlueprintV2(BaseModel):
+    """
+    Blueprint v2: Complete structured blueprint format (Slice 2A).
+
+    This is the deterministic JSON output produced by the final_blueprint_build job.
+    All sections are required - validation will fail if any section is missing.
+    """
+    # Schema version for future compatibility
+    schema_version: str = Field(default="2.0.0", description="Blueprint schema version")
+
+    # Core sections (all required)
+    intent: BlueprintV2Intent = Field(..., description="Goal and intent section")
+    prediction_target: BlueprintV2PredictionTarget = Field(
+        ..., description="What is being predicted"
+    )
+    horizon: BlueprintV2Horizon = Field(..., description="Time boundaries")
+    output_format: BlueprintV2OutputFormat = Field(..., description="Output requirements")
+    evaluation_plan: BlueprintV2EvaluationPlan = Field(
+        ..., description="How to evaluate predictions"
+    )
+    required_inputs: List[BlueprintV2RequiredInput] = Field(
+        ..., description="List of required data inputs (slots)"
+    )
+
+    # Section tasks (optional but recommended)
+    section_tasks: Optional[Dict[str, List[Dict[str, Any]]]] = Field(
+        None, description="Tasks organized by section"
+    )
+
+    # Branching configuration (optional)
+    branching_plan: Optional[BranchingPlan] = Field(
+        None, description="Universe map branching configuration"
+    )
+
+    # Clarification answers from Q&A (audit trail)
+    clarification_answers: Dict[str, Any] = Field(
+        default_factory=dict, description="User answers during Q&A phase"
+    )
+
+    # Risk notes and warnings
+    risk_notes: List[str] = Field(
+        default_factory=list, description="Risk warnings from analysis"
+    )
+    warnings: List[str] = Field(
+        default_factory=list, description="Non-blocking warnings"
+    )
+
+    # Provenance (LLM proof - required for audit)
+    provenance: BlueprintV2Provenance = Field(
+        ..., description="LLM provenance for auditability"
+    )
+
+    # Metadata
+    generated_at: str = Field(..., description="ISO timestamp of generation")
+    processing_time_ms: int = Field(
+        default=0, description="Time taken to generate in milliseconds"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "schema_version": "2.0.0",
+                "intent": {
+                    "goal_text": "Predict Tesla EV demand for 2026",
+                    "summary": "Forecast consumer demand for Tesla electric vehicles in 2026",
+                    "domain": "market_demand",
+                    "confidence_score": 0.92
+                },
+                "prediction_target": {
+                    "primary_metric": "unit_sales",
+                    "metric_type": "distribution",
+                    "entity_type": "vehicle_model",
+                    "aggregation_level": "national"
+                },
+                "horizon": {
+                    "prediction_window": "12 months",
+                    "granularity": "monthly"
+                },
+                "output_format": {
+                    "output_types": ["distribution", "point_estimate"],
+                    "visualization_requirements": ["line_chart", "confidence_bands"],
+                    "export_formats": ["json", "csv"],
+                    "confidence_intervals": True
+                },
+                "evaluation_plan": {
+                    "evaluation_metrics": ["brier_score", "calibration_error"],
+                    "calibration_requirements": {
+                        "required_historical_windows": ["6 months"],
+                        "labels_needed": ["actual_sales"],
+                        "evaluation_metrics": ["mape"],
+                        "min_test_suite_size": 50
+                    },
+                    "backtest_windows": ["2024-Q3", "2024-Q4"]
+                },
+                "required_inputs": [
+                    {
+                        "slot_id": "slot_1",
+                        "name": "Consumer Personas",
+                        "description": "Target consumer population for EV market",
+                        "data_type": "PersonaSet",
+                        "required_level": "required",
+                        "example_sources": ["ai_generation", "survey_data"]
+                    }
+                ],
+                "provenance": {
+                    "call_id": "call_abc123",
+                    "model": "openai/gpt-5.2",
+                    "provider": "openrouter",
+                    "input_tokens": 1500,
+                    "output_tokens": 2000,
+                    "cost_usd": 0.05,
+                    "cache_hit": False,
+                    "timestamp": "2026-01-18T10:30:00Z",
+                    "fallback_used": False
+                },
+                "generated_at": "2026-01-18T10:30:05Z",
+                "processing_time_ms": 5000
+            }
+        }
+
+
+class BlueprintV2CreateRequest(BaseModel):
+    """Request to trigger final_blueprint_build job."""
+    project_id: UUID = Field(..., description="Project ID to build blueprint for")
+    goal_text: str = Field(..., min_length=10, description="User's goal text")
+    clarification_answers: Dict[str, Any] = Field(
+        default_factory=dict, description="Answers to clarifying questions"
+    )
+    goal_summary: Optional[str] = Field(None, description="Pre-computed goal summary")
+    domain_guess: Optional[DomainGuess] = Field(None, description="Pre-classified domain")
+    skip_cache: bool = Field(
+        default=True, description="Skip LLM cache (True for staging/dev)"
+    )
+
+
+class BlueprintV2Response(BaseModel):
+    """Response containing Blueprint v2 data."""
+    id: UUID = Field(..., description="Blueprint ID in database")
+    project_id: UUID = Field(..., description="Associated project ID")
+    version: int = Field(..., description="Blueprint version number")
+    blueprint_v2: BlueprintV2 = Field(..., description="The structured blueprint data")
+    created_at: datetime = Field(..., description="Creation timestamp")
+
+    class Config:
+        from_attributes = True
+
+
+# ============================================================================
+# Blueprint v2 Edit Validation Schemas (Slice 2B)
+# ============================================================================
+
+class CoreType(str, Enum):
+    """Core simulation type for Blueprint v2 edits."""
+    COLLECTIVE = "collective"
+    TARGETED = "targeted"
+    HYBRID = "hybrid"
+
+
+class TemporalMode(str, Enum):
+    """Temporal mode for simulations."""
+    LIVE = "live"
+    BACKTEST = "backtest"
+
+
+class IsolationLevel(int, Enum):
+    """Isolation level for backtest mode."""
+    BASIC = 1  # Basic temporal isolation
+    STRICT = 2  # Strict for publishable results
+    AUDIT_FIRST = 3  # Full audit trail required
+
+
+class BlueprintV2EditableFields(BaseModel):
+    """Editable fields for Blueprint v2 configuration."""
+    project_name: str = Field(..., min_length=3, max_length=100)
+    tags: List[str] = Field(default_factory=list, max_length=5)
+    core_type: CoreType = Field(..., description="Simulation core type")
+    temporal_mode: TemporalMode = Field(..., description="Live or backtest mode")
+    as_of_date: Optional[str] = Field(None, description="Backtest as-of date (ISO format)")
+    as_of_time: Optional[str] = Field(None, description="Backtest as-of time (HH:MM)")
+    timezone: Optional[str] = Field(None, description="Timezone for backtest (e.g., 'UTC')")
+    isolation_level: Optional[IsolationLevel] = Field(None, description="Backtest isolation level")
+
+
+class BlueprintV2Recommendations(BaseModel):
+    """AI-generated recommendations from Blueprint v2 analysis."""
+    project_name: str = Field(..., description="Recommended project name")
+    project_name_rationale: Optional[str] = Field(None, description="Why this name")
+    tags: List[str] = Field(default_factory=list, description="Recommended tags")
+    tags_rationale: Optional[str] = Field(None, description="Why these tags")
+
+    recommended_core: CoreType = Field(..., description="Recommended core type")
+    core_rationale: Optional[str] = Field(None, description="Why this core type")
+    allowed_cores: List[CoreType] = Field(..., description="Valid cores for this blueprint")
+
+    temporal_mode: TemporalMode = Field(..., description="Recommended temporal mode")
+    temporal_rationale: Optional[str] = Field(None, description="Why this mode")
+    suggested_cutoff_date: Optional[str] = Field(None, description="Suggested backtest date")
+    suggested_isolation_level: Optional[IsolationLevel] = Field(None, description="Suggested isolation")
+
+    required_inputs: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Required inputs from blueprint analysis"
+    )
+
+
+class BlueprintV2ValidationError(BaseModel):
+    """Single validation error or warning."""
+    field: str = Field(..., description="Field that has the error")
+    code: str = Field(..., description="Error code for programmatic handling")
+    message: str = Field(..., description="Human-readable error message")
+    severity: str = Field(..., pattern="^(error|warning)$", description="Error severity")
+
+
+class BlueprintV2ValidationRequest(BaseModel):
+    """Request to validate Blueprint v2 editable fields."""
+    fields: BlueprintV2EditableFields = Field(..., description="Current field values")
+    recommendations: BlueprintV2Recommendations = Field(
+        ..., description="Blueprint recommendations to validate against"
+    )
+
+
+class BlueprintV2ValidationResult(BaseModel):
+    """Result of Blueprint v2 field validation."""
+    valid: bool = Field(..., description="Whether all validations passed (no errors)")
+    errors: List[BlueprintV2ValidationError] = Field(
+        default_factory=list, description="Blocking validation errors"
+    )
+    warnings: List[BlueprintV2ValidationError] = Field(
+        default_factory=list, description="Non-blocking warnings"
+    )
+
+
+class BlueprintV2OverrideMetadata(BaseModel):
+    """Metadata for tracking field overrides."""
+    field: str = Field(..., description="Field that was overridden")
+    original_value: Any = Field(..., description="Original recommended value")
+    new_value: Any = Field(..., description="New user-selected value")
+    timestamp: str = Field(..., description="ISO timestamp of override")
+    reason: Optional[str] = Field(None, description="Optional user-provided reason")
+    user_id: Optional[str] = Field(None, description="User who made the override")
+
+
+class BlueprintV2SaveRequest(BaseModel):
+    """Request to save Blueprint v2 edits with validation."""
+    project_id: UUID = Field(..., description="Project ID")
+    fields: BlueprintV2EditableFields = Field(..., description="Field values to save")
+    overrides: List[BlueprintV2OverrideMetadata] = Field(
+        default_factory=list, description="Override tracking metadata"
+    )

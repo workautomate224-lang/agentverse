@@ -58,6 +58,9 @@ class PILJobType(str, Enum):
     CLARIFICATION_GENERATE = "clarification_generate"
     BLUEPRINT_BUILD = "blueprint_build"
 
+    # Blueprint v2 (Slice 2A) - Final Blueprint Build after Q&A completion
+    FINAL_BLUEPRINT_BUILD = "final_blueprint_build"
+
     # Slot Processing (blueprint.md §6.3)
     SLOT_VALIDATION = "slot_validation"
     SLOT_SUMMARIZATION = "slot_summarization"
