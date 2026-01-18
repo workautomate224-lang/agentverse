@@ -277,7 +277,11 @@ export function GuidancePanel({
   // Regeneration mutation
   const { mutate: regenerateGuidance, isPending: isRegenerating } = useRegenerateProjectGuidance();
 
-  const isLoading = checklistLoading || blueprintLoading || guidanceLoading;
+  // Handle loading state - don't consider guidanceLoading as blocking since it may 404
+  const isLoading = checklistLoading || blueprintLoading;
+
+  // Check if guidance fetch failed (404 = no guidance yet, this is expected)
+  const guidanceNotFound = guidanceError && (guidanceError as { status?: number })?.status === 404;
   const hasProjectGuidance = projectGuidance && projectGuidance.status === 'ready';
   const isStale = projectGuidance?.status === 'stale';
 
@@ -374,6 +378,22 @@ export function GuidancePanel({
       </div>
     );
   }
+
+  // Guidance is still loading
+  if (guidanceLoading) {
+    return (
+      <div className={cn('p-4 bg-white/5 border border-white/10', className)}>
+        <div className="flex items-center gap-2 text-gray-400">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span className="text-xs font-mono">Loading AI guidance...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // If there's a guidance error (404 = not generated yet, or other errors),
+  // we'll fall through to the normal render which uses static fallback config.
+  // This prevents the page from crashing when PROJECT_GENESIS hasn't run yet.
 
   if (compact) {
     return (
