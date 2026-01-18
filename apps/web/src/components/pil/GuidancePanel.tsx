@@ -349,6 +349,15 @@ export function GuidancePanel({
     return needsWork?.next_action;
   }, [sectionItems]);
 
+  // Determine panel styling based on guidance status
+  // IMPORTANT: This must be before early returns to maintain consistent hook count
+  const panelBorderClass = useMemo(() => {
+    if (projectGuidance?.status === 'generating') return 'border-amber-500/30';
+    if (hasProjectGuidance) return 'border-green-500/30';
+    if (projectGuidance?.status === 'stale') return 'border-yellow-500/30';
+    return 'border-white/10';
+  }, [projectGuidance, hasProjectGuidance]);
+
   if (isLoading) {
     return (
       <div className={cn('p-4 bg-white/5 border border-white/10', className)}>
@@ -418,14 +427,6 @@ export function GuidancePanel({
       </div>
     );
   }
-
-  // Determine panel styling based on guidance status
-  const panelBorderClass = useMemo(() => {
-    if (projectGuidance?.status === 'generating') return 'border-amber-500/30';
-    if (hasProjectGuidance) return 'border-green-500/30';
-    if (projectGuidance?.status === 'stale') return 'border-yellow-500/30';
-    return 'border-white/10';
-  }, [projectGuidance, hasProjectGuidance]);
 
   return (
     <div className={cn('bg-white/5 border', panelBorderClass, className)}>
