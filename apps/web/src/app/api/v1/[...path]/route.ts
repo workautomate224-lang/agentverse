@@ -11,9 +11,16 @@ async function proxyRequest(
 ): Promise<NextResponse> {
   // Build the backend URL
   const url = new URL(request.url);
-  // FastAPI expects trailing slashes for collection endpoints
-  // Add trailing slash if path doesn't end with one and there's no file extension
-  const needsTrailingSlash = !path.endsWith('/') && !path.includes('.') && !path.match(/\/[a-f0-9-]{36}$/);
+  // FastAPI expects trailing slashes for collection endpoints, but NOT for:
+  // - Paths ending with a UUID (resource endpoints)
+  // - Paths with file extensions
+  // - Paths ending with known action names (active, checklist, etc.)
+  // - Paths that already have a trailing slash
+  const knownActions = /\/(active|checklist|execute|expand|publish|cancel)$/;
+  const needsTrailingSlash = !path.endsWith('/') &&
+    !path.includes('.') &&
+    !path.match(/\/[a-f0-9-]{36}$/) &&
+    !knownActions.test(path);
   const normalizedPath = needsTrailingSlash ? `${path}/` : path;
   const backendPath = `/api/v1/${normalizedPath}${url.search}`;
   const backendUrl = `${BACKEND_URL}${backendPath}`;
