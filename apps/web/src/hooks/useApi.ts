@@ -4113,6 +4113,14 @@ export function useSectionGuidance(
     queryFn: () => api.getSectionGuidance(projectId!, section!),
     enabled: isReady && !!projectId && !!section && (options?.enabled !== false),
     staleTime: CACHE_TIMES.MEDIUM,
+    // Don't retry on 404 - guidance simply doesn't exist yet (PROJECT_GENESIS hasn't run)
+    retry: (failureCount, error) => {
+      const apiError = error as { status?: number };
+      if (apiError?.status === 404) return false; // Don't retry 404s
+      return failureCount < 1; // Standard retry for other errors
+    },
+    // Ensure errors go to `error` property, not error boundary
+    throwOnError: false,
   });
 }
 

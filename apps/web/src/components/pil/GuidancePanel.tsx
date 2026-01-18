@@ -392,8 +392,9 @@ export function GuidancePanel({
   }
 
   // If there's a guidance error (404 = not generated yet, or other errors),
-  // we'll fall through to the normal render which uses static fallback config.
-  // This prevents the page from crashing when PROJECT_GENESIS hasn't run yet.
+  // use static fallback config and prevent crashes.
+  // This is expected when PROJECT_GENESIS hasn't run yet.
+  const useStaticFallback = guidanceError || !projectGuidance;
 
   if (compact) {
     return (
