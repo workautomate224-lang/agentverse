@@ -319,6 +319,8 @@ export function GuidancePanel({
         // Slice 2D: Blueprint traceability
         projectFingerprint: projectGuidance.project_fingerprint,
         sourceRefs: projectGuidance.source_refs,
+        // Slice 2D: LLM provenance for transparency
+        llmProof: projectGuidance.llm_proof,
       };
     }
     return {
@@ -514,6 +516,30 @@ export function GuidancePanel({
               {sectionConfig.sourceRefs && sectionConfig.sourceRefs.length > 0 && (
                 <div className="text-[9px] font-mono text-gray-500">
                   Sources: {sectionConfig.sourceRefs.join(', ')}
+                </div>
+              )}
+              {/* Slice 2D: LLM provenance display - Provider, Model, Cache status */}
+              {sectionConfig.llmProof && (
+                <div className="flex flex-wrap items-center gap-2 text-[9px] font-mono text-gray-500 pt-1 border-t border-white/5">
+                  <span className="text-gray-600">AI:</span>
+                  <span className="px-1.5 py-0.5 bg-purple-500/10 border border-purple-500/20 rounded text-purple-400">
+                    Provider: {sectionConfig.llmProof.provider || 'openrouter'}
+                  </span>
+                  <span className="px-1.5 py-0.5 bg-blue-500/10 border border-blue-500/20 rounded text-blue-400">
+                    Model: {sectionConfig.llmProof.model || 'unknown'}
+                  </span>
+                  <span className={`px-1.5 py-0.5 rounded ${
+                    sectionConfig.llmProof.cache === 'hit'
+                      ? 'bg-green-500/10 border border-green-500/20 text-green-400'
+                      : 'bg-orange-500/10 border border-orange-500/20 text-orange-400'
+                  }`}>
+                    Cache: {sectionConfig.llmProof.cache || 'bypassed'}
+                  </span>
+                  {sectionConfig.llmProof.fallback && (
+                    <span className="px-1.5 py-0.5 bg-yellow-500/10 border border-yellow-500/20 rounded text-yellow-400">
+                      Fallback
+                    </span>
+                  )}
                 </div>
               )}
             </div>

@@ -2928,12 +2928,14 @@ async def _project_genesis_async(task, job_id: str, context: dict):
                 )
 
                 try:
-                    guidance_data, llm_call_id = await _generate_section_guidance(
+                    # Slice 2D: Now returns (guidance_data, llm_call_id, llm_proof)
+                    guidance_data, llm_call_id, llm_proof = await _generate_section_guidance(
                         session=session,
                         blueprint=blueprint,
                         blueprint_context=blueprint_context,
                         section=section,
                         tenant_id=job.tenant_id,
+                        job_id=job_uuid,  # Slice 2D: Pass job_id for llm_proof
                     )
 
                     # Create or update ProjectGuidance record
@@ -2947,6 +2949,7 @@ async def _project_genesis_async(task, job_id: str, context: dict):
                         llm_call_id=llm_call_id,
                         tenant_id=job.tenant_id,
                         blueprint_context=blueprint_context,  # Slice 2D: Pass for fingerprint
+                        llm_proof=llm_proof,  # Slice 2D: Pass LLM provenance
                     )
 
                     generated_guidance.append({
@@ -3064,11 +3067,15 @@ async def _generate_section_guidance(
     blueprint_context: Dict[str, Any],
     section: GuidanceSection,
     tenant_id: UUID,
-) -> tuple[Dict[str, Any], Optional[str]]:
+    job_id: UUID,
+) -> tuple[Dict[str, Any], Optional[str], Optional[Dict[str, Any]]]:
     """
     Generate AI-powered guidance for a specific section.
 
-    Returns (guidance_data, llm_call_id).
+    Returns (guidance_data, llm_call_id, llm_proof).
+
+    Slice 2D: llm_proof contains full LLM provenance for audit:
+    {provider, model, cache, fallback, request_id, job_id}
     """
     section_config = GUIDANCE_SECTION_CONFIG.get(section, {})
 
@@ -3092,6 +3099,16 @@ async def _generate_section_guidance(
 
         llm_call_id = response.call_id
 
+        # Slice 2D: Build llm_proof from response for provenance tracking
+        llm_proof = {
+            "provider": response.provider,
+            "model": response.model,
+            "cache": "hit" if response.cache_hit else "bypassed",
+            "fallback": response.fallback_used,
+            "request_id": response.call_id,
+            "job_id": str(job_id),
+        }
+
         # Parse JSON response
         try:
             guidance_data = json.loads(response.content)
@@ -3105,7 +3122,7 @@ async def _generate_section_guidance(
                 # Return default structure if parsing fails
                 guidance_data = _get_default_guidance(section, section_config, blueprint_context)
 
-        return guidance_data, llm_call_id
+        return guidance_data, llm_call_id, llm_proof
 
     except Exception as e:
         logger.warning(
@@ -3113,7 +3130,7 @@ async def _generate_section_guidance(
             section=section.value,
             error=str(e)
         )
-        return _get_default_guidance(section, section_config, blueprint_context), None
+        return _get_default_guidance(section, section_config, blueprint_context), None, None
 
 
 def _build_guidance_prompt(
@@ -3269,6 +3286,7 @@ async def _save_section_guidance(
     llm_call_id: Optional[str],
     tenant_id: UUID,
     blueprint_context: Dict[str, Any],  # Slice 2D: Added for fingerprint
+    llm_proof: Optional[Dict[str, Any]] = None,  # Slice 2D: LLM provenance
 ) -> ProjectGuidance:
     """Save or update guidance record for a section."""
 
@@ -3317,6 +3335,8 @@ async def _save_section_guidance(
         source_refs=guidance_data.get("source_refs", []),
         job_id=job_id,
         llm_call_id=llm_call_id,
+        # Slice 2D: Full LLM provenance (provider, model, cache, fallback, request_id, job_id)
+        llm_proof=llm_proof,
         is_active=True,
     )
 

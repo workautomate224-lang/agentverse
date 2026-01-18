@@ -203,6 +203,11 @@ class ProjectGuidance(Base):
         String(100), nullable=True
     )  # For LLM provenance tracking
 
+    # Slice 2D: Full LLM provenance (provider, model, cache status, etc.)
+    llm_proof: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSONB, nullable=True
+    )  # {provider: str, model: str, cache: "hit"|"bypassed", fallback: bool, request_id: str}
+
     # Active flag (only one active per project+section)
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, nullable=False
@@ -253,6 +258,7 @@ class ProjectGuidance(Base):
             "job_id": str(self.job_id) if self.job_id else None,
             "artifact_id": str(self.artifact_id) if self.artifact_id else None,
             "llm_call_id": self.llm_call_id,
+            "llm_proof": self.llm_proof,
             "is_active": self.is_active,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,

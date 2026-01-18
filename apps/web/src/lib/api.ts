@@ -7643,6 +7643,16 @@ export interface ProjectFingerprint {
   blueprint_version: number;
 }
 
+/** Slice 2D: LLM provenance for audit and transparency */
+export interface LLMProof {
+  provider: string;
+  model: string;
+  cache: 'hit' | 'bypassed';
+  fallback: boolean;
+  request_id?: string;
+  job_id?: string;
+}
+
 export interface ProjectGuidanceResponse {
   id: string;
   project_id: string;
@@ -7662,6 +7672,8 @@ export interface ProjectGuidanceResponse {
   project_fingerprint?: ProjectFingerprint;
   /** Slice 2D: List of blueprint fields used to generate this guidance */
   source_refs?: string[];
+  /** Slice 2D: LLM provenance for audit */
+  llm_proof?: LLMProof;
   job_id?: string;
   llm_call_id?: string;
   created_at?: string;

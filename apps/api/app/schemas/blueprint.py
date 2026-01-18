@@ -1073,6 +1073,22 @@ class ProjectGuidanceResponse(BaseModel):
     llm_call_id: Optional[str] = Field(None, description="LLM call ID for audit")
     is_active: bool = Field(default=True, description="Whether this is the active guidance")
 
+    # Slice 2D: Blueprint traceability
+    project_fingerprint: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Blueprint fingerprint: {goal_hash, domain, core_strategy, blueprint_id, blueprint_version}"
+    )
+    source_refs: Optional[List[str]] = Field(
+        None,
+        description="List of blueprint fields used to generate this guidance"
+    )
+
+    # Slice 2D: Full LLM provenance
+    llm_proof: Optional[Dict[str, Any]] = Field(
+        None,
+        description="LLM provenance: {provider, model, cache, fallback, request_id, job_id}"
+    )
+
     # Timestamps
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
