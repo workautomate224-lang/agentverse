@@ -112,6 +112,11 @@ const JOB_TYPE_CONFIG: Record<PILJobType, {
     label: 'Alignment Scoring',
     description: 'Computing alignment with project goals',
   },
+  project_genesis: {
+    icon: Sparkles,
+    label: 'Project Genesis',
+    description: 'Generating AI guidance for project workspace sections',
+  },
 };
 
 interface PILJobProgressProps {

@@ -125,6 +125,7 @@ const jobTypeIcons: Record<PILJobType, { icon: typeof Target; label: string }> =
   slot_validation: { icon: CheckCircle, label: 'Slot Validation' },
   summarization: { icon: Sparkles, label: 'Summarization' },
   alignment_scoring: { icon: Zap, label: 'Alignment Scoring' },
+  project_genesis: { icon: Sparkles, label: 'Project Genesis' },
 };
 
 export default function JobCenterPage() {

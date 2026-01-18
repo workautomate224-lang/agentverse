@@ -6982,7 +6982,7 @@ export interface BacktestStartResponse {
 export type PILJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 /** PIL Job types */
-export type PILJobType = 'goal_analysis' | 'blueprint_build' | 'slot_validation' | 'summarization' | 'alignment_scoring';
+export type PILJobType = 'goal_analysis' | 'blueprint_build' | 'slot_validation' | 'summarization' | 'alignment_scoring' | 'project_genesis';
 
 /** PIL Artifact types */
 export type PILArtifactType = 'clarifying_questions' | 'blueprint' | 'slot_summary' | 'validation_result' | 'alignment_score';
