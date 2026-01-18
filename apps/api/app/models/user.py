@@ -60,7 +60,7 @@ class User(Base):
     simulation_runs = relationship("SimulationRun", back_populates="user", lazy="dynamic")
 
     @property
-    def tenant_id(self) -> UUID:
+    def tenant_id(self) -> UUIDType:
         """
         Return tenant_id for multi-tenant operations.
 
