@@ -2,13 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 
-const BACKEND_URL = process.env.BACKEND_API_URL || 'http://localhost:8000';
+// Read at runtime, not module init time
+function getBackendUrl(): string {
+  return process.env.BACKEND_API_URL || 'http://localhost:8000';
+}
 
 async function proxyRequest(
   request: NextRequest,
   path: string,
   method: string
 ): Promise<NextResponse> {
+  // Read backend URL at runtime
+  const BACKEND_URL = getBackendUrl();
+
   // Build the backend URL
   const url = new URL(request.url);
   // FastAPI expects trailing slashes for collection endpoints, but NOT for:
@@ -79,13 +85,14 @@ async function proxyRequest(
     });
   } catch (error) {
     console.error('[API Proxy] Failed to connect to backend:', {
+      BACKEND_URL,
       backendUrl,
       method,
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
     return NextResponse.json(
-      { error: 'Failed to connect to backend', details: error instanceof Error ? error.message : String(error) },
+      { error: 'Failed to connect to backend', details: error instanceof Error ? error.message : String(error), url: backendUrl },
       { status: 502 }
     );
   }
