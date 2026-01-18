@@ -60,6 +60,8 @@ import {
   forceSaveToServer,
   reloadAfterConflict,
   onAutosaveResult,
+  getDraftProjectId,
+  setDraftProjectId as setPersistedDraftProjectId,
   type WizardPersistedState,
   type WizardGoalAnalysisResult,
   type AutosaveResult,
@@ -114,6 +116,10 @@ export function GoalAssistantPanel({
   // VERTICAL SLICE #1: Job IDs for background processing
   const [goalAnalysisJobId, setGoalAnalysisJobId] = useState<string | null>(null);
   const [blueprintJobId, setBlueprintJobId] = useState<string | null>(null);
+
+  // Slice 2D Fix: Store draft project ID for blueprint linking
+  // Initialize from persisted state if available
+  const [draftProjectId, setDraftProjectId] = useState<string | null>(() => getDraftProjectId());
 
   // Slice 1D-A: Track if user skipped clarification
   const [userDidSkipClarify, setUserDidSkipClarify] = useState(false);
@@ -391,14 +397,22 @@ export function GoalAssistantPanel({
     try {
       // Slice 1C: Create draft project if callback provided
       // This persists the draft to DB with status=DRAFT before running LLM
-      if (onDraftCreate) {
-        await onDraftCreate(goalText);
+      // Slice 2D Fix: Capture project_id and pass to job for blueprint linking
+      let projectId: string | null = draftProjectId;
+      if (onDraftCreate && !projectId) {
+        projectId = await onDraftCreate(goalText);
+        setDraftProjectId(projectId);  // Store in component state
+        if (projectId) {
+          setPersistedDraftProjectId(projectId);  // Sync with persistence module
+        }
       }
 
       // Create goal_analysis job via PIL job system
+      // Slice 2D Fix: Include project_id so blueprint can be linked to project
       const job = await createJobMutation.mutateAsync({
         job_type: 'goal_analysis',
         job_name: 'Goal Analysis',
+        ...(projectId && { project_id: projectId }),
         input_params: {
           goal_text: goalText,
           skip_clarification: false,
@@ -427,14 +441,22 @@ export function GoalAssistantPanel({
 
     try {
       // Slice 1C: Create draft project if callback provided
-      if (onDraftCreate) {
-        await onDraftCreate(goalText);
+      // Slice 2D Fix: Capture project_id and pass to job for blueprint linking
+      let projectId: string | null = draftProjectId;
+      if (onDraftCreate && !projectId) {
+        projectId = await onDraftCreate(goalText);
+        setDraftProjectId(projectId);  // Store in component state
+        if (projectId) {
+          setPersistedDraftProjectId(projectId);  // Sync with persistence module
+        }
       }
 
       // Create blueprint_build job directly (skip clarification)
+      // Slice 2D Fix: Include project_id so blueprint can be linked to project
       const job = await createJobMutation.mutateAsync({
         job_type: 'blueprint_build',
         job_name: 'Blueprint Generation (Skip Clarify)',
+        ...(projectId && { project_id: projectId }),
         input_params: {
           goal_text: goalText,
           skip_clarification: true,
@@ -473,9 +495,11 @@ export function GoalAssistantPanel({
 
     try {
       // Create blueprint_build job via PIL job system
+      // Slice 2D Fix: Include project_id so blueprint can be linked to project
       const job = await createJobMutation.mutateAsync({
         job_type: 'blueprint_build',
         job_name: 'Blueprint Generation',
+        ...(draftProjectId && { project_id: draftProjectId }),
         input_params: {
           goal_text: goalText,
           goal_summary: analysis.goal_summary,
@@ -490,7 +514,7 @@ export function GoalAssistantPanel({
       setError(err instanceof Error ? err.message : 'Failed to start blueprint generation');
       setStage('clarifying');
     }
-  }, [goalText, createJobMutation, blueprintJob]);
+  }, [goalText, draftProjectId, createJobMutation, blueprintJob]);
 
   // VERTICAL SLICE #1: Cancel current job
   const handleCancelJob = useCallback(async () => {
