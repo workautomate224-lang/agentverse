@@ -77,9 +77,15 @@ async function proxyRequest(
       statusText: response.statusText,
       headers: responseHeaders,
     });
-  } catch {
+  } catch (error) {
+    console.error('[API Proxy] Failed to connect to backend:', {
+      backendUrl,
+      method,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     return NextResponse.json(
-      { error: 'Failed to connect to backend' },
+      { error: 'Failed to connect to backend', details: error instanceof Error ? error.message : String(error) },
       { status: 502 }
     );
   }
