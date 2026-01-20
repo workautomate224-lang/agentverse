@@ -37,10 +37,9 @@ def get_code_version() -> str:
     Checks in order:
     1. GIT_SHA environment variable
     2. RAILWAY_GIT_COMMIT_SHA (Railway deployment)
-    3. VERCEL_GIT_COMMIT_SHA (Vercel deployment)
-    4. Falls back to "unknown"
+    3. Falls back to "unknown"
     """
-    for env_var in ["GIT_SHA", "RAILWAY_GIT_COMMIT_SHA", "VERCEL_GIT_COMMIT_SHA"]:
+    for env_var in ["GIT_SHA", "RAILWAY_GIT_COMMIT_SHA"]:
         value = os.environ.get(env_var)
         if value:
             return value[:12]  # First 12 chars of SHA

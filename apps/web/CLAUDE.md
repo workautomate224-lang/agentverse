@@ -288,7 +288,7 @@ The application runs in Docker with the following configuration:
 - Removed hardcoded backend IP addresses from all config files
 - Added HSTS, Referrer-Policy, and Permissions-Policy security headers
 - Fixed localStorage token storage - now uses session-based token management
-- Moved sensitive environment variables to Vercel dashboard (not in vercel.json)
+- Sensitive environment variables configured in Railway dashboard
 - Added `.test-credentials.json` to `.gitignore`
 
 ### Code Quality & Type Safety
