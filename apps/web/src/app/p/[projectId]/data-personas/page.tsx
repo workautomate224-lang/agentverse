@@ -39,6 +39,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { GuidancePanel } from '@/components/pil';
+import { isMvpMode } from '@/lib/feature-flags';
 import {
   usePersonaTemplates,
   useGeneratePersonas,
@@ -417,7 +418,7 @@ interface GeneratedPersona {
   behavioral_patterns?: string[];
 }
 
-// AI Generation Modal
+// AI Generation Modal - MVP Natural Language Interface (DEMO2_MVP_EXECUTION.md §3.1)
 function GeneratePersonasModal({
   open,
   onOpenChange,
@@ -429,26 +430,34 @@ function GeneratePersonasModal({
   projectId: string;
   onGenerated: (personas: GeneratedPersona[]) => void;
 }) {
-  const [count, setCount] = useState(10);
-  const [ageRange, setAgeRange] = useState('');
+  const [count, setCount] = useState(100);
+  const [nlPrompt, setNlPrompt] = useState('');
+  const [evidenceUrls, setEvidenceUrls] = useState('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [region, setRegion] = useState('');
-  const [language, setLanguage] = useState('');
-  const [context, setContext] = useState('');
   const generatePersonas = useGeneratePersonas();
 
   const handleGenerate = async () => {
     try {
-      // Build keywords from optional fields
+      // Parse NL prompt to extract keywords and topic
       const keywords: string[] = [];
-      if (ageRange) keywords.push(`age: ${ageRange}`);
-      if (language) keywords.push(`language: ${language}`);
+
+      // Add evidence URLs as keywords if provided
+      const urls = evidenceUrls.split('\n').map(u => u.trim()).filter(Boolean);
+      if (urls.length > 0) {
+        keywords.push(`evidence_urls: ${urls.join(', ')}`);
+      }
 
       const result = await generatePersonas.mutateAsync({
         count,
-        region: region || 'US',
-        topic: context || undefined,
+        region: region || 'Global',
+        topic: nlPrompt || undefined,
         keywords: keywords.length > 0 ? keywords : undefined,
+        include_psychographics: true,
+        include_behavioral: true,
+        include_cultural: true,
       });
+
       // Pass generated personas to parent
       if (result.sample_personas && result.sample_personas.length > 0) {
         onGenerated(result.sample_personas as unknown as GeneratedPersona[]);
@@ -462,86 +471,130 @@ function GeneratePersonasModal({
 
   const resetForm = () => {
     setCount(100);
-    setAgeRange('');
+    setNlPrompt('');
+    setEvidenceUrls('');
+    setShowAdvanced(false);
     setRegion('');
-    setLanguage('');
-    setContext('');
   };
 
   const isEndpointAvailable = !generatePersonas.error || (generatePersonas.error as Error)?.message !== 'Network Error';
+
+  // Example prompts for user guidance
+  const examplePrompts = [
+    "Malaysian voters aged 25-55 who follow political news",
+    "Young urban professionals in Southeast Asia interested in fintech",
+    "Small business owners in emerging markets facing digital transformation",
+  ];
 
   return (
     <Dialog open={open} onOpenChange={(o) => { onOpenChange(o); if (!o) resetForm(); }}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle className="font-mono">Generate Personas</DialogTitle>
+          <DialogTitle className="font-mono flex items-center gap-2">
+            <Zap className="w-4 h-4 text-amber-400" />
+            Generate Personas
+          </DialogTitle>
           <DialogDescription className="font-mono">
-            AI will generate synthetic personas based on your parameters
+            Describe your target audience in natural language
           </DialogDescription>
         </DialogHeader>
 
         <div className="py-4 space-y-4">
-          {/* Count */}
+          {/* Natural Language Input - Primary */}
           <div>
             <label className="block text-xs font-mono text-white/40 uppercase mb-2">
-              Number of Personas
-            </label>
-            <Input
-              type="number"
-              value={count}
-              onChange={(e) => setCount(parseInt(e.target.value) || 0)}
-              min={1}
-              max={10000}
-              placeholder="100"
-            />
-          </div>
-
-          {/* Context */}
-          <div>
-            <label className="block text-xs font-mono text-white/40 uppercase mb-2">
-              Context (optional)
+              Describe Your Personas
             </label>
             <textarea
-              value={context}
-              onChange={(e) => setContext(e.target.value)}
-              placeholder="Describe the target audience or use case..."
-              className="w-full h-20 px-3 py-2 bg-black border border-white/20 text-white font-mono text-sm placeholder:text-white/30 focus:border-white/40 focus:outline-none resize-none"
+              value={nlPrompt}
+              onChange={(e) => setNlPrompt(e.target.value)}
+              placeholder="e.g., Malaysian voters aged 25-55 who follow political news and are concerned about economic issues..."
+              className="w-full h-28 px-3 py-2 bg-black border border-white/20 text-white font-mono text-sm placeholder:text-white/30 focus:border-amber-500/50 focus:outline-none resize-none"
             />
+            {/* Example prompts */}
+            <div className="mt-2 flex flex-wrap gap-2">
+              {examplePrompts.map((example, i) => (
+                <button
+                  key={i}
+                  onClick={() => setNlPrompt(example)}
+                  className="text-[10px] font-mono px-2 py-1 bg-white/5 border border-white/10 text-white/50 hover:text-white/80 hover:border-white/20 transition-colors"
+                >
+                  {example.slice(0, 35)}...
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Constraints */}
-          <div className="grid grid-cols-3 gap-3">
+          {/* Count */}
+          <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-mono text-white/40 uppercase mb-2">
-                Age Range
+                Number of Personas
               </label>
               <Input
-                value={ageRange}
-                onChange={(e) => setAgeRange(e.target.value)}
-                placeholder="18-65"
+                type="number"
+                value={count}
+                onChange={(e) => setCount(parseInt(e.target.value) || 100)}
+                min={1}
+                max={10000}
+                placeholder="100"
               />
             </div>
             <div>
               <label className="block text-xs font-mono text-white/40 uppercase mb-2">
-                Region
+                Region (optional)
               </label>
               <Input
                 value={region}
                 onChange={(e) => setRegion(e.target.value)}
-                placeholder="US"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-mono text-white/40 uppercase mb-2">
-                Language
-              </label>
-              <Input
-                value={language}
-                onChange={(e) => setLanguage(e.target.value)}
-                placeholder="English"
+                placeholder="Global"
               />
             </div>
           </div>
+
+          {/* Evidence URLs - Optional (DEMO2_MVP_EXECUTION.md Task 4 prep) */}
+          <div>
+            <button
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="flex items-center gap-2 text-xs font-mono text-white/40 hover:text-white/60 transition-colors"
+            >
+              <span className={cn(
+                'w-3 h-3 border border-current flex items-center justify-center transition-transform',
+                showAdvanced && 'rotate-90'
+              )}>
+                ▶
+              </span>
+              Evidence URLs (optional)
+            </button>
+            {showAdvanced && (
+              <div className="mt-2">
+                <textarea
+                  value={evidenceUrls}
+                  onChange={(e) => setEvidenceUrls(e.target.value)}
+                  placeholder="Paste URLs (one per line) to news articles, research, or data sources..."
+                  className="w-full h-20 px-3 py-2 bg-black border border-white/20 text-white font-mono text-sm placeholder:text-white/30 focus:border-purple-500/50 focus:outline-none resize-none"
+                />
+                <p className="text-[10px] font-mono text-white/30 mt-1">
+                  URLs will be used as context for persona generation
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Generation Status */}
+          {generatePersonas.isPending && (
+            <div className="p-3 bg-amber-500/10 border border-amber-500/30">
+              <div className="flex items-center gap-2">
+                <Loader2 className="w-4 h-4 text-amber-400 animate-spin" />
+                <span className="text-sm font-mono text-amber-400">
+                  Generating {count} personas...
+                </span>
+              </div>
+              <p className="text-[10px] font-mono text-white/40 mt-1">
+                This may take a moment for large persona sets
+              </p>
+            </div>
+          )}
 
           {generatePersonas.isError && (
             <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-400 text-sm font-mono">
@@ -557,7 +610,7 @@ function GeneratePersonasModal({
           </Button>
           <Button
             onClick={handleGenerate}
-            disabled={count <= 0 || generatePersonas.isPending || !isEndpointAvailable}
+            disabled={count <= 0 || !nlPrompt.trim() || generatePersonas.isPending || !isEndpointAvailable}
             className="bg-amber-500 hover:bg-amber-600 text-black"
           >
             {generatePersonas.isPending ? (
@@ -568,7 +621,10 @@ function GeneratePersonasModal({
             ) : !isEndpointAvailable ? (
               'Coming Soon'
             ) : (
-              'Generate Personas'
+              <>
+                <Zap className="w-4 h-4 mr-2" />
+                Generate {count} Personas
+              </>
             )}
           </Button>
         </DialogFooter>
@@ -1261,13 +1317,16 @@ export default function DataPersonasPage() {
         )}
       </div>
 
-      {/* Navigation CTA */}
+      {/* Navigation CTA - MVP mode goes to Run Center directly */}
       <div className="max-w-3xl mt-8 pt-6 border-t border-white/10">
         <div className="flex items-center justify-between">
           <p className="text-xs font-mono text-white/40">
-            {hasPersonas ? 'Ready to define rules?' : 'Add personas first, then define rules'}
+            {hasPersonas
+              ? (isMvpMode() ? 'Ready to run baseline?' : 'Ready to define rules?')
+              : (isMvpMode() ? 'Add personas first, then run baseline' : 'Add personas first, then define rules')
+            }
           </p>
-          <Link href={`/p/${projectId}/rules`}>
+          <Link href={`/p/${projectId}/${isMvpMode() ? 'run-center' : 'rules'}`}>
             <Button
               className={cn(
                 'text-xs font-mono',
@@ -1276,7 +1335,7 @@ export default function DataPersonasPage() {
                   : 'bg-white/10 text-white/40'
               )}
             >
-              Next: Rules & Assumptions
+              {isMvpMode() ? 'Next: Run Baseline' : 'Next: Rules & Assumptions'}
               <ArrowRight className="w-3 h-3 ml-2" />
             </Button>
           </Link>
