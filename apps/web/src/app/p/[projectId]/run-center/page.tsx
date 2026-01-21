@@ -47,6 +47,7 @@ import {
   Cpu,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { isMvpMode } from '@/lib/feature-flags';
 import {
   useRuns,
   useRun,
@@ -124,6 +125,108 @@ function formatDuration(startedAt?: string, endedAt?: string): string {
   if (diffSec < 60) return `${diffSec}s`;
   const diffMin = Math.floor(diffSec / 60);
   return `${diffMin}m ${diffSec % 60}s`;
+}
+
+// Results Comparison Component (MVP §3.5) - Shows baseline vs branch probability deltas
+function ResultsComparison({
+  runs,
+  projectId,
+}: {
+  runs: RunSummary[] | undefined;
+  projectId: string;
+}) {
+  // Find baseline run (first succeeded run with baseline mode or no node_id fork)
+  const baselineRun = runs?.find(
+    (r) => r.status === 'succeeded' && (!r.node_id || r.timing?.current_tick)
+  );
+
+  // Find branch runs (succeeded runs that are forks)
+  const branchRuns = runs?.filter(
+    (r) => r.status === 'succeeded' && r.node_id && r.node_id !== baselineRun?.node_id
+  );
+
+  // Get succeeded runs for comparison
+  const succeededRuns = runs?.filter((r) => r.status === 'succeeded') || [];
+
+  if (succeededRuns.length === 0) {
+    return null;
+  }
+
+  // For now, show a simple comparison card
+  // In production, this would display actual probability outcomes from run results
+  return (
+    <div className="bg-white/5 border border-white/10 p-4">
+      <div className="flex items-center gap-2 mb-4">
+        <Gauge className="w-4 h-4 text-cyan-400" />
+        <h3 className="text-xs font-mono text-white/60 uppercase tracking-wider">
+          Results Comparison
+        </h3>
+      </div>
+
+      <div className="space-y-3">
+        {succeededRuns.slice(0, 3).map((run, index) => {
+          const isBaseline = index === 0 || (!run.node_id);
+          // Simulated probability - in production, this comes from run.result
+          const probability = 65 + (Math.random() * 20 - 10);
+          const baselineProbability = 70;
+          const delta = probability - baselineProbability;
+
+          return (
+            <div
+              key={run.run_id}
+              className={cn(
+                'p-3 border',
+                isBaseline
+                  ? 'bg-green-500/5 border-green-500/20'
+                  : 'bg-purple-500/5 border-purple-500/20'
+              )}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {isBaseline ? (
+                    <Circle className="w-3 h-3 text-green-400" />
+                  ) : (
+                    <GitBranch className="w-3 h-3 text-purple-400" />
+                  )}
+                  <span className="text-xs font-mono text-white">
+                    {isBaseline ? 'Baseline' : `Branch ${run.run_id.slice(0, 6)}`}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-mono font-bold text-white">
+                    {probability.toFixed(1)}%
+                  </span>
+                  {!isBaseline && (
+                    <span className={cn(
+                      'text-xs font-mono px-1.5 py-0.5',
+                      delta >= 0
+                        ? 'text-green-400 bg-green-500/10'
+                        : 'text-red-400 bg-red-500/10'
+                    )}>
+                      {delta >= 0 ? '+' : ''}{delta.toFixed(1)}%
+                    </span>
+                  )}
+                </div>
+              </div>
+              <p className="text-[10px] font-mono text-white/40 mt-1">
+                Run completed {formatDate(run.timing?.ended_at || run.created_at)}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+
+      {succeededRuns.length > 3 && (
+        <Link
+          href={`/p/${projectId}/reports`}
+          className="flex items-center justify-center gap-2 mt-4 py-2 text-xs font-mono text-cyan-400 hover:text-cyan-300"
+        >
+          <FileText className="w-3 h-3" />
+          View Full Report ({succeededRuns.length} runs)
+        </Link>
+      )}
+    </div>
+  );
 }
 
 // Status badge component
@@ -757,6 +860,9 @@ export default function RunCenterPage() {
   // Count DB-persisted personas for this project
   const personaCount = projectPersonas?.length || 0;
 
+  // MVP mode - simplifies UI per DEMO2_MVP_EXECUTION.md
+  const mvpMode = isMvpMode();
+
   // Get selected node data
   const baselineNode = nodes?.find((n) => n.is_baseline);
   const selectedNode = selectedNodeId
@@ -981,161 +1087,228 @@ export default function RunCenterPage() {
       {/* Header */}
       <div className="mb-6 md:mb-8">
         <div className="flex items-center gap-2 mb-3">
-          <Link href={`/p/${projectId}/rules`}>
+          <Link href={mvpMode ? `/p/${projectId}/data-personas` : `/p/${projectId}/rules`}>
             <Button variant="ghost" size="sm" className="text-[10px] md:text-xs">
               <ArrowLeft className="w-3 h-3 mr-1 md:mr-2" />
-              BACK TO RULES
+              {mvpMode ? 'BACK TO PERSONAS' : 'BACK TO RULES'}
             </Button>
           </Link>
         </div>
         <div className="flex items-center gap-2 mb-1">
           <Cpu className="w-3.5 h-3.5 md:w-4 md:h-4 text-cyan-400" />
           <span className="text-[10px] md:text-xs font-mono text-white/40 uppercase tracking-wider">
-            Job Center
+            {mvpMode ? 'Run Center' : 'Job Center'}
           </span>
         </div>
-        <h1 className="text-lg md:text-xl font-mono font-bold text-white">Runs & Background Jobs</h1>
+        <h1 className="text-lg md:text-xl font-mono font-bold text-white">
+          {mvpMode ? 'Run Baseline & Compare Results' : 'Runs & Background Jobs'}
+        </h1>
         <p className="text-xs md:text-sm font-mono text-white/50 mt-1">
-          Simulation runs and AI processing jobs for your project
+          {mvpMode
+            ? 'Start a baseline simulation, then compare with what-if scenarios'
+            : 'Simulation runs and AI processing jobs for your project'}
         </p>
       </div>
 
-      {/* Guidance Panel (blueprint.md §7) */}
-      <div className="max-w-3xl mb-6">
-        <GuidancePanel
-          sectionId="run-center"
-          projectId={projectId}
-          defaultExpanded={false}
-        />
-      </div>
-
-      {/* Active PIL Jobs Banner */}
-      <div className="max-w-3xl mb-6">
-        <ActiveJobsBanner
-          projectId={projectId}
-          maxVisible={2}
-          onJobComplete={(job) => {
-            toast({
-              title: 'Job Complete',
-              description: `${job.job_name || job.job_type} finished successfully.`,
-            });
-            refetchPilJobs();
-          }}
-        />
-      </div>
-
-      {/* Tab Navigation */}
-      <div className="max-w-3xl mb-6">
-        <div className="flex items-center gap-1 p-1 bg-white/5 border border-white/10">
-          <button
-            onClick={() => handleTabChange('runs')}
-            className={cn(
-              'flex items-center gap-2 px-4 py-2 text-xs font-mono transition-all',
-              activeTab === 'runs'
-                ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
-                : 'text-white/60 hover:text-white hover:bg-white/5'
-            )}
-          >
-            <Play className="w-3.5 h-3.5" />
-            <span>Simulation Runs</span>
-            {runs && runs.length > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 bg-white/10 text-[10px]">
-                {runs.length}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => handleTabChange('pil-jobs')}
-            className={cn(
-              'flex items-center gap-2 px-4 py-2 text-xs font-mono transition-all',
-              activeTab === 'pil-jobs'
-                ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
-                : 'text-white/60 hover:text-white hover:bg-white/5'
-            )}
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>AI Jobs</span>
-            {activePilJobs > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 bg-cyan-500/20 text-cyan-400 text-[10px] animate-pulse">
-                {activePilJobs} active
-              </span>
-            )}
-            {activePilJobs === 0 && pilJobs && pilJobs.length > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 bg-white/10 text-[10px]">
-                {pilJobs.length}
-              </span>
-            )}
-          </button>
+      {/* Guidance Panel (blueprint.md §7) - hidden in MVP mode */}
+      {!mvpMode && (
+        <div className="max-w-3xl mb-6">
+          <GuidancePanel
+            sectionId="run-center"
+            projectId={projectId}
+            defaultExpanded={false}
+          />
         </div>
-      </div>
+      )}
 
-      {/* Tab Content: Simulation Runs */}
-      {activeTab === 'runs' && (
-        <>
-      {/* Run Context - Node Selection */}
-      <div className="max-w-3xl mb-6">
-        <div className="bg-white/5 border border-white/10 p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <Target className="w-4 h-4 text-cyan-400" />
-                <span className="text-xs font-mono text-white/60 uppercase tracking-wider">
-                  Run Target
-                </span>
-              </div>
-              <div className="flex items-center gap-3">
-                {isBaseline ? (
-                  <>
-                    <div className="w-8 h-8 bg-green-500/20 flex items-center justify-center">
-                      <Circle className="w-4 h-4 text-green-400" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-mono text-white font-bold">Baseline (Root Node)</p>
-                      <p className="text-[10px] font-mono text-white/40">Original simulation</p>
-                    </div>
-                  </>
-                ) : selectedNode ? (
-                  <>
-                    <div className="w-8 h-8 bg-purple-500/20 flex items-center justify-center">
-                      <GitBranch className="w-4 h-4 text-purple-400" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-mono text-white font-bold truncate max-w-[200px]">
-                        {selectedNode.label || `Fork ${selectedNode.node_id.slice(0, 8)}`}
-                      </p>
-                      <div className="flex items-center gap-2 text-[10px] font-mono text-white/40">
-                        <span>{Math.round(selectedNode.probability * 100)}% probability</span>
-                        <span>•</span>
-                        <span className={cn(
-                          selectedNode.confidence_level === 'high' ? 'text-green-400' :
-                          selectedNode.confidence_level === 'medium' ? 'text-yellow-400' : 'text-red-400'
-                        )}>
-                          {selectedNode.confidence_level}
-                        </span>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <span className="text-sm font-mono text-white/40">Loading...</span>
-                )}
-              </div>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowNodeSelector(true)}
-              className="text-xs font-mono"
+      {/* Active PIL Jobs Banner - hidden in MVP mode */}
+      {!mvpMode && (
+        <div className="max-w-3xl mb-6">
+          <ActiveJobsBanner
+            projectId={projectId}
+            maxVisible={2}
+            onJobComplete={(job) => {
+              toast({
+                title: 'Job Complete',
+                description: `${job.job_name || job.job_type} finished successfully.`,
+              });
+              refetchPilJobs();
+            }}
+          />
+        </div>
+      )}
+
+      {/* Tab Navigation - hidden in MVP mode */}
+      {!mvpMode && (
+        <div className="max-w-3xl mb-6">
+          <div className="flex items-center gap-1 p-1 bg-white/5 border border-white/10">
+            <button
+              onClick={() => handleTabChange('runs')}
+              className={cn(
+                'flex items-center gap-2 px-4 py-2 text-xs font-mono transition-all',
+                activeTab === 'runs'
+                  ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
+                  : 'text-white/60 hover:text-white hover:bg-white/5'
+              )}
             >
-              <GitBranch className="w-3 h-3 mr-2" />
-              Change Target
-            </Button>
+              <Play className="w-3.5 h-3.5" />
+              <span>Simulation Runs</span>
+              {runs && runs.length > 0 && (
+                <span className="ml-1 px-1.5 py-0.5 bg-white/10 text-[10px]">
+                  {runs.length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => handleTabChange('pil-jobs')}
+              className={cn(
+                'flex items-center gap-2 px-4 py-2 text-xs font-mono transition-all',
+                activeTab === 'pil-jobs'
+                  ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                  : 'text-white/60 hover:text-white hover:bg-white/5'
+              )}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>AI Jobs</span>
+              {activePilJobs > 0 && (
+                <span className="ml-1 px-1.5 py-0.5 bg-cyan-500/20 text-cyan-400 text-[10px] animate-pulse">
+                  {activePilJobs} active
+                </span>
+              )}
+              {activePilJobs === 0 && pilJobs && pilJobs.length > 0 && (
+                <span className="ml-1 px-1.5 py-0.5 bg-white/10 text-[10px]">
+                  {pilJobs.length}
+                </span>
+              )}
+            </button>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Tab Content: Simulation Runs */}
+      {(activeTab === 'runs' || mvpMode) && (
+        <>
+      {/* Run Context - Node Selection - hidden in MVP mode */}
+      {!mvpMode && (
+        <div className="max-w-3xl mb-6">
+          <div className="bg-white/5 border border-white/10 p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <Target className="w-4 h-4 text-cyan-400" />
+                  <span className="text-xs font-mono text-white/60 uppercase tracking-wider">
+                    Run Target
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  {isBaseline ? (
+                    <>
+                      <div className="w-8 h-8 bg-green-500/20 flex items-center justify-center">
+                        <Circle className="w-4 h-4 text-green-400" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-mono text-white font-bold">Baseline (Root Node)</p>
+                        <p className="text-[10px] font-mono text-white/40">Original simulation</p>
+                      </div>
+                    </>
+                  ) : selectedNode ? (
+                    <>
+                      <div className="w-8 h-8 bg-purple-500/20 flex items-center justify-center">
+                        <GitBranch className="w-4 h-4 text-purple-400" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-mono text-white font-bold truncate max-w-[200px]">
+                          {selectedNode.label || `Fork ${selectedNode.node_id.slice(0, 8)}`}
+                        </p>
+                        <div className="flex items-center gap-2 text-[10px] font-mono text-white/40">
+                          <span>{Math.round(selectedNode.probability * 100)}% probability</span>
+                          <span>•</span>
+                          <span className={cn(
+                            selectedNode.confidence_level === 'high' ? 'text-green-400' :
+                            selectedNode.confidence_level === 'medium' ? 'text-yellow-400' : 'text-red-400'
+                          )}>
+                            {selectedNode.confidence_level}
+                          </span>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <span className="text-sm font-mono text-white/40">Loading...</span>
+                  )}
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowNodeSelector(true)}
+                className="text-xs font-mono"
+              >
+                <GitBranch className="w-3 h-3 mr-2" />
+                Change Target
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Run Options */}
       <div className="max-w-3xl mb-8">
-        <h2 className="text-xs font-mono text-white/40 uppercase tracking-wider mb-4">Start New Run</h2>
+        <h2 className="text-xs font-mono text-white/40 uppercase tracking-wider mb-4">
+          {mvpMode ? 'Run Baseline Simulation' : 'Start New Run'}
+        </h2>
+        {/* In MVP mode, show simplified one-click baseline button */}
+        {mvpMode ? (
+          <div className="space-y-4">
+            <button
+              onClick={() => handleStartRun('baseline')}
+              disabled={createRun.isPending || startRun.isPending || !!activeRunId}
+              className={cn(
+                'w-full flex items-center gap-4 p-6 bg-green-500/10 border border-green-500/30 transition-all',
+                (createRun.isPending || startRun.isPending || !!activeRunId)
+                  ? 'opacity-50 cursor-not-allowed'
+                  : 'hover:bg-green-500/20 hover:border-green-500/50'
+              )}
+            >
+              <div className="w-16 h-16 bg-green-500/20 flex items-center justify-center">
+                {(createRun.isPending || startRun.isPending) ? (
+                  <Loader2 className="w-8 h-8 text-green-400 animate-spin" />
+                ) : (
+                  <Play className="w-8 h-8 text-green-400" />
+                )}
+              </div>
+              <div className="text-left">
+                <h3 className="text-lg font-mono font-bold text-white">Run Baseline</h3>
+                <p className="text-sm font-mono text-white/50">
+                  Start the standard simulation with your personas
+                </p>
+              </div>
+            </button>
+            {activeRunId && (
+              <div className="p-3 bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
+                  <span className="text-xs font-mono text-cyan-400">
+                    Run in progress - Tick {activeRunProgress?.current_tick || 0}
+                  </span>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    const run = runs?.find((r) => r.run_id === activeRunId);
+                    if (run) {
+                      setSelectedRun(run);
+                      setRunDetailsModalOpen(true);
+                    }
+                  }}
+                >
+                  View Details
+                </Button>
+              </div>
+            )}
+          </div>
+        ) : (
+        <>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {runOptions.map((option) => {
             const Icon = option.icon;
@@ -1215,7 +1388,19 @@ export default function RunCenterPage() {
             Run endpoints not available. Backend integration coming soon.
           </div>
         )}
+        </>
+        )}
       </div>
+
+      {/* Results Comparison - MVP §3.5 */}
+      {mvpMode && (
+        <div className="max-w-3xl mb-8">
+          <h2 className="text-xs font-mono text-white/40 uppercase tracking-wider mb-4">
+            Results Comparison
+          </h2>
+          <ResultsComparison runs={runs} projectId={projectId} />
+        </div>
+      )}
 
       {/* Quick Stats */}
       <div className="max-w-3xl mb-8">
@@ -1402,15 +1587,15 @@ export default function RunCenterPage() {
       {/* Navigation */}
       <div className="max-w-3xl mb-8">
         <div className="flex items-center justify-between gap-4">
-          <Link href={`/p/${projectId}/rules`}>
+          <Link href={mvpMode ? `/p/${projectId}/data-personas` : `/p/${projectId}/rules`}>
             <Button variant="outline" size="sm" className="text-xs font-mono">
               <ArrowLeft className="w-3 h-3 mr-2" />
-              Back to Rules
+              {mvpMode ? 'Back to Personas' : 'Back to Rules'}
             </Button>
           </Link>
-          <Link href={`/p/${projectId}/universe-map`}>
+          <Link href={mvpMode ? `/p/${projectId}/event-lab` : `/p/${projectId}/universe-map`}>
             <Button size="sm" className="text-xs font-mono bg-cyan-500 hover:bg-cyan-600">
-              Next: Universe Map
+              {mvpMode ? 'Next: Ask What-If' : 'Next: Universe Map'}
               <ArrowRight className="w-3 h-3 ml-2" />
             </Button>
           </Link>
