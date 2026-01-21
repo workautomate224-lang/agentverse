@@ -26,12 +26,13 @@ import {
   Trash2,
   RotateCcw,
 } from 'lucide-react';
-import { useForkNode, useUniverseMap } from '@/hooks/useApi';
+import { useForkNode, useUniverseMap, useCreateRun, useStartRun } from '@/hooks/useApi';
 import type { AskCandidateScenario, AskCompilationResult } from '@/lib/api';
 import { useMutation } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { GuidancePanel } from '@/components/pil';
 import { toast } from '@/hooks/use-toast';
+import { isMvpMode } from '@/lib/feature-flags';
 
 // Local storage keys
 const STORAGE_KEY_PREFIX = 'eventlab_';
@@ -94,11 +95,13 @@ function ScenarioCard({
   index,
   onAddAsBranch,
   isCreating,
+  mvpMode,
 }: {
   scenario: AskCandidateScenario;
   index: number;
   onAddAsBranch: (scenario: AskCandidateScenario) => void;
   isCreating: boolean;
+  mvpMode: boolean;
 }) {
   const variableEntries = Object.entries(scenario.variable_deltas || {});
 
@@ -174,17 +177,31 @@ function ScenarioCard({
           size="sm"
           onClick={() => onAddAsBranch(scenario)}
           disabled={isCreating}
-          className="text-xs bg-cyan-500 hover:bg-cyan-600 text-black"
+          className={cn(
+            "text-xs text-black",
+            mvpMode
+              ? "bg-green-500 hover:bg-green-600"
+              : "bg-cyan-500 hover:bg-cyan-600"
+          )}
         >
           {isCreating ? (
             <>
               <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-              CREATING...
+              {mvpMode ? 'RUNNING...' : 'CREATING...'}
             </>
           ) : (
             <>
-              <GitFork className="w-3 h-3 mr-1" />
-              ADD AS BRANCH
+              {mvpMode ? (
+                <>
+                  <Play className="w-3 h-3 mr-1" />
+                  RUN AS BRANCH
+                </>
+              ) : (
+                <>
+                  <GitFork className="w-3 h-3 mr-1" />
+                  ADD AS BRANCH
+                </>
+              )}
             </>
           )}
         </Button>
@@ -197,6 +214,7 @@ export default function EventLabPage() {
   const params = useParams();
   const router = useRouter();
   const projectId = params.projectId as string;
+  const mvpMode = isMvpMode();
 
   // Form state
   const [prompt, setPrompt] = useState('');
@@ -210,6 +228,8 @@ export default function EventLabPage() {
   // API hooks
   const forkNode = useForkNode();
   const { data: universeState } = useUniverseMap(projectId);
+  const createRun = useCreateRun();
+  const startRun = useStartRun();
 
   // Direct API call to our fast generation endpoint
   const generateScenarios = useMutation({
@@ -323,14 +343,25 @@ export default function EventLabPage() {
     }
   }, [projectId, currentCompilation]);
 
-  // Handle add as branch
+  // Handle add as branch (or run as branch in MVP mode)
   const handleAddAsBranch = useCallback(async (scenario: AskCandidateScenario) => {
     setCreatingScenarioId(scenario.scenario_id);
 
     // Check if we have a valid parent node (root_node_id from universe map)
     const parentNodeId = universeState?.root_node_id;
 
-    // If no universe map exists yet, save as draft
+    // If no universe map exists yet in MVP mode, redirect to run baseline first
+    if (!parentNodeId && mvpMode) {
+      setCreatingScenarioId(null);
+      toast({
+        title: 'Run baseline first',
+        description: 'You need to run a baseline simulation before creating branch scenarios.',
+      });
+      router.push(`/p/${projectId}/run-center`);
+      return;
+    }
+
+    // If no universe map exists yet, save as draft (non-MVP mode)
     if (!parentNodeId) {
       toast({
         title: 'Saving as draft...',
@@ -359,8 +390,10 @@ export default function EventLabPage() {
 
     // We have a valid parent node, proceed with API call
     toast({
-      title: 'Creating branch...',
-      description: `Adding "${scenario.label}" as a new branch`,
+      title: mvpMode ? 'Running branch simulation...' : 'Creating branch...',
+      description: mvpMode
+        ? `Creating and running "${scenario.label}" as a branch`
+        : `Adding "${scenario.label}" as a new branch`,
     });
 
     forkNode.mutate(
@@ -375,14 +408,61 @@ export default function EventLabPage() {
         },
       },
       {
-        onSuccess: (result) => {
-          // Success toast
-          toast({
-            title: 'Branch created!',
-            description: `Node "${result.node.label || scenario.label}" added to Universe Map`,
-          });
-          // Navigate to universe map with the new node selected
-          router.push(`/p/${projectId}/universe-map?select=${result.node.node_id}&inspect=true`);
+        onSuccess: async (result) => {
+          const newNodeId = result.node.node_id;
+
+          // In MVP mode, also create and start a run for this new node
+          if (mvpMode) {
+            try {
+              toast({
+                title: 'Starting branch run...',
+                description: `Running simulation on "${scenario.label}"`,
+              });
+
+              // Create the run with the new node
+              const runResult = await createRun.mutateAsync({
+                project_id: projectId,
+                node_id: newNodeId,
+                label: `Branch: ${scenario.label}`,
+                config: {
+                  run_mode: 'branch',
+                },
+                auto_start: true,
+              });
+
+              // If auto_start didn't work, manually start the run
+              if (runResult?.run_id && runResult.status !== 'running') {
+                await startRun.mutateAsync(runResult.run_id);
+              }
+
+              toast({
+                title: 'Branch run started!',
+                description: `Simulation running for "${scenario.label}". View results in Run Center.`,
+              });
+
+              // Navigate to Run Center to see results
+              router.push(`/p/${projectId}/run-center?highlight=${runResult?.run_id || ''}`);
+            } catch (runError) {
+              // Run creation failed, but node was created - still navigate to Run Center
+              const errorMessage = runError instanceof Error ? runError.message : 'Unknown error';
+              toast({
+                title: 'Branch created, run failed to start',
+                description: `Node created but run failed: ${errorMessage}. Try starting manually.`,
+                variant: 'destructive',
+              });
+              router.push(`/p/${projectId}/run-center`);
+            }
+          } else {
+            // Non-MVP mode: just show success and navigate to universe map
+            toast({
+              title: 'Branch created!',
+              description: `Node "${result.node.label || scenario.label}" added to Universe Map`,
+            });
+            // Navigate to universe map with the new node selected
+            router.push(`/p/${projectId}/universe-map?select=${newNodeId}&inspect=true`);
+          }
+
+          setCreatingScenarioId(null);
         },
         onError: (error) => {
           setCreatingScenarioId(null);
@@ -396,7 +476,7 @@ export default function EventLabPage() {
         },
       }
     );
-  }, [universeState, forkNode, currentCompilation, projectId, router, saveDraftBranch]);
+  }, [universeState, forkNode, currentCompilation, projectId, router, saveDraftBranch, mvpMode, createRun, startRun]);
 
   // Clear recent prompts
   const handleClearHistory = useCallback(() => {
@@ -439,20 +519,26 @@ export default function EventLabPage() {
           <Sparkles className="w-3.5 h-3.5 md:w-4 md:h-4 text-amber-400" />
           <span className="text-[10px] md:text-xs font-mono text-white/40 uppercase tracking-wider">Event Lab</span>
         </div>
-        <h1 className="text-lg md:text-xl font-mono font-bold text-white">Natural Language Scenarios</h1>
+        <h1 className="text-lg md:text-xl font-mono font-bold text-white">
+          {mvpMode ? 'Ask What-If Questions' : 'Natural Language Scenarios'}
+        </h1>
         <p className="text-xs md:text-sm font-mono text-white/50 mt-1">
-          Describe a &quot;what-if&quot; scenario and generate branches for your simulation
+          {mvpMode
+            ? 'Describe a scenario and run it as a branch to compare against your baseline'
+            : 'Describe a "what-if" scenario and generate branches for your simulation'}
         </p>
       </div>
 
-      {/* Guidance Panel (blueprint.md §7) */}
-      <div className="max-w-4xl mb-6">
-        <GuidancePanel
-          sectionId="event-lab"
-          projectId={projectId}
-          defaultExpanded={false}
-        />
-      </div>
+      {/* Guidance Panel (blueprint.md §7) - hidden in MVP mode */}
+      {!mvpMode && (
+        <div className="max-w-4xl mb-6">
+          <GuidancePanel
+            sectionId="event-lab"
+            projectId={projectId}
+            defaultExpanded={false}
+          />
+        </div>
+      )}
 
       <div className="max-w-4xl">
         {/* Input Section */}
@@ -588,6 +674,7 @@ export default function EventLabPage() {
                   index={index}
                   onAddAsBranch={handleAddAsBranch}
                   isCreating={creatingScenarioId === scenario.scenario_id}
+                  mvpMode={mvpMode}
                 />
               ))}
             </div>
