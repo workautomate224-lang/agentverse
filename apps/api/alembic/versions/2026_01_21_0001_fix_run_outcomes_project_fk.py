@@ -4,8 +4,8 @@ The run_outcomes table was referencing the legacy 'projects' table,
 but Blueprint V2 creates records in 'project_specs'. This migration
 updates the foreign key constraint to reference project_specs.id.
 
-Revision ID: 2026_01_21_0001
-Revises: 2026_01_19_0001
+Revision ID: fix_run_outcomes_fk_001
+Revises: slice_2d_llm_proof_001
 Create Date: 2026-01-21
 """
 
@@ -16,8 +16,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers
-revision: str = "2026_01_21_0001"
-down_revision: Union[str, None] = "2026_01_19_0001"
+revision: str = "fix_run_outcomes_fk_001"
+down_revision: Union[str, None] = "slice_2d_llm_proof_001"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
