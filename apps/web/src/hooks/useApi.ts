@@ -4191,3 +4191,81 @@ export function useGenesisJobStatus(
     staleTime: 1000,
   });
 }
+
+// =============================================================================
+// Evidence URL Ingestion Hooks (DEMO2_MVP_EXECUTION.md Task 4)
+// =============================================================================
+
+export type EvidenceStatus = 'PASS' | 'WARN' | 'FAIL';
+
+export interface EvidenceUrl {
+  id: string;
+  url: string;
+  title: string;
+  content_hash: string;
+  content_length: number;
+  fetched_at: string;
+  status: EvidenceStatus;
+  status_reason: string;
+  extracted_signals: {
+    keywords: string[];
+    topics: string[];
+    entities: string[];
+    sentiment?: 'positive' | 'negative' | 'neutral';
+    content_type: string;
+  };
+  provenance: {
+    source_url: string;
+    fetch_timestamp: string;
+    content_hash: string;
+    snapshot_version: string;
+    temporal_check: {
+      as_of_datetime?: string;
+      source_date_detected?: string;
+      compliance_status: EvidenceStatus;
+      compliance_reason: string;
+    };
+  };
+}
+
+export interface EvidenceIngestResponse {
+  success: boolean;
+  evidence_items: EvidenceUrl[];
+  summary: {
+    total: number;
+    passed: number;
+    warned: number;
+    failed: number;
+  };
+}
+
+/**
+ * Ingest evidence URLs for persona generation.
+ * Fetches, snapshots, and validates URLs against temporal context.
+ */
+export function useIngestEvidenceUrls() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: async (data: {
+      urls: string[];
+      project_id: string;
+      as_of_datetime?: string;
+    }): Promise<EvidenceIngestResponse> => {
+      const response = await fetch('/api/evidence/ingest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to ingest evidence');
+      }
+      return response.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['evidence', variables.project_id] });
+    },
+  });
+}

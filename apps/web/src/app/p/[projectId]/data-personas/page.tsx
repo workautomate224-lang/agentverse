@@ -36,6 +36,11 @@ import {
   Eye,
   Trash2,
   RefreshCw,
+  Link as LinkIcon,
+  ExternalLink,
+  AlertTriangle,
+  XCircle,
+  Hash,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { GuidancePanel } from '@/components/pil';
@@ -52,6 +57,9 @@ import {
   useProjectPersonas,
   useSaveProjectPersonas,
   useDeleteProjectPersonas,
+  useIngestEvidenceUrls,
+  EvidenceUrl,
+  EvidenceStatus,
 } from '@/hooks/useApi';
 
 // Persona source options
@@ -424,11 +432,15 @@ function GeneratePersonasModal({
   onOpenChange,
   projectId,
   onGenerated,
+  onEvidenceIngested,
+  ingestEvidence,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   projectId: string;
   onGenerated: (personas: GeneratedPersona[]) => void;
+  onEvidenceIngested: (items: EvidenceUrl[]) => void;
+  ingestEvidence: ReturnType<typeof useIngestEvidenceUrls>;
 }) {
   const [count, setCount] = useState(100);
   const [nlPrompt, setNlPrompt] = useState('');
@@ -442,17 +454,36 @@ function GeneratePersonasModal({
       // Parse NL prompt to extract keywords and topic
       const keywords: string[] = [];
 
-      // Add evidence URLs as keywords if provided
+      // Ingest evidence URLs if provided (DEMO2_MVP_EXECUTION.md Task 4)
       const urls = evidenceUrls.split('\n').map(u => u.trim()).filter(Boolean);
       if (urls.length > 0) {
-        keywords.push(`evidence_urls: ${urls.join(', ')}`);
+        // Ingest URLs and capture evidence items
+        const evidenceResult = await ingestEvidence.mutateAsync({
+          urls,
+          project_id: projectId,
+        });
+
+        // Pass evidence items to parent for display
+        if (evidenceResult.evidence_items && evidenceResult.evidence_items.length > 0) {
+          onEvidenceIngested(evidenceResult.evidence_items);
+          // Add evidence signals as keywords for persona generation
+          const passedEvidence = evidenceResult.evidence_items.filter(e => e.status !== 'FAIL');
+          passedEvidence.forEach(e => {
+            if (e.extracted_signals.topics.length > 0) {
+              keywords.push(...e.extracted_signals.topics);
+            }
+            if (e.extracted_signals.keywords.length > 0) {
+              keywords.push(...e.extracted_signals.keywords.slice(0, 5));
+            }
+          });
+        }
       }
 
       const result = await generatePersonas.mutateAsync({
         count,
         region: region || 'Global',
         topic: nlPrompt || undefined,
-        keywords: keywords.length > 0 ? keywords : undefined,
+        keywords: keywords.length > 0 ? [...new Set(keywords)] : undefined,
         include_psychographics: true,
         include_behavioral: true,
         include_cultural: true,
@@ -828,6 +859,216 @@ function PersonaDetailsModal({
   );
 }
 
+// Evidence List Section (DEMO2_MVP_EXECUTION.md Task 4)
+// Shows ingested evidence URLs with PASS/WARN/FAIL temporal compliance status
+function EvidenceListSection({
+  evidenceItems,
+  isLoading,
+  onClear,
+}: {
+  evidenceItems: EvidenceUrl[];
+  isLoading: boolean;
+  onClear: () => void;
+}) {
+  if (evidenceItems.length === 0 && !isLoading) return null;
+
+  const getStatusIcon = (status: EvidenceStatus) => {
+    switch (status) {
+      case 'PASS':
+        return <CheckCircle className="w-4 h-4 text-green-400" />;
+      case 'WARN':
+        return <AlertTriangle className="w-4 h-4 text-yellow-400" />;
+      case 'FAIL':
+        return <XCircle className="w-4 h-4 text-red-400" />;
+    }
+  };
+
+  const getStatusColor = (status: EvidenceStatus) => {
+    switch (status) {
+      case 'PASS':
+        return 'border-green-500/30 bg-green-500/5';
+      case 'WARN':
+        return 'border-yellow-500/30 bg-yellow-500/5';
+      case 'FAIL':
+        return 'border-red-500/30 bg-red-500/5';
+    }
+  };
+
+  const getStatusBadgeColor = (status: EvidenceStatus) => {
+    switch (status) {
+      case 'PASS':
+        return 'bg-green-500/20 text-green-400 border-green-500/30';
+      case 'WARN':
+        return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
+      case 'FAIL':
+        return 'bg-red-500/20 text-red-400 border-red-500/30';
+    }
+  };
+
+  // Calculate summary
+  const summary = evidenceItems.reduce(
+    (acc, item) => {
+      acc[item.status.toLowerCase() as 'pass' | 'warn' | 'fail']++;
+      return acc;
+    },
+    { pass: 0, warn: 0, fail: 0 }
+  );
+
+  return (
+    <div className="mt-6 space-y-3">
+      {/* Header with summary */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-xs font-mono text-purple-400 uppercase tracking-wider flex items-center gap-2">
+          <LinkIcon className="w-3 h-3" />
+          Evidence Sources ({evidenceItems.length})
+        </h2>
+        <div className="flex items-center gap-3">
+          {/* Status badges */}
+          <div className="flex items-center gap-2 text-[10px] font-mono">
+            {summary.pass > 0 && (
+              <span className="flex items-center gap-1 px-2 py-0.5 bg-green-500/10 text-green-400 border border-green-500/20">
+                <CheckCircle className="w-3 h-3" />
+                {summary.pass}
+              </span>
+            )}
+            {summary.warn > 0 && (
+              <span className="flex items-center gap-1 px-2 py-0.5 bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
+                <AlertTriangle className="w-3 h-3" />
+                {summary.warn}
+              </span>
+            )}
+            {summary.fail > 0 && (
+              <span className="flex items-center gap-1 px-2 py-0.5 bg-red-500/10 text-red-400 border border-red-500/20">
+                <XCircle className="w-3 h-3" />
+                {summary.fail}
+              </span>
+            )}
+          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onClear}
+            className="text-xs text-white/40 hover:text-white/60"
+          >
+            <Trash2 className="w-3 h-3 mr-1" />
+            Clear
+          </Button>
+        </div>
+      </div>
+
+      {/* Loading state */}
+      {isLoading && (
+        <div className="p-4 bg-purple-500/5 border border-purple-500/20">
+          <div className="flex items-center gap-2">
+            <Loader2 className="w-4 h-4 text-purple-400 animate-spin" />
+            <span className="text-sm font-mono text-purple-400">
+              Fetching and validating evidence sources...
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Evidence list */}
+      <div className="space-y-2">
+        {evidenceItems.map((item) => (
+          <div
+            key={item.id}
+            className={cn(
+              'p-3 border transition-colors',
+              getStatusColor(item.status)
+            )}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                {/* URL and title */}
+                <div className="flex items-center gap-2 mb-1">
+                  {getStatusIcon(item.status)}
+                  <a
+                    href={item.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm font-mono text-white hover:text-cyan-400 transition-colors flex items-center gap-1 truncate"
+                  >
+                    {item.title}
+                    <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                  </a>
+                </div>
+
+                {/* URL */}
+                <p className="text-[10px] font-mono text-white/40 truncate mb-2">
+                  {item.url}
+                </p>
+
+                {/* Status reason */}
+                <p className="text-xs font-mono text-white/60 mb-2">
+                  {item.status_reason}
+                </p>
+
+                {/* Extracted signals */}
+                {item.extracted_signals.topics.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mb-2">
+                    {item.extracted_signals.topics.map((topic, i) => (
+                      <span
+                        key={i}
+                        className="px-1.5 py-0.5 text-[10px] font-mono bg-white/5 text-white/50 border border-white/10"
+                      >
+                        {topic}
+                      </span>
+                    ))}
+                    {item.extracted_signals.sentiment && (
+                      <span
+                        className={cn(
+                          'px-1.5 py-0.5 text-[10px] font-mono border',
+                          item.extracted_signals.sentiment === 'positive'
+                            ? 'bg-green-500/10 text-green-400 border-green-500/20'
+                            : item.extracted_signals.sentiment === 'negative'
+                            ? 'bg-red-500/10 text-red-400 border-red-500/20'
+                            : 'bg-white/5 text-white/40 border-white/10'
+                        )}
+                      >
+                        {item.extracted_signals.sentiment}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Provenance info */}
+                <div className="flex items-center gap-3 text-[10px] font-mono text-white/30">
+                  <span className="flex items-center gap-1">
+                    <Hash className="w-3 h-3" />
+                    {item.content_hash.slice(0, 8)}...
+                  </span>
+                  <span>
+                    {(item.content_length / 1024).toFixed(1)} KB
+                  </span>
+                  <span>
+                    {new Date(item.fetched_at).toLocaleString()}
+                  </span>
+                </div>
+              </div>
+
+              {/* Status badge */}
+              <span
+                className={cn(
+                  'px-2 py-1 text-[10px] font-mono font-bold border flex-shrink-0',
+                  getStatusBadgeColor(item.status)
+                )}
+              >
+                {item.status}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Provenance note */}
+      <p className="text-[10px] font-mono text-purple-400/60">
+        Evidence sources are validated against temporal context and stored for PersonaSet provenance.
+      </p>
+    </div>
+  );
+}
+
 export default function DataPersonasPage() {
   const params = useParams();
   const router = useRouter();
@@ -843,6 +1084,10 @@ export default function DataPersonasPage() {
 
   // AI-generated personas (local state for immediate display)
   const [generatedPersonas, setGeneratedPersonas] = useState<GeneratedPersona[]>([]);
+
+  // Evidence items from URL ingestion (DEMO2_MVP_EXECUTION.md Task 4)
+  const [evidenceItems, setEvidenceItems] = useState<EvidenceUrl[]>([]);
+  const ingestEvidence = useIngestEvidenceUrls();
 
   // Data hooks
   const { data: templates, isLoading: loadingTemplates, refetch: refetchTemplates } = usePersonaTemplates({ limit: 100 });
@@ -1315,6 +1560,13 @@ export default function DataPersonasPage() {
             )}
           </div>
         )}
+
+        {/* Evidence List Section (DEMO2_MVP_EXECUTION.md Task 4) */}
+        <EvidenceListSection
+          evidenceItems={evidenceItems}
+          isLoading={ingestEvidence.isPending}
+          onClear={() => setEvidenceItems([])}
+        />
       </div>
 
       {/* Navigation CTA - MVP mode goes to Run Center directly */}
@@ -1370,6 +1622,8 @@ export default function DataPersonasPage() {
         onOpenChange={setGenerateModalOpen}
         projectId={projectId}
         onGenerated={handleGeneratedPersonas}
+        onEvidenceIngested={(items) => setEvidenceItems(prev => [...prev, ...items])}
+        ingestEvidence={ingestEvidence}
       />
       <DeepSearchModal
         open={searchModalOpen}
