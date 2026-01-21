@@ -118,6 +118,11 @@ class Settings(BaseSettings):
     # Set via Railway env var - only used in staging environment
     STAGING_OPS_API_KEY: str = ""
 
+    # Product Mode (MVP Feature Gating)
+    # MVP_DEMO2: Collective/Persona-driven predictions (Demo2 scope)
+    # FULL: All features enabled
+    PRODUCT_MODE: str = "MVP_DEMO2"
+
 
 @lru_cache
 def get_settings() -> Settings:

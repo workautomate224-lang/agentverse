@@ -46,6 +46,8 @@ import {
 } from '@/hooks/useApi';
 import type { RunSummary, TelemetryIndex, TelemetrySummary, TelemetrySlice, TelemetryKeyframe } from '@/lib/api';
 import { GuidancePanel } from '@/components/pil';
+import { isMvpMode } from '@/lib/feature-flags';
+import { FeatureDisabled } from '@/components/mvp';
 
 // =============================================================================
 // Types
@@ -587,6 +589,16 @@ function WorldCanvas({
 // =============================================================================
 
 export default function WorldViewerPage() {
+  // MVP Mode gate - show disabled message for advanced features
+  if (isMvpMode()) {
+    return (
+      <FeatureDisabled
+        featureName="2D World Viewer"
+        description="The spatial visualization and replay system for watching agent behaviors will be available in a future release. Check the Reports page for simulation results."
+      />
+    );
+  }
+
   const params = useParams();
   const searchParams = useSearchParams();
   const router = useRouter();

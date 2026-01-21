@@ -3,6 +3,10 @@
 /**
  * Project Workspace Layout
  * Provides project-specific navigation sidebar for all /p/:projectId/* routes
+ *
+ * MVP Mode (DEMO2_MVP_EXECUTION.md):
+ * - Only shows Demo2-enabled routes in navigation
+ * - Hides advanced features (Universe Map, Rules, Reliability, Replay, World, Society, Target)
  */
 
 import { useSession } from 'next-auth/react';
@@ -34,6 +38,7 @@ import {
   FileBarChart,
 } from 'lucide-react';
 import { ActiveJobsBanner } from '@/components/pil';
+import { isRouteEnabled, isMvpMode } from '@/lib/feature-flags';
 
 // Mock project data - in real app this would come from API
 const getMockProject = (projectId: string) => ({
@@ -43,7 +48,8 @@ const getMockProject = (projectId: string) => ({
 });
 
 // Project navigation items - full 12-item navigation
-const projectNavItems = [
+// MVP Mode filters these to only show Demo2-enabled routes
+const allProjectNavItems = [
   { name: 'Overview', href: 'overview', icon: LayoutDashboard },
   { name: 'Data & Personas', href: 'data-personas', icon: Users },
   { name: 'Rules & Assumptions', href: 'rules', icon: ScrollText },
@@ -57,6 +63,11 @@ const projectNavItems = [
   { name: '2D World Viewer', href: 'world-viewer', icon: Map },
   { name: 'Reports', href: 'reports', icon: FileBarChart },
 ];
+
+// Filter navigation items based on MVP mode
+const projectNavItems = allProjectNavItems.filter((item) =>
+  isRouteEnabled(item.href)
+);
 
 // Secondary navigation
 const secondaryNavItems = [

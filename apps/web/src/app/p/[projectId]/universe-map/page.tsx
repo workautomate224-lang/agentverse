@@ -87,6 +87,8 @@ import {
   useStartRun,
 } from '@/hooks/useApi';
 import type { SpecNode, NodeSummary, RunSummary } from '@/lib/api';
+import { isMvpMode } from '@/lib/feature-flags';
+import { FeatureDisabled } from '@/components/mvp';
 
 // ============ Types ============
 
@@ -1959,6 +1961,16 @@ function UniverseMapLoading() {
 
 // Wrap with provider and Suspense for useSearchParams
 export default function UniverseMapPage() {
+  // MVP Mode gate - show disabled message for advanced features
+  if (isMvpMode()) {
+    return (
+      <FeatureDisabled
+        featureName="Universe Map"
+        description="The infinite branching canvas for exploring alternate scenarios will be available in a future release. Use Event Lab to create what-if scenarios instead."
+      />
+    );
+  }
+
   return (
     <Suspense fallback={<UniverseMapLoading />}>
       <ReactFlowProvider>

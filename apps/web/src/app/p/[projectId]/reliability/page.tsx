@@ -50,6 +50,8 @@ import {
   Bar,
   ReferenceLine,
 } from 'recharts';
+import { isMvpMode } from '@/lib/feature-flags';
+import { FeatureDisabled } from '@/components/mvp';
 
 // ============================================================================
 // Types for Reliability Metrics
@@ -724,6 +726,16 @@ const METRIC_KEY_OPTIONS = [
 // ============================================================================
 
 export default function ReliabilityPage() {
+  // MVP Mode gate - show disabled message for advanced features
+  if (isMvpMode()) {
+    return (
+      <FeatureDisabled
+        featureName="Reliability Dashboard"
+        description="The statistical analysis and trust metrics dashboard will be available in a future release. Check the Reports page for simulation confidence scores."
+      />
+    );
+  }
+
   const params = useParams();
   const searchParams = useSearchParams();
   const router = useRouter();

@@ -39,6 +39,8 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { GuidancePanel } from '@/components/pil';
+import { isMvpMode } from '@/lib/feature-flags';
+import { FeatureDisabled } from '@/components/mvp';
 
 // Rule template categories
 const ruleCategories = [
@@ -458,6 +460,16 @@ interface ProjectRule {
 }
 
 export default function RulesPage() {
+  // MVP Mode gate - show disabled message for advanced features
+  if (isMvpMode()) {
+    return (
+      <FeatureDisabled
+        featureName="Rules & Assumptions"
+        description="The rule builder for defining decision logic and behavioral patterns will be available in a future release. Personas in MVP mode use default realistic behaviors."
+      />
+    );
+  }
+
   const params = useParams();
   const projectId = params.projectId as string;
 

@@ -40,6 +40,8 @@ import {
 } from '@/hooks/useApi';
 import type { RunSummary, TelemetryIndex, TelemetrySummary, TelemetrySlice } from '@/lib/api';
 import { GuidancePanel } from '@/components/pil';
+import { isMvpMode } from '@/lib/feature-flags';
+import { FeatureDisabled } from '@/components/mvp';
 
 // Format date for display
 function formatDate(dateString: string): string {
@@ -133,6 +135,16 @@ function RunSelector({
 const PLAYBACK_SPEEDS = [0.5, 1, 2, 4];
 
 export default function TelemetryReplayPage() {
+  // MVP Mode gate - show disabled message for advanced features
+  if (isMvpMode()) {
+    return (
+      <FeatureDisabled
+        featureName="Telemetry & Replay"
+        description="The tick-by-tick simulation replay and telemetry explorer will be available in a future release. Use the Reports page to view simulation outcomes."
+      />
+    );
+  }
+
   const params = useParams();
   const searchParams = useSearchParams();
   const projectId = params.projectId as string;

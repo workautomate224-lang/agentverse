@@ -53,6 +53,8 @@ import {
   Activity,
   GripVertical,
 } from 'lucide-react';
+import { isMvpMode } from '@/lib/feature-flags';
+import { FeatureDisabled } from '@/components/mvp';
 
 // Metric options
 const METRIC_OPTIONS = [
@@ -87,6 +89,16 @@ function generateId() {
 }
 
 export default function TargetPlannerPage() {
+  // MVP Mode gate - show disabled message for advanced features
+  if (isMvpMode()) {
+    return (
+      <FeatureDisabled
+        featureName="Target Planner"
+        description="The goal-based intervention planning tool for Target Mode will be available in a future release. Use Event Lab for creating what-if scenarios in Collective Mode."
+      />
+    );
+  }
+
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();

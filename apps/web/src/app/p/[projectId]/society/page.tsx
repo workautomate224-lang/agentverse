@@ -46,6 +46,8 @@ import {
 } from '@/hooks/useApi';
 import type { RunSummary, TelemetrySummary, TelemetrySlice, TelemetryKeyframe } from '@/lib/api';
 import { GuidancePanel } from '@/components/pil';
+import { isMvpMode } from '@/lib/feature-flags';
+import { FeatureDisabled } from '@/components/mvp';
 
 // =============================================================================
 // Types
@@ -566,6 +568,16 @@ function FocusedTickPanel({
 // =============================================================================
 
 export default function SocietySimulationPage() {
+  // MVP Mode gate - show disabled message for advanced features
+  if (isMvpMode()) {
+    return (
+      <FeatureDisabled
+        featureName="Society Simulation"
+        description="The macro-level society simulation dashboard for analyzing emergent behaviors will be available in a future release. Use the Reports page to view simulation results."
+      />
+    );
+  }
+
   const params = useParams();
   const searchParams = useSearchParams();
   const router = useRouter();
