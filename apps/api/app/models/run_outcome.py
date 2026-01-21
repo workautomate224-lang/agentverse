@@ -65,10 +65,10 @@ class RunOutcome(Base):
         index=True,
     )
 
-    # Foreign keys
+    # Foreign keys (references project_specs, not legacy projects table)
     project_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("projects.id", ondelete="CASCADE"),
+        ForeignKey("project_specs.id", ondelete="CASCADE"),
         nullable=False,
     )
 

@@ -53,6 +53,7 @@ import {
   useTelemetrySummary,
   useProject,
   useProjectSpec,
+  useProjectPersonas,
   // Phase 7: Aggregated Report hook
   useNodeReport,
 } from '@/hooks/useApi';
@@ -359,8 +360,9 @@ function MvpReport({ projectId, onExportJSON, onExportMarkdown, onCopyLink, link
   const { data: project, isLoading: projectLoading } = useProjectSpec(projectId);
   const { data: nodes, isLoading: nodesLoading } = useNodes({ project_id: projectId });
   const { data: runs, isLoading: runsLoading } = useRuns({ project_id: projectId, limit: 100 });
+  const { data: personas, isLoading: personasLoading } = useProjectPersonas(projectId, { limit: 10000 });
 
-  const isLoading = projectLoading || nodesLoading || runsLoading;
+  const isLoading = projectLoading || nodesLoading || runsLoading || personasLoading;
 
   // Compute report data
   const reportData = useMemo<MvpReportData | null>(() => {
@@ -400,8 +402,8 @@ function MvpReport({ projectId, onExportJSON, onExportMarkdown, onCopyLink, link
       manifestId: r.run_id, // Use run_id as manifest reference
     })) || [];
 
-    // Get personas count from project settings (default_agent_count)
-    const personasCount = project?.settings?.default_agent_count || 0;
+    // Get actual personas count from API (not from settings)
+    const personasCount = personas?.length || 0;
 
     // Extract goal from description or use project name
     const goalText = project.description || project.name || 'Not specified';
@@ -426,7 +428,7 @@ function MvpReport({ projectId, onExportJSON, onExportMarkdown, onCopyLink, link
       branchRuns,
       manifests,
     };
-  }, [project, nodes, runs]);
+  }, [project, nodes, runs, personas]);
 
   if (isLoading) {
     return (
