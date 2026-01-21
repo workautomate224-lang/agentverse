@@ -1,9 +1,16 @@
 'use client';
 
 /**
- * Project Overview Page
- * Shows project header, setup checklist, real stats, and quick action CTAs
- * Reference: blueprint.md §4, §7
+ * Project Overview Page - Demo2 MVP Hub
+ * Shows project header, MVP readiness checklist, and primary action CTAs
+ * Reference: DEMO2_MVP_EXECUTION.md §3.1
+ *
+ * MVP Readiness Checklist (3 lights):
+ * 1. Inputs ready? (persona set present + passes validation)
+ * 2. Baseline run done? (last baseline run completed)
+ * 3. What-if scenarios created? (at least 1 scenario or 0 is ok)
+ *
+ * Acceptance: A first-time user can finish a baseline run in ≤ 3 clicks from Overview.
  */
 
 import { useParams } from 'next/navigation';
@@ -28,11 +35,15 @@ import {
   TrendingUp,
   BarChart3,
   Loader2,
+  AlertCircle,
+  Calendar,
+  Zap,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useNodes, useRuns, useProjectSpec, useActiveBlueprint, useProjectChecklist } from '@/hooks/useApi';
+import { useNodes, useRuns, useProjectSpec, useActiveBlueprint, useProjectChecklist, useProjectPersonas, useScenariosByProject } from '@/hooks/useApi';
 import { BlueprintChecklist, AlignmentScore, GuidancePanel } from '@/components/pil';
 import { useMemo } from 'react';
+import { isMvpMode } from '@/lib/feature-flags';
 
 // Core type styling
 const coreTypeConfig = {
@@ -127,7 +138,11 @@ export default function ProjectOverviewPage() {
   const { data: blueprint, isLoading: blueprintLoading } = useActiveBlueprint(projectId);
   const { data: checklist, isLoading: checklistLoading } = useProjectChecklist(projectId);
 
-  const isLoading = projectLoading || nodesLoading || runsLoading || blueprintLoading || checklistLoading;
+  // MVP Hub: Fetch personas and scenarios for readiness checklist
+  const { data: personas, isLoading: personasLoading } = useProjectPersonas(projectId);
+  const { data: scenarios, isLoading: scenariosLoading } = useScenariosByProject(projectId);
+
+  const isLoading = projectLoading || nodesLoading || runsLoading || blueprintLoading || checklistLoading || personasLoading || scenariosLoading;
 
   // Calculate stats from real data
   const stats = useMemo(() => {
@@ -165,6 +180,51 @@ export default function ProjectOverviewPage() {
     universeMap: (nodes?.length || 0) > 0,
   }), [nodes, runs]);
 
+  // MVP Readiness Checklist (DEMO2_MVP_EXECUTION.md §3.1)
+  // 3 lights: Inputs ready, Baseline done, What-if created
+  const mvpReadiness = useMemo(() => {
+    const allRuns = runs || [];
+    const allPersonas = personas || [];
+    const allScenarios = scenarios || [];
+
+    // Light 1: Inputs ready (at least 1 persona present)
+    const inputsReady = allPersonas.length > 0;
+
+    // Light 2: Baseline run done (at least 1 succeeded run on baseline node)
+    const baselineRuns = allRuns.filter(r => r.status === 'succeeded' && !r.node_id);
+    const baselineDone = baselineRuns.length > 0 || allRuns.some(r => r.status === 'succeeded');
+
+    // Light 3: What-if created (at least 1 scenario exists - 0 is ok but shows as pending)
+    const whatIfCreated = allScenarios.length > 0;
+
+    return {
+      inputsReady,
+      baselineDone,
+      whatIfCreated,
+      personaCount: allPersonas.length,
+      baselineRunCount: baselineRuns.length,
+      scenarioCount: allScenarios.length,
+    };
+  }, [runs, personas, scenarios]);
+
+  // Cutoff date from temporal context
+  const cutoffDate = project?.temporal_context?.as_of_datetime
+    ? new Date(project.temporal_context.as_of_datetime).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      })
+    : null;
+
+  // Filter checklist items for MVP mode (exclude disabled routes)
+  const mvpChecklistItems = useMemo(() => {
+    if (!isMvpMode()) return checklistItems;
+    // In MVP mode, only show: data-personas, run-center (exclude rules, universe-map)
+    return checklistItems.filter(item =>
+      ['data-personas', 'run-center'].includes(item.id)
+    );
+  }, []);
+
   // Project display info
   const projectName = project?.name || 'Project';
   const projectGoal = project?.description || 'No description';
@@ -174,9 +234,18 @@ export default function ProjectOverviewPage() {
   const coreConfig = coreTypeConfig[coreType];
   const CoreIcon = coreConfig.icon;
 
-  // Calculate setup progress
-  const completedSteps = Object.values(setupProgress).filter(Boolean).length;
-  const totalSteps = checklistItems.length;
+  // Calculate setup progress (use MVP-filtered items in MVP mode)
+  const completedSteps = useMemo(() => {
+    const items = isMvpMode() ? mvpChecklistItems : checklistItems;
+    return items.filter(item => {
+      const progressKey = item.id === 'data-personas' ? 'dataPersonas'
+        : item.id === 'run-center' ? 'runCenter'
+        : item.id === 'universe-map' ? 'universeMap'
+        : item.id as keyof typeof setupProgress;
+      return setupProgress[progressKey] ?? false;
+    }).length;
+  }, [mvpChecklistItems, setupProgress]);
+  const totalSteps = isMvpMode() ? mvpChecklistItems.length : checklistItems.length;
   const progressPercent = Math.round((completedSteps / totalSteps) * 100);
 
   return (
@@ -209,7 +278,104 @@ export default function ProjectOverviewPage() {
             <p className="text-xs md:text-sm font-mono text-white/50 mt-2 max-w-2xl">
               {projectGoal}
             </p>
+            {/* Cutoff Date Badge (temporal.md) */}
+            {cutoffDate && (
+              <div className="flex items-center gap-2 mt-3">
+                <span className="inline-flex items-center gap-1.5 px-2 py-1 text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                  <Calendar className="w-3 h-3" />
+                  Knowledge Cutoff: {cutoffDate}
+                </span>
+              </div>
+            )}
           </div>
+
+          {/* MVP Readiness Checklist (DEMO2_MVP_EXECUTION.md §3.1) */}
+          {isMvpMode() && (
+            <div className="max-w-4xl mb-6">
+              <div className="bg-white/5 border border-white/10 p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Zap className="w-4 h-4 text-cyan-400" />
+                  <h2 className="text-sm font-mono font-bold text-white">MVP Readiness</h2>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  {/* Light 1: Inputs Ready */}
+                  <div className={cn(
+                    'p-3 border transition-all',
+                    mvpReadiness.inputsReady
+                      ? 'bg-green-500/10 border-green-500/30'
+                      : 'bg-white/5 border-white/10'
+                  )}>
+                    <div className="flex items-center gap-2 mb-1">
+                      {mvpReadiness.inputsReady ? (
+                        <CheckCircle className="w-4 h-4 text-green-400" />
+                      ) : (
+                        <AlertCircle className="w-4 h-4 text-amber-400" />
+                      )}
+                      <span className="text-xs font-mono font-bold text-white">Inputs</span>
+                    </div>
+                    <p className={cn(
+                      'text-[10px] font-mono',
+                      mvpReadiness.inputsReady ? 'text-green-400' : 'text-amber-400'
+                    )}>
+                      {mvpReadiness.inputsReady
+                        ? `${mvpReadiness.personaCount} personas ready`
+                        : 'No personas yet'}
+                    </p>
+                  </div>
+
+                  {/* Light 2: Baseline Done */}
+                  <div className={cn(
+                    'p-3 border transition-all',
+                    mvpReadiness.baselineDone
+                      ? 'bg-green-500/10 border-green-500/30'
+                      : 'bg-white/5 border-white/10'
+                  )}>
+                    <div className="flex items-center gap-2 mb-1">
+                      {mvpReadiness.baselineDone ? (
+                        <CheckCircle className="w-4 h-4 text-green-400" />
+                      ) : (
+                        <Circle className="w-4 h-4 text-white/40" />
+                      )}
+                      <span className="text-xs font-mono font-bold text-white">Baseline</span>
+                    </div>
+                    <p className={cn(
+                      'text-[10px] font-mono',
+                      mvpReadiness.baselineDone ? 'text-green-400' : 'text-white/40'
+                    )}>
+                      {mvpReadiness.baselineDone
+                        ? 'Baseline complete'
+                        : 'Run baseline first'}
+                    </p>
+                  </div>
+
+                  {/* Light 3: What-if Created */}
+                  <div className={cn(
+                    'p-3 border transition-all',
+                    mvpReadiness.whatIfCreated
+                      ? 'bg-green-500/10 border-green-500/30'
+                      : 'bg-white/5 border-white/10'
+                  )}>
+                    <div className="flex items-center gap-2 mb-1">
+                      {mvpReadiness.whatIfCreated ? (
+                        <CheckCircle className="w-4 h-4 text-green-400" />
+                      ) : (
+                        <Circle className="w-4 h-4 text-white/40" />
+                      )}
+                      <span className="text-xs font-mono font-bold text-white">What-if</span>
+                    </div>
+                    <p className={cn(
+                      'text-[10px] font-mono',
+                      mvpReadiness.whatIfCreated ? 'text-green-400' : 'text-white/40'
+                    )}>
+                      {mvpReadiness.whatIfCreated
+                        ? `${mvpReadiness.scenarioCount} scenario${mvpReadiness.scenarioCount > 1 ? 's' : ''}`
+                        : 'Optional'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Real Stats Dashboard */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 md:gap-4 mb-6 md:mb-8 max-w-4xl">
@@ -301,8 +467,11 @@ export default function ProjectOverviewPage() {
             </div>
           )}
 
-          {/* Quick Actions */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4 mb-6 md:mb-8 max-w-2xl">
+          {/* Quick Actions - MVP has 3 primary CTAs */}
+          <div className={cn(
+            'grid gap-3 md:gap-4 mb-6 md:mb-8 max-w-3xl',
+            isMvpMode() ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2'
+          )}>
             <Link href={`/p/${projectId}/data-personas`}>
               <Button
                 variant="outline"
@@ -312,12 +481,12 @@ export default function ProjectOverviewPage() {
                 <div className="flex items-center gap-2">
                   <Users className="w-4 h-4 text-cyan-400" />
                   <span className="text-sm font-mono text-white group-hover:text-cyan-400">
-                    Go to Data & Personas
+                    Data & Personas
                   </span>
                   <ArrowRight className="w-3 h-3 text-white/40 group-hover:text-cyan-400 group-hover:translate-x-1 transition-transform" />
                 </div>
                 <span className="text-[10px] font-mono text-white/40">
-                  Configure your simulation population
+                  Configure population
                 </span>
               </Button>
             </Link>
@@ -336,10 +505,32 @@ export default function ProjectOverviewPage() {
                   <ArrowRight className="w-3 h-3 text-white/40 group-hover:text-green-400 group-hover:translate-x-1 transition-transform" />
                 </div>
                 <span className="text-[10px] font-mono text-white/40">
-                  Start your first simulation run
+                  Start simulation
                 </span>
               </Button>
             </Link>
+
+            {/* Ask What-if - MVP primary CTA (DEMO2_MVP_EXECUTION.md §3.1) */}
+            {isMvpMode() && (
+              <Link href={`/p/${projectId}/event-lab`}>
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="w-full h-auto py-4 px-4 flex flex-col items-start gap-2 bg-white/5 border-white/10 hover:bg-purple-500/10 hover:border-purple-500/30 transition-all group"
+                >
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-purple-400" />
+                    <span className="text-sm font-mono text-white group-hover:text-purple-400">
+                      Ask What-if
+                    </span>
+                    <ArrowRight className="w-3 h-3 text-white/40 group-hover:text-purple-400 group-hover:translate-x-1 transition-transform" />
+                  </div>
+                  <span className="text-[10px] font-mono text-white/40">
+                    Create scenarios
+                  </span>
+                </Button>
+              </Link>
+            )}
           </div>
 
           {/* Setup Progress - Dynamic Blueprint Checklist (blueprint.md §7) */}
@@ -376,7 +567,7 @@ export default function ProjectOverviewPage() {
                 </p>
 
                 <div className="space-y-2">
-                  {checklistItems.map((item, index) => {
+                  {mvpChecklistItems.map((item, index) => {
                     // Map checklist item id to setupProgress key
                     const progressKey = item.id === 'data-personas' ? 'dataPersonas'
                       : item.id === 'run-center' ? 'runCenter'
