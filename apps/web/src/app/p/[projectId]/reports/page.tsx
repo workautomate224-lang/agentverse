@@ -52,6 +52,7 @@ import {
   useTelemetryIndex,
   useTelemetrySummary,
   useProject,
+  useProjectSpec,
   // Phase 7: Aggregated Report hook
   useNodeReport,
 } from '@/hooks/useApi';
@@ -68,12 +69,13 @@ import type {
   ReportDriftStatus,
 } from '@/lib/api';
 import { GuidancePanel } from '@/components/pil';
+import { isMvpMode } from '@/lib/feature-flags';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-type ReportType = 'project' | 'node' | 'run' | 'prediction';
+type ReportType = 'project' | 'node' | 'run' | 'prediction' | 'mvp';
 
 interface ReliabilityMetrics {
   coverageScore: number;
@@ -256,6 +258,459 @@ function exportToMarkdown(data: ExportData, filename: string) {
 }
 
 // ============================================================================
+// MVP Demo2 Report Component (Task 7: Minimal report export)
+// ============================================================================
+
+interface MvpReportData {
+  goal: string;
+  mode: string;
+  cutoffDate: string | null;
+  personas: {
+    count: number;
+    generationMethod: string;
+    status: string;
+  } | null;
+  evidence: {
+    total: number;
+    passed: number;
+    warned: number;
+    failed: number;
+    urls: string[];
+  } | null;
+  baselineRun: {
+    runId: string;
+    status: string;
+    probability: number | null;
+    createdAt: string;
+  } | null;
+  branchRuns: {
+    runId: string;
+    label: string;
+    status: string;
+    probability: number | null;
+    deltaFromBaseline: number | null;
+    createdAt: string;
+  }[];
+  manifests: {
+    runId: string;
+    manifestId: string | null;
+  }[];
+}
+
+function generateMvpReport(data: MvpReportData, projectId: string): ExportData {
+  return {
+    reportType: 'mvp',
+    generatedAt: new Date().toISOString(),
+    projectId,
+    data: {
+      'Project Summary': {
+        goal: data.goal || 'Not specified',
+        mode: data.mode || 'Collective Dynamics',
+        temporalCutoff: data.cutoffDate || 'Not set',
+      },
+      'Personas': data.personas ? {
+        count: data.personas.count,
+        generationMethod: data.personas.generationMethod,
+        status: data.personas.status,
+      } : { status: 'Not generated' },
+      'Evidence': data.evidence ? {
+        totalSources: data.evidence.total,
+        passed: data.evidence.passed,
+        warned: data.evidence.warned,
+        failed: data.evidence.failed,
+        urls: data.evidence.urls.slice(0, 10), // Limit to first 10
+      } : { status: 'No evidence ingested' },
+      'Baseline Run': data.baselineRun ? {
+        runId: data.baselineRun.runId,
+        status: data.baselineRun.status,
+        probability: data.baselineRun.probability != null
+          ? `${(data.baselineRun.probability * 100).toFixed(1)}%`
+          : 'N/A',
+        createdAt: data.baselineRun.createdAt,
+      } : { status: 'No baseline run' },
+      'Branch Runs': data.branchRuns.length > 0 ? data.branchRuns.map(br => ({
+        runId: br.runId,
+        label: br.label,
+        status: br.status,
+        probability: br.probability != null
+          ? `${(br.probability * 100).toFixed(1)}%`
+          : 'N/A',
+        deltaFromBaseline: br.deltaFromBaseline != null
+          ? `${br.deltaFromBaseline > 0 ? '+' : ''}${(br.deltaFromBaseline * 100).toFixed(1)}%`
+          : 'N/A',
+        createdAt: br.createdAt,
+      })) : 'No branch runs',
+      'Run Manifests': data.manifests.length > 0
+        ? data.manifests.map(m => ({ runId: m.runId, manifestId: m.manifestId || 'N/A' }))
+        : 'No manifests',
+    },
+  };
+}
+
+interface MvpReportProps {
+  projectId: string;
+  onExportJSON: (data: ExportData) => void;
+  onExportMarkdown: (data: ExportData) => void;
+  onCopyLink: () => void;
+  linkCopied: boolean;
+}
+
+function MvpReport({ projectId, onExportJSON, onExportMarkdown, onCopyLink, linkCopied }: MvpReportProps) {
+  const { data: project, isLoading: projectLoading } = useProjectSpec(projectId);
+  const { data: nodes, isLoading: nodesLoading } = useNodes({ project_id: projectId });
+  const { data: runs, isLoading: runsLoading } = useRuns({ project_id: projectId, limit: 100 });
+
+  const isLoading = projectLoading || nodesLoading || runsLoading;
+
+  // Compute report data
+  const reportData = useMemo<MvpReportData | null>(() => {
+    if (!project) return null;
+
+    // Find baseline node and runs
+    const baselineNode = nodes?.find(n => n.is_baseline);
+    const baselineRuns = runs?.filter(r => r.node_id === baselineNode?.node_id && r.status === 'succeeded') || [];
+    const latestBaselineRun = baselineRuns.sort((a, b) =>
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    )[0];
+
+    // Find branch runs (non-baseline nodes)
+    const branchNodes = nodes?.filter(n => !n.is_baseline) || [];
+    const branchRuns = branchNodes.flatMap(node => {
+      const nodeRuns = runs?.filter(r => r.node_id === node.node_id && r.status === 'succeeded') || [];
+      if (nodeRuns.length === 0) return [];
+      const latestRun = nodeRuns.sort((a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      )[0];
+      const baselineProbability = baselineNode?.probability ?? null;
+      return [{
+        runId: latestRun.run_id,
+        label: node.label || `Branch ${node.node_id.slice(0, 8)}`,
+        status: latestRun.status,
+        probability: node.probability,
+        deltaFromBaseline: baselineProbability != null && node.probability != null
+          ? node.probability - baselineProbability
+          : null,
+        createdAt: latestRun.created_at,
+      }];
+    });
+
+    // Get manifests from runs (use run_id as manifest reference)
+    const manifests = runs?.filter(r => r.status === 'succeeded').map(r => ({
+      runId: r.run_id,
+      manifestId: r.run_id, // Use run_id as manifest reference
+    })) || [];
+
+    // Get personas count from project settings (default_agent_count)
+    const personasCount = project?.settings?.default_agent_count || 0;
+
+    // Extract goal from description or use project name
+    const goalText = project.description || project.name || 'Not specified';
+
+    return {
+      goal: goalText,
+      mode: project.domain || 'Collective Dynamics',
+      cutoffDate: project.temporal_context?.as_of_datetime || null,
+      personas: personasCount > 0 ? {
+        count: personasCount,
+        generationMethod: 'Natural Language Generation',
+        status: 'Active',
+      } : null,
+      // Evidence data not yet integrated - will be populated when evidence API is connected
+      evidence: null,
+      baselineRun: latestBaselineRun ? {
+        runId: latestBaselineRun.run_id,
+        status: latestBaselineRun.status,
+        probability: baselineNode?.probability ?? null,
+        createdAt: latestBaselineRun.created_at,
+      } : null,
+      branchRuns,
+      manifests,
+    };
+  }, [project, nodes, runs]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center p-12">
+        <Loader2 className="w-8 h-8 animate-spin text-cyan-400" />
+      </div>
+    );
+  }
+
+  if (!project || !reportData) {
+    return (
+      <div className="border border-red-500/20 bg-red-500/5 p-8 text-center">
+        <XCircle className="w-12 h-12 mx-auto text-red-400/40 mb-4" />
+        <h2 className="text-lg font-mono font-bold text-white mb-2">Project Not Found</h2>
+        <p className="text-sm font-mono text-white/50">Could not load project data.</p>
+      </div>
+    );
+  }
+
+  const exportData = generateMvpReport(reportData, projectId);
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="border border-cyan-500/30 bg-cyan-500/5 p-4">
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <FileBarChart className="w-5 h-5 text-cyan-400" />
+              <h2 className="text-lg font-mono font-bold text-white">Demo2 MVP Report</h2>
+            </div>
+            <p className="text-sm font-mono text-white/60">
+              Comprehensive summary with predictions, evidence, and manifests
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={onCopyLink} className="text-xs">
+              {linkCopied ? <Check className="w-3 h-3 mr-1" /> : <Copy className="w-3 h-3 mr-1" />}
+              {linkCopied ? 'Copied!' : 'Copy Link'}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onExportJSON(exportData)}
+              className="text-xs border-cyan-500/30 hover:bg-cyan-500/10"
+            >
+              <Download className="w-3 h-3 mr-1" /> JSON
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onExportMarkdown(exportData)}
+              className="text-xs border-cyan-500/30 hover:bg-cyan-500/10"
+            >
+              <FileText className="w-3 h-3 mr-1" /> Markdown
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Project Summary */}
+      <div className="border border-white/10 bg-white/5 p-4">
+        <h3 className="text-sm font-mono font-bold text-white/60 uppercase mb-4 flex items-center gap-2">
+          <Layers className="w-4 h-4" /> Project Summary
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="p-3 border border-white/10 bg-white/5">
+            <div className="text-[10px] font-mono text-white/40 uppercase">Goal</div>
+            <div className="text-sm font-mono text-white mt-1">{reportData.goal}</div>
+          </div>
+          <div className="p-3 border border-white/10 bg-white/5">
+            <div className="text-[10px] font-mono text-white/40 uppercase">Mode</div>
+            <div className="text-sm font-mono text-white mt-1">{reportData.mode}</div>
+          </div>
+          <div className="p-3 border border-white/10 bg-white/5">
+            <div className="text-[10px] font-mono text-white/40 uppercase">Temporal Cutoff</div>
+            <div className="text-sm font-mono text-white mt-1 flex items-center gap-1">
+              <Calendar className="w-3 h-3 text-cyan-400" />
+              {reportData.cutoffDate
+                ? new Date(reportData.cutoffDate).toLocaleDateString()
+                : 'Not set'}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Personas Summary */}
+      <div className="border border-white/10 bg-white/5 p-4">
+        <h3 className="text-sm font-mono font-bold text-white/60 uppercase mb-4 flex items-center gap-2">
+          <Users className="w-4 h-4" /> Personas
+        </h3>
+        {reportData.personas ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="p-3 border border-green-500/20 bg-green-500/5">
+              <div className="text-[10px] font-mono text-green-400 uppercase">Count</div>
+              <div className="text-xl font-mono font-bold text-green-400">{reportData.personas.count.toLocaleString()}</div>
+            </div>
+            <div className="p-3 border border-white/10 bg-white/5">
+              <div className="text-[10px] font-mono text-white/40 uppercase">Generation Method</div>
+              <div className="text-sm font-mono text-white mt-1">{reportData.personas.generationMethod}</div>
+            </div>
+            <div className="p-3 border border-white/10 bg-white/5">
+              <div className="text-[10px] font-mono text-white/40 uppercase">Status</div>
+              <div className="text-sm font-mono text-white mt-1 flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3 text-green-400" />
+                {reportData.personas.status}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="p-4 border border-yellow-500/20 bg-yellow-500/5 text-center">
+            <AlertTriangle className="w-6 h-6 mx-auto text-yellow-400/60 mb-2" />
+            <p className="text-sm font-mono text-white/50">No personas generated yet</p>
+            <Link href={`/p/${projectId}/data-personas`}>
+              <Button variant="outline" size="sm" className="mt-2 text-xs">
+                <Users className="w-3 h-3 mr-1" /> Generate Personas
+              </Button>
+            </Link>
+          </div>
+        )}
+      </div>
+
+      {/* Evidence Summary */}
+      <div className="border border-white/10 bg-white/5 p-4">
+        <h3 className="text-sm font-mono font-bold text-white/60 uppercase mb-4 flex items-center gap-2">
+          <Database className="w-4 h-4" /> Evidence Sources
+        </h3>
+        {reportData.evidence && reportData.evidence.total > 0 ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="p-3 border border-white/10 bg-white/5">
+                <div className="text-[10px] font-mono text-white/40 uppercase">Total</div>
+                <div className="text-xl font-mono font-bold text-white">{reportData.evidence.total}</div>
+              </div>
+              <div className="p-3 border border-green-500/20 bg-green-500/5">
+                <div className="text-[10px] font-mono text-green-400 uppercase">Passed</div>
+                <div className="text-xl font-mono font-bold text-green-400">{reportData.evidence.passed}</div>
+              </div>
+              <div className="p-3 border border-yellow-500/20 bg-yellow-500/5">
+                <div className="text-[10px] font-mono text-yellow-400 uppercase">Warned</div>
+                <div className="text-xl font-mono font-bold text-yellow-400">{reportData.evidence.warned}</div>
+              </div>
+              <div className="p-3 border border-red-500/20 bg-red-500/5">
+                <div className="text-[10px] font-mono text-red-400 uppercase">Failed</div>
+                <div className="text-xl font-mono font-bold text-red-400">{reportData.evidence.failed}</div>
+              </div>
+            </div>
+            {reportData.evidence.urls.length > 0 && (
+              <div className="p-3 border border-white/5 bg-white/[0.02]">
+                <div className="text-[10px] font-mono text-white/40 uppercase mb-2">Source URLs</div>
+                <div className="space-y-1 max-h-[150px] overflow-auto">
+                  {reportData.evidence.urls.map((url, i) => (
+                    <div key={i} className="text-xs font-mono text-cyan-400/70 truncate">{url}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="p-4 border border-white/5 bg-white/[0.02] text-center">
+            <p className="text-sm font-mono text-white/50">No evidence sources ingested</p>
+          </div>
+        )}
+      </div>
+
+      {/* Baseline vs Branch Comparison */}
+      <div className="border border-white/10 bg-white/5 p-4">
+        <h3 className="text-sm font-mono font-bold text-white/60 uppercase mb-4 flex items-center gap-2">
+          <GitBranch className="w-4 h-4" /> Baseline vs Branch Comparison
+        </h3>
+        <div className="space-y-4">
+          {/* Baseline */}
+          {reportData.baselineRun ? (
+            <div className="p-4 border border-cyan-500/30 bg-cyan-500/5">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono text-cyan-400 border border-cyan-400/30 px-2 py-0.5">BASELINE</span>
+                  <span className="text-sm font-mono text-white">Run {reportData.baselineRun.runId.slice(0, 8)}</span>
+                </div>
+                <span className={cn(
+                  'text-[10px] font-mono px-2 py-0.5 border',
+                  reportData.baselineRun.status === 'succeeded'
+                    ? 'text-green-400 border-green-400/30'
+                    : 'text-white/40 border-white/10'
+                )}>
+                  {reportData.baselineRun.status.toUpperCase()}
+                </span>
+              </div>
+              <div className="text-3xl font-mono font-bold text-cyan-400">
+                {reportData.baselineRun.probability != null
+                  ? `${(reportData.baselineRun.probability * 100).toFixed(1)}%`
+                  : 'N/A'}
+              </div>
+              <div className="text-[10px] font-mono text-white/40 mt-1">
+                {new Date(reportData.baselineRun.createdAt).toLocaleString()}
+              </div>
+            </div>
+          ) : (
+            <div className="p-4 border border-yellow-500/20 bg-yellow-500/5 text-center">
+              <AlertTriangle className="w-6 h-6 mx-auto text-yellow-400/60 mb-2" />
+              <p className="text-sm font-mono text-white/50">No baseline run completed</p>
+              <Link href={`/p/${projectId}/run-center`}>
+                <Button variant="outline" size="sm" className="mt-2 text-xs">
+                  <Play className="w-3 h-3 mr-1" /> Run Baseline
+                </Button>
+              </Link>
+            </div>
+          )}
+
+          {/* Branches */}
+          {reportData.branchRuns.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {reportData.branchRuns.map((branch) => (
+                <div key={branch.runId} className="p-4 border border-purple-500/30 bg-purple-500/5">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-mono text-purple-400 border border-purple-400/30 px-2 py-0.5">BRANCH</span>
+                      <span className="text-sm font-mono text-white truncate max-w-[150px]">{branch.label}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-2xl font-mono font-bold text-purple-400">
+                      {branch.probability != null
+                        ? `${(branch.probability * 100).toFixed(1)}%`
+                        : 'N/A'}
+                    </span>
+                    {branch.deltaFromBaseline != null && (
+                      <span className={cn(
+                        'text-sm font-mono',
+                        branch.deltaFromBaseline > 0 ? 'text-green-400' :
+                        branch.deltaFromBaseline < 0 ? 'text-red-400' : 'text-white/40'
+                      )}>
+                        ({branch.deltaFromBaseline > 0 ? '+' : ''}{(branch.deltaFromBaseline * 100).toFixed(1)}%)
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[10px] font-mono text-white/40 mt-1">
+                    {new Date(branch.createdAt).toLocaleString()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : reportData.baselineRun ? (
+            <div className="p-4 border border-white/5 bg-white/[0.02] text-center">
+              <p className="text-sm font-mono text-white/50">No branch scenarios run yet</p>
+              <Link href={`/p/${projectId}/event-lab`}>
+                <Button variant="outline" size="sm" className="mt-2 text-xs">
+                  <Zap className="w-3 h-3 mr-1" /> Ask What-If
+                </Button>
+              </Link>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Manifest IDs */}
+      {reportData.manifests.length > 0 && (
+        <div className="border border-white/10 bg-white/5 p-4">
+          <h3 className="text-sm font-mono font-bold text-white/60 uppercase mb-4 flex items-center gap-2">
+            <Settings className="w-4 h-4" /> Run Manifests
+          </h3>
+          <div className="space-y-2 max-h-[200px] overflow-auto">
+            {reportData.manifests.map((m) => (
+              <div key={m.runId} className="flex items-center justify-between p-2 border border-white/5 bg-white/[0.02]">
+                <span className="text-xs font-mono text-white/60">Run {m.runId.slice(0, 8)}</span>
+                <span className="text-xs font-mono text-cyan-400">{m.manifestId || 'N/A'}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Footer */}
+      <div className="border border-white/5 bg-white/[0.02] p-4 text-center">
+        <div className="text-[10px] font-mono text-white/30 flex items-center justify-center gap-2">
+          <Terminal className="w-3 h-3" />
+          Report generated at {new Date().toLocaleString()} • AgentVerse Demo2 MVP
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
 // UI Components
 // ============================================================================
 
@@ -329,12 +784,19 @@ interface ReportTypeSelectorProps {
 }
 
 function ReportTypeSelector({ value, onChange }: ReportTypeSelectorProps) {
-  const types: { value: ReportType; label: string; icon: React.ElementType; color: string }[] = [
-    { value: 'project', label: 'Project Overview', icon: Layers, color: 'cyan' },
-    { value: 'node', label: 'Node Summary', icon: GitBranch, color: 'purple' },
-    { value: 'run', label: 'Run Report', icon: Play, color: 'green' },
-    { value: 'prediction', label: 'Prediction Report', icon: Target, color: 'orange' },
-  ];
+  const mvpMode = isMvpMode();
+
+  // In MVP mode, only show MVP report option
+  const types: { value: ReportType; label: string; icon: React.ElementType; color: string }[] = mvpMode
+    ? [
+        { value: 'mvp', label: 'MVP Report', icon: FileBarChart, color: 'cyan' },
+      ]
+    : [
+        { value: 'project', label: 'Project Overview', icon: Layers, color: 'cyan' },
+        { value: 'node', label: 'Node Summary', icon: GitBranch, color: 'purple' },
+        { value: 'run', label: 'Run Report', icon: Play, color: 'green' },
+        { value: 'prediction', label: 'Prediction Report', icon: Target, color: 'orange' },
+      ];
   return (
     <div className="flex gap-2">
       {types.map(t => (
@@ -1645,7 +2107,10 @@ export default function ReportsPage() {
   const initialNodeId = searchParams.get('node');
 
   // Determine initial report type based on URL params
+  const mvpMode = isMvpMode();
   const getInitialType = (): ReportType => {
+    // In MVP mode, always default to MVP report
+    if (mvpMode) return 'mvp';
     const typeParam = searchParams.get('type');
     if (typeParam === 'prediction') return 'prediction';
     if (initialRunId) return 'run';
@@ -1745,9 +2210,9 @@ export default function ReportsPage() {
     setTimeout(() => setLinkCopied(false), 2000);
   }, []);
 
-  // Export handlers
-  const handleExportJSON = useCallback(() => {
-    const data: ExportData = {
+  // Export handlers - accept optional ExportData for custom reports (like MvpReport)
+  const handleExportJSON = useCallback((customData?: ExportData) => {
+    const data: ExportData = customData || {
       reportType,
       generatedAt: new Date().toISOString(),
       projectId,
@@ -1756,12 +2221,12 @@ export default function ReportsPage() {
         selectedRunId,
       },
     };
-    const filename = `agentverse-${reportType}-report-${Date.now()}`;
+    const filename = `agentverse-${data.reportType}-report-${Date.now()}`;
     exportToJSON(data, filename);
   }, [reportType, projectId, selectedNodeId, selectedRunId]);
 
-  const handleExportMarkdown = useCallback(() => {
-    const data: ExportData = {
+  const handleExportMarkdown = useCallback((customData?: ExportData) => {
+    const data: ExportData = customData || {
       reportType,
       generatedAt: new Date().toISOString(),
       projectId,
@@ -1770,7 +2235,7 @@ export default function ReportsPage() {
         selectedRunId,
       },
     };
-    const filename = `agentverse-${reportType}-report-${Date.now()}`;
+    const filename = `agentverse-${data.reportType}-report-${Date.now()}`;
     exportToMarkdown(data, filename);
   }, [reportType, projectId, selectedNodeId, selectedRunId]);
 
@@ -1935,14 +2400,27 @@ export default function ReportsPage() {
           />
         )}
 
-        {/* Guidance Panel - Blueprint-driven guidance for reports section (blueprint.md §7) */}
-        <div className="mt-6">
-          <GuidancePanel
+        {/* MVP Report - Demo2 simplified export */}
+        {reportType === 'mvp' && (
+          <MvpReport
             projectId={projectId}
-            sectionId="reports"
-            className="mb-6"
+            onExportJSON={handleExportJSON}
+            onExportMarkdown={handleExportMarkdown}
+            onCopyLink={handleCopyLink}
+            linkCopied={linkCopied}
           />
-        </div>
+        )}
+
+        {/* Guidance Panel - Blueprint-driven guidance for reports section (blueprint.md §7) */}
+        {!mvpMode && (
+          <div className="mt-6">
+            <GuidancePanel
+              projectId={projectId}
+              sectionId="reports"
+              className="mb-6"
+            />
+          </div>
+        )}
       </div>
 
       {/* Footer */}
