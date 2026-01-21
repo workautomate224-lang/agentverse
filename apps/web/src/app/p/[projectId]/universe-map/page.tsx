@@ -89,6 +89,7 @@ import {
 import type { SpecNode, NodeSummary, RunSummary } from '@/lib/api';
 import { isMvpMode } from '@/lib/feature-flags';
 import { FeatureDisabled } from '@/components/mvp';
+import { ThoughtExpansionGraph } from '@/components/teg';
 
 // ============ Types ============
 
@@ -1947,6 +1948,151 @@ function UniverseMapCanvas() {
   );
 }
 
+// ============ TEG Wrapper for MVP Mode ============
+
+/**
+ * TEGWrapper Component
+ *
+ * Wraps the ThoughtExpansionGraph component with data fetching and state management.
+ * This is the MVP mode entry point for the Universe Map route.
+ *
+ * For Task 1, this renders the basic TEG structure.
+ * Backend data fetching will be implemented in Task 2.
+ */
+function TEGWrapper() {
+  const params = useParams();
+  const projectId = params.projectId as string;
+
+  // Placeholder graph for Task 1 - will be replaced with actual API call in Task 2
+  // For now, create mock data from existing runs if available
+  const { data: runs, isLoading: runsLoading } = useRuns({ project_id: projectId });
+
+  // Convert existing runs to TEG format (temporary until Task 2 backend)
+  const mockGraph = useMemo(() => {
+    if (!runs || runs.length === 0) return null;
+
+    // Find baseline run (first completed run)
+    const baselineRun = runs.find(r => r.status === 'succeeded') || runs[0];
+    const branchRuns = runs.filter(r => r.run_id !== baselineRun?.run_id);
+
+    const nodes: Array<{
+      node_id: string;
+      project_id: string;
+      type: 'OUTCOME_VERIFIED' | 'SCENARIO_DRAFT' | 'EVIDENCE';
+      status: 'DRAFT' | 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED';
+      title: string;
+      summary?: string;
+      created_at: string;
+      parent_node_id?: string | null;
+      payload: Record<string, unknown>;
+      links?: Record<string, unknown>;
+    }> = [];
+
+    const edges: Array<{
+      edge_id: string;
+      project_id: string;
+      from_node_id: string;
+      to_node_id: string;
+      relation: 'EXPANDS_TO' | 'RUNS_TO' | 'FORKS_FROM' | 'SUPPORTS' | 'CONFLICTS';
+    }> = [];
+
+    // Map RunSummary status to TEG status
+    const mapStatus = (status: string): 'DRAFT' | 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED' => {
+      switch (status) {
+        case 'succeeded': return 'DONE';
+        case 'failed': return 'FAILED';
+        case 'running': return 'RUNNING';
+        case 'queued':
+        case 'starting': return 'QUEUED';
+        default: return 'DRAFT';
+      }
+    };
+
+    // Create baseline node
+    if (baselineRun) {
+      const totalTicks = baselineRun.timing?.total_ticks || 0;
+      nodes.push({
+        node_id: `baseline-${baselineRun.run_id}`,
+        project_id: projectId,
+        type: 'OUTCOME_VERIFIED',
+        status: mapStatus(baselineRun.status),
+        title: 'Baseline Outcome',
+        summary: `Baseline simulation${totalTicks ? ` with ${totalTicks} ticks` : ''}`,
+        created_at: baselineRun.created_at || new Date().toISOString(),
+        parent_node_id: null,
+        payload: {
+          // Note: actual probability will come from full run results in Task 2
+          primary_outcome_probability: 0.5,
+          run_id: baselineRun.run_id,
+        },
+        links: {
+          run_ids: [baselineRun.run_id],
+        },
+      });
+
+      // Create branch nodes
+      branchRuns.forEach((run, index) => {
+        const branchNodeId = `branch-${run.run_id}`;
+        nodes.push({
+          node_id: branchNodeId,
+          project_id: projectId,
+          type: 'OUTCOME_VERIFIED',
+          status: mapStatus(run.status),
+          title: `Branch ${index + 1}`,
+          summary: 'Branch simulation',
+          created_at: run.created_at || new Date().toISOString(),
+          parent_node_id: `baseline-${baselineRun.run_id}`,
+          payload: {
+            primary_outcome_probability: 0.5,
+            actual_delta: 0,
+            run_id: run.run_id,
+          },
+          links: {
+            run_ids: [run.run_id],
+          },
+        });
+
+        // Create edge from baseline to branch
+        edges.push({
+          edge_id: `edge-baseline-${run.run_id}`,
+          project_id: projectId,
+          from_node_id: `baseline-${baselineRun.run_id}`,
+          to_node_id: branchNodeId,
+          relation: 'FORKS_FROM',
+        });
+      });
+    }
+
+    return {
+      graph_id: `teg-${projectId}`,
+      project_id: projectId,
+      created_at: new Date().toISOString(),
+      active_baseline_node_id: baselineRun ? `baseline-${baselineRun.run_id}` : undefined,
+      nodes,
+      edges,
+    };
+  }, [runs, projectId]);
+
+  return (
+    <div className="h-screen">
+      <ThoughtExpansionGraph
+        projectId={projectId}
+        graph={mockGraph}
+        loading={runsLoading}
+        onRefresh={() => {
+          // Will trigger refetch in Task 2
+        }}
+        onExpand={(nodeId) => {
+          // Will be implemented in Task 4
+        }}
+        onRun={(nodeId) => {
+          // Will be implemented in Task 5
+        }}
+      />
+    </div>
+  );
+}
+
 // Loading fallback for Suspense
 function UniverseMapLoading() {
   return (
@@ -1961,16 +2107,17 @@ function UniverseMapLoading() {
 
 // Wrap with provider and Suspense for useSearchParams
 export default function UniverseMapPage() {
-  // MVP Mode gate - show disabled message for advanced features
+  // MVP Mode - render TEG (Thought Expansion Graph) instead of old Universe Map
+  // Reference: docs/TEG_UNIVERSE_MAP_EXECUTION.md
   if (isMvpMode()) {
     return (
-      <FeatureDisabled
-        featureName="Universe Map"
-        description="The infinite branching canvas for exploring alternate scenarios will be available in a future release. Use Event Lab to create what-if scenarios instead."
-      />
+      <Suspense fallback={<UniverseMapLoading />}>
+        <TEGWrapper />
+      </Suspense>
     );
   }
 
+  // Full mode - render legacy Universe Map canvas
   return (
     <Suspense fallback={<UniverseMapLoading />}>
       <ReactFlowProvider>

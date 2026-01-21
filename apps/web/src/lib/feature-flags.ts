@@ -21,12 +21,16 @@ export function isMvpMode(): boolean {
 /**
  * Demo2 MVP - Enabled routes (keep visible)
  * These are the core Demo2 user journey routes
+ *
+ * NOTE: universe-map is now enabled and renders TEG (Thought Expansion Graph)
+ * as per TEG_UNIVERSE_MAP_EXECUTION.md
  */
 export const MVP_ENABLED_ROUTES = [
   'overview',
   'data-personas',
   'event-lab',
   'run-center',
+  'universe-map', // TEG replaces old Universe Map
   'reports',
   'settings',
 ] as const;
@@ -36,7 +40,6 @@ export const MVP_ENABLED_ROUTES = [
  * These features are hidden to reduce cognitive load
  */
 export const MVP_DISABLED_ROUTES = [
-  'universe-map',
   'rules',
   'reliability',
   'replay',
