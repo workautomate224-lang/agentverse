@@ -379,7 +379,7 @@ async def _sync_from_runs(
         # Create payload
         payload = {
             "primary_outcome_probability": outcome_prob or 0.5,
-            "run_duration_ms": (run.completed_at - run.started_at).total_seconds() * 1000 if run.completed_at and run.started_at else None,
+            "run_duration_ms": (run.updated_at - run.worker_started_at).total_seconds() * 1000 if run.updated_at and run.worker_started_at else None,
         }
 
         if outcome and outcome.metrics_json:
