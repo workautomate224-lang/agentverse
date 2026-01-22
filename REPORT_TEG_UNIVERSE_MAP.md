@@ -221,6 +221,94 @@ The compare panel shows when selecting a verified outcome that is not the baseli
 
 ---
 
+## Staging QA Testing Results (2026-01-22)
+
+**Staging URL:** https://agentverse-web-staging-production.up.railway.app
+**Test Project:** `32fdff44-6a25-4cb9-8fe0-a20e67c76dd5` (Soda Pop Consumption)
+
+### Test Environment
+- Browser: Chrome DevTools MCP
+- Backend: Railway staging (`agentverse-api-staging`)
+- Test Account: `claude-test@agentverse.io`
+
+### Component Testing
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| GRAPH View | ✅ PASS | ReactFlow renders nodes/edges correctly |
+| TABLE View | ✅ PASS | Columns: TITLE, TYPE, PROBABILITY/DELTA, CONFIDENCE, STATUS, CREATED |
+| RAW View | ✅ PASS | Complete JSON with metadata, payload, links |
+| Node Selection | ✅ PASS | Click selects node, details panel populates |
+| Details Panel | ✅ PASS | Shows title, type badge, probability, confidence, run info |
+| View Toggle | ✅ PASS | Smooth switching between GRAPH/TABLE/RAW |
+
+### Feature Testing
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Expand (Generate Scenarios) | ⚠️ BLOCKED | Code works, but `OPENROUTER_API_KEY` on Railway is a placeholder |
+| Run Scenario | ⏸️ NOT TESTED | Requires SCENARIO_DRAFT nodes (from Expand) |
+| Compare Panel | ⏸️ NOT TESTED | Requires multiple nodes for comparison |
+| Evidence Attach | ⏸️ NOT TESTED | Button only visible for specific node states |
+
+### Bug Fixes Applied During Testing
+
+1. **Import Error Fix**
+   - File: `apps/api/app/api/v1/endpoints/teg.py`
+   - Issue: `RunInput` not found
+   - Fix: Changed to `CreateRunInput`
+
+2. **Run Duration Calculation**
+   - File: `apps/api/app/api/v1/endpoints/teg.py`
+   - Issue: `Run.completed_at` doesn't exist
+   - Fix: Changed to `run.updated_at` and `run.worker_started_at`
+
+3. **LLM Model Configuration**
+   - File: `apps/api/app/services/llm_router.py`
+   - Issue: Default model `openai/gpt-5.2` doesn't exist
+   - Fix: Changed to `openai/gpt-4o-mini`
+
+### Configuration Issue Identified
+
+**OpenRouter API Key on Railway:**
+- Current value: `sk-or-INVALID-KEY-FOR-TESTING` (placeholder)
+- Impact: All LLM-powered features fail with 401 Unauthorized
+- Action Required: Configure valid OpenRouter API key in Railway environment
+
+### Detailed Test Observations
+
+**Graph View:**
+- Single OUTCOME_VERIFIED node displayed ("Run 32fdff44")
+- Node shows probability badge (52.86%)
+- Proper positioning and styling
+
+**Table View:**
+- Sortable columns working
+- Badge styling for node types
+- Percentage formatting correct
+
+**RAW View:**
+- Full JSON structure visible
+- Includes: id, graph_id, project_id, tenant_id, node_type, status
+- Payload shows primary_outcome_probability, confidence, drivers
+- Links section shows run_ids array
+
+**Details Panel (OUTCOME_VERIFIED node):**
+- Title: "Run 32fdff44"
+- Type: OUTCOME_VERIFIED badge
+- Probability: 52.86%
+- Confidence: 82.0%
+- Run Duration: Displayed correctly
+- "Expand (Generate Scenarios)" button present
+
+### Recommendations
+
+1. **Configure Valid OpenRouter API Key** - Required to test Expand, Run, Compare features
+2. **Add Evidence Attach UI** - Consider always showing button with tooltip for invalid states
+3. **Improve Error Messages** - 503 errors should surface meaningful messages to users
+
+---
+
 ## Known Issues
 
 1. **Graph Layout Performance**
