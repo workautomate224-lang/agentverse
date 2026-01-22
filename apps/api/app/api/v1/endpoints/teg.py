@@ -47,7 +47,7 @@ from app.schemas.teg import (
     TEGEdgeRelation,
 )
 from app.services.llm_router import LLMRouter, LLMRouterContext
-from app.services.simulation_orchestrator import SimulationOrchestrator, RunInput
+from app.services.simulation_orchestrator import SimulationOrchestrator, CreateRunInput
 
 
 router = APIRouter()
@@ -767,8 +767,6 @@ async def run_teg_scenario(
     - Source node must have DRAFT status
     - C2: On-demand execution (explicitly triggered)
     """
-    from app.services.simulation_orchestrator import SimulationOrchestrator, CreateRunInput
-
     node_uuid = UUID(node_id)
     draft_uuid = request.node_id
 
