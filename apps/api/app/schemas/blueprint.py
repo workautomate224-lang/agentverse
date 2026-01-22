@@ -122,6 +122,7 @@ class PILJobType(str, Enum):
     RELIABILITY_ANALYSIS = "reliability_analysis"
     AI_RESEARCH = "ai_research"
     AI_GENERATION = "ai_generation"
+    PROJECT_GENESIS = "project_genesis"  # Fix #3: Missing enum value for project creation
 
 
 # ============================================================================
