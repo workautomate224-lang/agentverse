@@ -275,6 +275,7 @@ async def update_job_progress(
     stage_name: Optional[str] = None,
     eta_hint: Optional[str] = None,
     stages_completed: Optional[int] = None,
+    stages_total: Optional[int] = None,
 ):
     """Update job progress in database."""
     update_data = {
@@ -287,6 +288,8 @@ async def update_job_progress(
         update_data["eta_hint"] = eta_hint
     if stages_completed is not None:
         update_data["stages_completed"] = stages_completed
+    if stages_total is not None:
+        update_data["stages_total"] = stages_total
 
     await session.execute(
         update(PILJob)
