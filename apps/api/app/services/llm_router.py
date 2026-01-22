@@ -433,7 +433,7 @@ class LLMRouter:
         """
         Create a default in-memory profile when none exists in DB.
 
-        Uses gpt-5.2 as default model per Blueprint v2 requirements.
+        Uses gpt-4o-mini as default model for cost-effective operations.
         Note: id is None to indicate this is an in-memory profile, which
         prevents foreign key violations when logging LLM calls.
         """
@@ -441,11 +441,11 @@ class LLMRouter:
             id=None,  # No ID for in-memory profiles to avoid FK violation
             profile_key=profile_key,
             label=f"Default {profile_key}",
-            model="openai/gpt-5.2",  # GPT-5.2 as default for PIL jobs
+            model="openai/gpt-4o-mini",  # GPT-4o-mini as default (cost-effective)
             temperature=0.3,  # Balanced for comprehensive yet consistent responses
             max_tokens=2000,  # Increased for comprehensive professional responses
-            cost_per_1k_input_tokens=0.005,   # GPT-5.2 pricing
-            cost_per_1k_output_tokens=0.015,  # GPT-5.2 pricing
+            cost_per_1k_input_tokens=0.00015,  # GPT-4o-mini pricing
+            cost_per_1k_output_tokens=0.0006,  # GPT-4o-mini pricing
             fallback_models=["openai/gpt-4o"],  # Fallback to GPT-4o
             cache_enabled=True,
             is_active=True,
