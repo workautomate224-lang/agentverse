@@ -11,9 +11,10 @@ Provides endpoints for:
 This is the spec-compliant replacement for the legacy projects endpoint.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Literal, Optional
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field, field_validator
@@ -528,7 +529,16 @@ async def create_project_spec(
             # Backtest mode requires locking and has stricter defaults
             # Parse ISO 8601 string to datetime for database insertion
             if tc.as_of_datetime:
-                as_of_datetime_val = datetime.fromisoformat(tc.as_of_datetime.replace('Z', '+00:00'))
+                # Handle 'Z' suffix for UTC
+                dt_str = tc.as_of_datetime.replace('Z', '+00:00')
+                parsed_dt = datetime.fromisoformat(dt_str)
+
+                # If datetime is naive (no timezone), apply project's timezone
+                if parsed_dt.tzinfo is None:
+                    project_tz = ZoneInfo(tc.timezone or "America/New_York")
+                    parsed_dt = parsed_dt.replace(tzinfo=project_tz)
+
+                as_of_datetime_val = parsed_dt
             else:
                 as_of_datetime_val = None
             temporal_timezone = tc.timezone

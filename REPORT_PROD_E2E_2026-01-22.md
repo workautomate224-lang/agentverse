@@ -14,7 +14,7 @@
 | **Environment** | Railway Staging |
 | **Staging URL** | https://agentverse-web-staging-production.up.railway.app |
 | **API URL** | https://agentverse-api-staging-production.up.railway.app |
-| **Commit Hash** | `5289a9e0a97b288ede3b175e4626f8990570bf25` |
+| **Commit Hash** | `936f1f9ab1a485bc1836547c4b0b87f09337cf87` |
 | **OpenRouter Model(s)** | `openai/gpt-4o-mini` (default) |
 | **Worker Status** | ✅ Healthy - Deploy SUCCESS at 2026-01-22T10:16:00Z |
 
@@ -196,6 +196,18 @@
 | **Re-test Evidence** | Deployment SUCCESS at 2026-01-22T10:50:00Z |
 | **Result** | ✅ FIXED - Pending verification with Case B project creation |
 
+### Fix #4: as_of_datetime String-to-Datetime Conversion TypeError
+
+| Item | Details |
+|------|---------|
+| **Symptom** | Case B project creation failed with "Failed to create project" error when clicking CREATE PROJECT for backtest mode with cutoff date 2022-12-31. |
+| **Root Cause** | `TypeError: expected a datetime.date or datetime.datetime instance, got 'str'` in project_specs.py. The `TemporalContextCreate` schema defines `as_of_datetime` as `Optional[str]` (ISO 8601 format) but the code was passing this string directly to the database insert without conversion to Python datetime. |
+| **Fix Applied** | Added `datetime.fromisoformat(tc.as_of_datetime.replace('Z', '+00:00'))` conversion before database insertion in `create_project_spec()` function. |
+| **Files Changed** | `apps/api/app/api/v1/endpoints/project_specs.py` (lines 523-534) |
+| **Commit** | `936f1f9ab1a485bc1836547c4b0b87f09337cf87` |
+| **Re-test Evidence** | Deployment SUCCESS at 2026-01-22T11:05:09Z |
+| **Result** | 🔄 PENDING VERIFICATION |
+
 ---
 
 ## 5. Changelog
@@ -205,6 +217,7 @@
 | `4d370b8` | Fix: Add missing stages_total parameter to update_job_progress | `apps/api/app/tasks/pil_tasks.py` |
 | `5289a9e` | Fix: Branch run race condition (duplicate task submission) | `apps/web/src/app/p/[projectId]/event-lab/page.tsx`, `apps/web/src/lib/api.ts` |
 | `517557e` | Fix: Add PROJECT_GENESIS to PILJobType enum | `apps/api/app/schemas/blueprint.py` |
+| `936f1f9` | Fix: Parse as_of_datetime string to datetime for database insertion | `apps/api/app/api/v1/endpoints/project_specs.py` |
 
 ---
 
