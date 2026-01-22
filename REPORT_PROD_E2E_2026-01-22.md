@@ -184,6 +184,18 @@
 | **Re-test Evidence** | New project `9fb01d1e-e044-4fdd-ab59-79bf32c53a6d`: Branch run `806cb54b` started and completed successfully. No duplicate key constraint error. |
 | **Result** | ✅ FIXED AND VERIFIED |
 
+### Fix #3: Missing PROJECT_GENESIS in PILJobType Enum
+
+| Item | Details |
+|------|---------|
+| **Symptom** | Project creation failed with 500 Internal Server Error. `/api/v1/pil-jobs/active` endpoint returning 500 errors. |
+| **Root Cause** | Database contained PIL jobs with `job_type='project_genesis'` but this value was missing from the `PILJobType` enum in Pydantic schema, causing `ResponseValidationError` when serializing jobs. |
+| **Fix Applied** | Added `PROJECT_GENESIS = "project_genesis"` to the `PILJobType` enum in `apps/api/app/schemas/blueprint.py`. |
+| **Files Changed** | `apps/api/app/schemas/blueprint.py` |
+| **Commit** | `517557ec0213caeb4e6cb76f1871ca35e93b7fd5` |
+| **Re-test Evidence** | Deployment SUCCESS at 2026-01-22T10:50:00Z |
+| **Result** | ✅ FIXED - Pending verification with Case B project creation |
+
 ---
 
 ## 5. Changelog
@@ -192,6 +204,7 @@
 |-----------|-------------|---------------|
 | `4d370b8` | Fix: Add missing stages_total parameter to update_job_progress | `apps/api/app/tasks/pil_tasks.py` |
 | `5289a9e` | Fix: Branch run race condition (duplicate task submission) | `apps/web/src/app/p/[projectId]/event-lab/page.tsx`, `apps/web/src/lib/api.ts` |
+| `517557e` | Fix: Add PROJECT_GENESIS to PILJobType enum | `apps/api/app/schemas/blueprint.py` |
 
 ---
 

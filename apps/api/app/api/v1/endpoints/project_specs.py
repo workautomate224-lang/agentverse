@@ -526,7 +526,11 @@ async def create_project_spec(
 
         if tc.mode == "backtest":
             # Backtest mode requires locking and has stricter defaults
-            as_of_datetime_val = tc.as_of_datetime
+            # Parse ISO 8601 string to datetime for database insertion
+            if tc.as_of_datetime:
+                as_of_datetime_val = datetime.fromisoformat(tc.as_of_datetime.replace('Z', '+00:00'))
+            else:
+                as_of_datetime_val = None
             temporal_timezone = tc.timezone
             isolation_level = tc.isolation_level
             allowed_sources_val = tc.allowed_sources
