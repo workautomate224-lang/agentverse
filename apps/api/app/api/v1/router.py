@@ -70,6 +70,8 @@ from app.api.v1.endpoints import (
     pil_jobs,
     # Product Mode / MVP Gating (DEMO2_MVP_EXECUTION.md)
     product_mode,
+    # TEG (Thought Expansion Graph - Universe Map replacement)
+    teg,
 )
 
 api_router = APIRouter()
@@ -158,3 +160,6 @@ api_router.include_router(pil_jobs.router, prefix="/pil-jobs", tags=["PIL Jobs"]
 
 # Product Mode / MVP Gating (DEMO2_MVP_EXECUTION.md)
 api_router.include_router(product_mode.router, prefix="/product-mode", tags=["Product Mode"])
+
+# TEG (Thought Expansion Graph - Universe Map replacement)
+api_router.include_router(teg.router, tags=["TEG - Thought Expansion Graph"])

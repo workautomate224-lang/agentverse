@@ -28,6 +28,9 @@ import {
   Users,
   Link2,
   Loader2,
+  ArrowRight,
+  Scale,
+  Diff,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -253,6 +256,149 @@ export function TEGNodeDetails({
                     )}
                   </Section>
                 )}
+
+                {/* Compare to Baseline Panel (Task 6) */}
+                {baselineNode && node.node_id !== baselineNode.node_id && node.status === 'DONE' && (() => {
+                  const baselinePayload = baselineNode.payload as TEGVerifiedPayload;
+                  const baselineProb = baselinePayload?.primary_outcome_probability;
+                  const currentProb = verifiedPayload?.primary_outcome_probability;
+                  const probDelta = (currentProb !== undefined && baselineProb !== undefined)
+                    ? currentProb - baselineProb
+                    : verifiedPayload?.actual_delta;
+
+                  return (
+                    <Section title="Compare to Baseline">
+                      {/* Baseline vs Branch header */}
+                      <div className="p-3 bg-gradient-to-r from-cyan-500/10 to-purple-500/10 border border-white/10 mb-4">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-center flex-1">
+                            <div className="text-[9px] font-mono text-white/40 uppercase mb-1">Baseline</div>
+                            <div className="text-xs font-medium text-cyan-400 truncate" title={baselineNode.title}>
+                              {baselineNode.title.length > 15 ? baselineNode.title.slice(0, 15) + '...' : baselineNode.title}
+                            </div>
+                            {baselineProb !== undefined && (
+                              <div className="text-lg font-mono text-white/80 mt-1">
+                                {(baselineProb * 100).toFixed(1)}%
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex flex-col items-center px-3">
+                            <ArrowRight className="w-4 h-4 text-white/30" />
+                            {probDelta !== undefined && (
+                              <div className={cn(
+                                'text-xs font-mono font-bold mt-1',
+                                probDelta > 0 ? 'text-green-400' : probDelta < 0 ? 'text-red-400' : 'text-white/50'
+                              )}>
+                                {probDelta > 0 ? '+' : ''}{(probDelta * 100).toFixed(1)}%
+                              </div>
+                            )}
+                          </div>
+                          <div className="text-center flex-1">
+                            <div className="text-[9px] font-mono text-white/40 uppercase mb-1">This Branch</div>
+                            <div className="text-xs font-medium text-purple-400 truncate" title={node.title}>
+                              {node.title.length > 15 ? node.title.slice(0, 15) + '...' : node.title}
+                            </div>
+                            {currentProb !== undefined && (
+                              <div className="text-lg font-mono text-white/80 mt-1">
+                                {(currentProb * 100).toFixed(1)}%
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Driver changes */}
+                      {verifiedPayload?.top_drivers && verifiedPayload.top_drivers.length > 0 && (
+                        <div className="mb-4">
+                          <div className="flex items-center gap-1.5 mb-2">
+                            <Diff className="w-3 h-3 text-white/40" />
+                            <span className="text-[10px] font-mono text-white/40 uppercase">Key Driver Changes</span>
+                          </div>
+                          <div className="space-y-1.5">
+                            {verifiedPayload.top_drivers.slice(0, 4).map((driver, i) => (
+                              <div key={i} className="flex items-center justify-between text-xs p-2 bg-white/5">
+                                <span className="text-white/70 truncate flex-1">{driver.name}</span>
+                                <div className="flex items-center gap-1.5">
+                                  {driver.direction === 'positive' ? (
+                                    <TrendingUp className="w-3 h-3 text-green-400" />
+                                  ) : (
+                                    <TrendingDown className="w-3 h-3 text-red-400" />
+                                  )}
+                                  <span className={cn(
+                                    'font-mono text-xs',
+                                    driver.direction === 'positive' ? 'text-green-400' : 'text-red-400'
+                                  )}>
+                                    {driver.direction === 'positive' ? '+' : ''}{(driver.impact * 100).toFixed(0)}%
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Persona segment shifts comparison */}
+                      {verifiedPayload?.persona_segment_shifts && verifiedPayload.persona_segment_shifts.length > 0 && (
+                        <div>
+                          <div className="flex items-center gap-1.5 mb-2">
+                            <Users className="w-3 h-3 text-white/40" />
+                            <span className="text-[10px] font-mono text-white/40 uppercase">Segment Shifts vs Baseline</span>
+                          </div>
+                          <div className="space-y-1.5">
+                            {verifiedPayload.persona_segment_shifts.slice(0, 3).map((segment, i) => (
+                              <div key={i} className="flex items-center justify-between text-xs p-2 bg-white/5">
+                                <span className="text-white/70 truncate flex-1">{segment.segment}</span>
+                                <div className="flex items-center gap-2">
+                                  <div className="w-16 h-1.5 bg-white/10 relative overflow-hidden">
+                                    <div
+                                      className={cn(
+                                        'absolute top-0 h-full',
+                                        segment.shift > 0 ? 'bg-green-400 left-1/2' : 'bg-red-400 right-1/2'
+                                      )}
+                                      style={{
+                                        width: `${Math.min(Math.abs(segment.shift) * 100, 50)}%`,
+                                      }}
+                                    />
+                                  </div>
+                                  <span className={cn(
+                                    'font-mono text-xs w-10 text-right',
+                                    segment.shift > 0 ? 'text-green-400' : segment.shift < 0 ? 'text-red-400' : 'text-white/50'
+                                  )}>
+                                    {segment.shift > 0 ? '+' : ''}{(segment.shift * 100).toFixed(0)}%
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Impact summary */}
+                      {probDelta !== undefined && (
+                        <div className={cn(
+                          'mt-4 p-3 border',
+                          probDelta > 0.05 ? 'bg-green-500/10 border-green-500/30' :
+                          probDelta < -0.05 ? 'bg-red-500/10 border-red-500/30' :
+                          'bg-white/5 border-white/10'
+                        )}>
+                          <div className="flex items-center gap-2">
+                            <Scale className={cn(
+                              'w-4 h-4',
+                              probDelta > 0.05 ? 'text-green-400' :
+                              probDelta < -0.05 ? 'text-red-400' :
+                              'text-white/50'
+                            )} />
+                            <span className="text-xs text-white/70">
+                              {probDelta > 0.05 ? 'This scenario increases likelihood significantly' :
+                               probDelta < -0.05 ? 'This scenario decreases likelihood significantly' :
+                               'Minimal change from baseline'}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </Section>
+                  );
+                })()}
               </>
             )}
 

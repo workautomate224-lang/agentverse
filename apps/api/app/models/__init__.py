@@ -228,6 +228,15 @@ from app.models.project_guidance import (
     GuidanceStatus,
     GUIDANCE_SECTION_CONFIG,
 )
+# TEG Models (Thought Expansion Graph - Universe Map replacement)
+from app.models.teg import (
+    TEGGraph,
+    TEGNode,
+    TEGEdge,
+    TEGNodeType,
+    TEGNodeStatus,
+    TEGEdgeRelation,
+)
 # STEP 10: Production Readiness Models
 from app.models.production import (
     # Enums
@@ -479,4 +488,11 @@ __all__ = [
     "GuidanceSection",
     "GuidanceStatus",
     "GUIDANCE_SECTION_CONFIG",
+    # TEG Models (Thought Expansion Graph)
+    "TEGGraph",
+    "TEGNode",
+    "TEGEdge",
+    "TEGNodeType",
+    "TEGNodeStatus",
+    "TEGEdgeRelation",
 ]

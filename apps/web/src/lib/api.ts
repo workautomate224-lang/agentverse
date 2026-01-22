@@ -4691,6 +4691,103 @@ class ApiClient {
       `/api/v1/blueprints/projects/${projectId}/genesis/status`
     );
   }
+
+  // ===========================================================================
+  // TEG (Thought Expansion Graph) Methods
+  // Reference: docs/TEG_UNIVERSE_MAP_EXECUTION.md
+  // ===========================================================================
+
+  /**
+   * Get TEG for a project.
+   * Returns the full graph with all nodes and edges.
+   * If no TEG exists, creates one and syncs from existing runs.
+   */
+  async getTEGGraph(projectId: string): Promise<TEGGraphResponse> {
+    return this.request<TEGGraphResponse>(`/api/v1/projects/${projectId}/teg`);
+  }
+
+  /**
+   * Get detailed node information for the right panel.
+   * Includes computed fields like children count and delta from baseline.
+   */
+  async getTEGNodeDetail(nodeId: string): Promise<TEGNodeDetail> {
+    return this.request<TEGNodeDetail>(`/api/v1/teg/nodes/${nodeId}`);
+  }
+
+  /**
+   * Sync TEG from existing simulation runs.
+   * Creates OUTCOME_VERIFIED nodes for completed runs.
+   */
+  async syncTEGFromRuns(projectId: string): Promise<SyncFromRunsResponse> {
+    return this.request<SyncFromRunsResponse>(
+      `/api/v1/projects/${projectId}/teg/sync`,
+      { method: 'POST' }
+    );
+  }
+
+  /**
+   * Set a node as the active baseline for comparisons.
+   */
+  async setTEGBaseline(
+    projectId: string,
+    nodeId: string
+  ): Promise<{ status: string; active_baseline_node_id: string; message: string }> {
+    return this.request<{ status: string; active_baseline_node_id: string; message: string }>(
+      `/api/v1/projects/${projectId}/teg/set-baseline/${nodeId}`,
+      { method: 'POST' }
+    );
+  }
+
+  /**
+   * Expand a TEG node into draft scenario variations using LLM.
+   * Creates SCENARIO_DRAFT nodes with EXPANDS_TO edges.
+   */
+  async expandTEGNode(
+    nodeId: string,
+    request: ExpandScenarioRequest
+  ): Promise<ExpandScenarioResponse> {
+    return this.request<ExpandScenarioResponse>(
+      `/api/v1/teg/nodes/${nodeId}/expand`,
+      {
+        method: 'POST',
+        body: JSON.stringify(request),
+      }
+    );
+  }
+
+  /**
+   * Run a draft scenario to produce a verified outcome.
+   * Creates simulation run and RUNS_TO edge.
+   */
+  async runTEGScenario(
+    nodeId: string,
+    request: RunScenarioRequest
+  ): Promise<RunScenarioResponse> {
+    return this.request<RunScenarioResponse>(
+      `/api/v1/teg/nodes/${nodeId}/run`,
+      {
+        method: 'POST',
+        body: JSON.stringify(request),
+      }
+    );
+  }
+
+  /**
+   * Attach evidence to a TEG node (Task 7).
+   * Validates URLs and checks temporal compliance.
+   */
+  async attachTEGEvidence(
+    nodeId: string,
+    request: AttachEvidenceRequest
+  ): Promise<AttachEvidenceResponse> {
+    return this.request<AttachEvidenceResponse>(
+      `/api/v1/teg/nodes/${nodeId}/attach-evidence`,
+      {
+        method: 'POST',
+        body: JSON.stringify(request),
+      }
+    );
+  }
 }
 
 // Data Source Types
@@ -7719,6 +7816,134 @@ export interface GenesisJobStatus {
   started_at?: string;
   completed_at?: string;
   message?: string;
+}
+
+// ===========================================================================
+// TEG (Thought Expansion Graph) Types
+// Reference: docs/TEG_UNIVERSE_MAP_EXECUTION.md
+// ===========================================================================
+
+/** TEG node type enum */
+export type TEGNodeType = 'OUTCOME_VERIFIED' | 'SCENARIO_DRAFT' | 'EVIDENCE';
+
+/** TEG node status enum */
+export type TEGNodeStatus = 'DRAFT' | 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED';
+
+/** TEG edge relation enum */
+export type TEGEdgeRelation = 'EXPANDS_TO' | 'RUNS_TO' | 'FORKS_FROM' | 'SUPPORTS' | 'CONFLICTS';
+
+/** Links to existing infrastructure */
+export interface TEGNodeLinks {
+  run_ids?: string[];
+  node_id?: string;
+  run_outcome_id?: string;
+  manifest_hash?: string;
+  persona_version?: string;
+  evidence_ids?: string[];
+}
+
+/** TEG node response */
+export interface TEGNodeResponse {
+  node_id: string;
+  type: TEGNodeType;
+  status: TEGNodeStatus;
+  title: string;
+  summary?: string;
+  payload: Record<string, unknown>;
+  links?: TEGNodeLinks;
+  parent_node_id?: string;
+  position?: { x: number; y: number };
+  created_at: string;
+  updated_at: string;
+}
+
+/** Extended node detail for right panel */
+export interface TEGNodeDetail extends TEGNodeResponse {
+  children_count: number;
+  related_runs_count: number;
+  delta_from_baseline?: number;
+  baseline_probability?: number;
+}
+
+/** TEG edge response */
+export interface TEGEdgeResponse {
+  edge_id: string;
+  from_node_id: string;
+  to_node_id: string;
+  relation: TEGEdgeRelation;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+}
+
+/** Full TEG graph response */
+export interface TEGGraphResponse {
+  graph_id: string;
+  project_id: string;
+  active_baseline_node_id?: string;
+  nodes: TEGNodeResponse[];
+  edges: TEGEdgeResponse[];
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Response from syncing TEG from runs */
+export interface SyncFromRunsResponse {
+  nodes_created: number;
+  edges_created: number;
+  baseline_node_id?: string;
+}
+
+/** Request for expanding a TEG node into draft scenarios (Task 4) */
+export interface ExpandScenarioRequest {
+  source_node_id: string;
+  what_if_prompt?: string;
+  num_scenarios?: number;
+  include_opposite?: boolean;
+}
+
+/** Response from expanding a TEG node */
+export interface ExpandScenarioResponse {
+  source_node_id: string;
+  created_nodes: TEGNodeResponse[];
+  created_edges: TEGEdgeResponse[];
+  llm_call_id?: string;
+}
+
+/** Request for running a draft scenario (Task 5) */
+export interface RunScenarioRequest {
+  node_id: string;
+  auto_compare?: boolean;
+}
+
+/** Response from running a draft scenario */
+export interface RunScenarioResponse {
+  draft_node_id: string;
+  verified_node_id: string;
+  run_id: string;
+  task_id?: string;
+  edge_id: string;
+}
+
+/** Request for attaching evidence to a TEG node (Task 7) */
+export interface AttachEvidenceRequest {
+  urls: string[];
+}
+
+/** Evidence compliance result */
+export interface EvidenceComplianceResult {
+  evidence_pack_id: string;
+  source_url: string;
+  temporal_compliance: 'PASS' | 'WARN' | 'FAIL';
+  snapshot_time?: string;
+  hash?: string;
+}
+
+/** Response from attaching evidence */
+export interface AttachEvidenceResponse {
+  node_id: string;
+  evidence_results: EvidenceComplianceResult[];
+  updated_node: TEGNodeResponse;
 }
 
 export const api = new ApiClient(API_URL);

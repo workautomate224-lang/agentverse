@@ -196,6 +196,22 @@ import api, {
   ProjectGuidanceListResponse,
   TriggerGenesisResponse,
   GenesisJobStatus,
+  // TEG (Thought Expansion Graph) types
+  TEGNodeType,
+  TEGNodeStatus,
+  TEGEdgeRelation,
+  TEGNodeResponse,
+  TEGNodeDetail,
+  TEGEdgeResponse,
+  TEGGraphResponse,
+  SyncFromRunsResponse,
+  ExpandScenarioRequest,
+  ExpandScenarioResponse,
+  RunScenarioRequest,
+  RunScenarioResponse,
+  AttachEvidenceRequest,
+  AttachEvidenceResponse,
+  EvidenceComplianceResult,
 } from '@/lib/api';
 
 // Extended session user type for type safety
@@ -4269,3 +4285,181 @@ export function useIngestEvidenceUrls() {
     },
   });
 }
+
+// ===========================================================================
+// TEG (Thought Expansion Graph) Hooks
+// Reference: docs/TEG_UNIVERSE_MAP_EXECUTION.md
+// ===========================================================================
+
+/**
+ * Get TEG graph for a project.
+ * Returns all nodes and edges for the graph view.
+ * Auto-creates TEG and syncs from runs if none exists.
+ */
+export function useTEGGraph(projectId: string | undefined) {
+  useApiAuth();
+
+  return useQuery({
+    queryKey: ['teg', 'graph', projectId],
+    queryFn: () => api.getTEGGraph(projectId!),
+    enabled: !!projectId,
+    staleTime: 30000, // 30 seconds
+  });
+}
+
+/**
+ * Get detailed TEG node information.
+ * Includes computed fields for the right panel.
+ */
+export function useTEGNodeDetail(nodeId: string | undefined) {
+  useApiAuth();
+
+  return useQuery({
+    queryKey: ['teg', 'node', nodeId],
+    queryFn: () => api.getTEGNodeDetail(nodeId!),
+    enabled: !!nodeId,
+    staleTime: 10000, // 10 seconds
+  });
+}
+
+/**
+ * Sync TEG from existing simulation runs.
+ * Creates OUTCOME_VERIFIED nodes for completed runs.
+ */
+export function useSyncTEGFromRuns() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: (projectId: string) => api.syncTEGFromRuns(projectId),
+    onSuccess: (_, projectId) => {
+      queryClient.invalidateQueries({ queryKey: ['teg', 'graph', projectId] });
+    },
+  });
+}
+
+/**
+ * Set a node as the active baseline for comparisons.
+ */
+export function useSetTEGBaseline() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: ({ projectId, nodeId }: { projectId: string; nodeId: string }) =>
+      api.setTEGBaseline(projectId, nodeId),
+    onSuccess: (_, { projectId }) => {
+      queryClient.invalidateQueries({ queryKey: ['teg', 'graph', projectId] });
+    },
+  });
+}
+
+/**
+ * Expand a TEG node into draft scenario variations using LLM.
+ * Creates SCENARIO_DRAFT nodes with EXPANDS_TO edges.
+ */
+export function useExpandTEGNode() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: ({
+      nodeId,
+      sourceNodeId,
+      whatIfPrompt,
+      numScenarios,
+      includeOpposite,
+    }: {
+      nodeId: string;
+      sourceNodeId: string;
+      whatIfPrompt?: string;
+      numScenarios?: number;
+      includeOpposite?: boolean;
+    }) =>
+      api.expandTEGNode(nodeId, {
+        source_node_id: sourceNodeId,
+        what_if_prompt: whatIfPrompt,
+        num_scenarios: numScenarios,
+        include_opposite: includeOpposite,
+      }),
+    onSuccess: (data) => {
+      // Invalidate the graph to show new nodes
+      // We get projectId from the source node
+      queryClient.invalidateQueries({ queryKey: ['teg', 'graph'] });
+      queryClient.invalidateQueries({ queryKey: ['teg', 'node'] });
+    },
+  });
+}
+
+/**
+ * Run a draft scenario to produce a verified outcome.
+ * Creates simulation run and RUNS_TO edge.
+ */
+export function useRunTEGScenario() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: ({
+      nodeId,
+      autoCompare,
+    }: {
+      nodeId: string;
+      autoCompare?: boolean;
+    }) =>
+      api.runTEGScenario(nodeId, {
+        node_id: nodeId,
+        auto_compare: autoCompare,
+      }),
+    onSuccess: () => {
+      // Invalidate queries to reflect the new run and nodes
+      queryClient.invalidateQueries({ queryKey: ['teg', 'graph'] });
+      queryClient.invalidateQueries({ queryKey: ['teg', 'node'] });
+      queryClient.invalidateQueries({ queryKey: ['runs'] });
+    },
+  });
+}
+
+/**
+ * Attach evidence URLs to a TEG node (Task 7).
+ * Validates URLs and checks temporal compliance.
+ */
+export function useAttachTEGEvidence() {
+  const queryClient = useQueryClient();
+  useApiAuth();
+
+  return useMutation({
+    mutationFn: ({
+      nodeId,
+      urls,
+    }: {
+      nodeId: string;
+      urls: string[];
+    }) =>
+      api.attachTEGEvidence(nodeId, { urls }),
+    onSuccess: () => {
+      // Invalidate queries to reflect the updated node
+      queryClient.invalidateQueries({ queryKey: ['teg', 'graph'] });
+      queryClient.invalidateQueries({ queryKey: ['teg', 'node'] });
+    },
+  });
+}
+
+// Re-export TEG types for convenience
+export type {
+  TEGNodeType,
+  TEGNodeStatus,
+  TEGEdgeRelation,
+  TEGNodeResponse,
+  TEGNodeDetail,
+  TEGEdgeResponse,
+  TEGGraphResponse,
+  SyncFromRunsResponse,
+  ExpandScenarioRequest,
+  ExpandScenarioResponse,
+  RunScenarioRequest,
+  RunScenarioResponse,
+  AttachEvidenceRequest,
+  AttachEvidenceResponse,
+  EvidenceComplianceResult,
+};

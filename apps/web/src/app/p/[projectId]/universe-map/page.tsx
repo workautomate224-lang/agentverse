@@ -85,8 +85,13 @@ import {
   useRuns,
   useCreateRun,
   useStartRun,
+  useTEGGraph,
+  useSyncTEGFromRuns,
+  useExpandTEGNode,
+  useRunTEGScenario,
 } from '@/hooks/useApi';
-import type { SpecNode, NodeSummary, RunSummary } from '@/lib/api';
+import { useToast } from '@/hooks/use-toast';
+import type { SpecNode, NodeSummary, RunSummary, TEGGraphResponse } from '@/lib/api';
 import { isMvpMode } from '@/lib/feature-flags';
 import { FeatureDisabled } from '@/components/mvp';
 import { ThoughtExpansionGraph } from '@/components/teg';
@@ -1956,138 +1961,166 @@ function UniverseMapCanvas() {
  * Wraps the ThoughtExpansionGraph component with data fetching and state management.
  * This is the MVP mode entry point for the Universe Map route.
  *
- * For Task 1, this renders the basic TEG structure.
- * Backend data fetching will be implemented in Task 2.
+ * Uses the TEG API endpoints created in Task 2.
+ * Reference: docs/TEG_UNIVERSE_MAP_EXECUTION.md
  */
 function TEGWrapper() {
   const params = useParams();
+  const router = useRouter();
   const projectId = params.projectId as string;
+  const { toast } = useToast();
 
-  // Placeholder graph for Task 1 - will be replaced with actual API call in Task 2
-  // For now, create mock data from existing runs if available
-  const { data: runs, isLoading: runsLoading } = useRuns({ project_id: projectId });
+  // Use the real TEG API hook (Task 2)
+  const {
+    data: tegData,
+    isLoading: tegLoading,
+    error: tegError,
+    refetch: refetchTEG,
+  } = useTEGGraph(projectId);
 
-  // Convert existing runs to TEG format (temporary until Task 2 backend)
-  const mockGraph = useMemo(() => {
-    if (!runs || runs.length === 0) return null;
+  // Sync mutation for populating TEG from runs (if graph is empty)
+  const syncMutation = useSyncTEGFromRuns();
 
-    // Find baseline run (first completed run)
-    const baselineRun = runs.find(r => r.status === 'succeeded') || runs[0];
-    const branchRuns = runs.filter(r => r.run_id !== baselineRun?.run_id);
+  // Expand mutation for generating draft scenarios (Task 4)
+  const expandMutation = useExpandTEGNode();
 
-    const nodes: Array<{
-      node_id: string;
-      project_id: string;
-      type: 'OUTCOME_VERIFIED' | 'SCENARIO_DRAFT' | 'EVIDENCE';
-      status: 'DRAFT' | 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED';
-      title: string;
-      summary?: string;
-      created_at: string;
-      parent_node_id?: string | null;
-      payload: Record<string, unknown>;
-      links?: Record<string, unknown>;
-    }> = [];
+  // Run mutation for executing draft scenarios (Task 5)
+  const runMutation = useRunTEGScenario();
 
-    const edges: Array<{
-      edge_id: string;
-      project_id: string;
-      from_node_id: string;
-      to_node_id: string;
-      relation: 'EXPANDS_TO' | 'RUNS_TO' | 'FORKS_FROM' | 'SUPPORTS' | 'CONFLICTS';
-    }> = [];
+  // Transform API response to component-compatible format
+  const graph = useMemo(() => {
+    if (!tegData) return null;
 
-    // Map RunSummary status to TEG status
-    const mapStatus = (status: string): 'DRAFT' | 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED' => {
-      switch (status) {
-        case 'succeeded': return 'DONE';
-        case 'failed': return 'FAILED';
-        case 'running': return 'RUNNING';
-        case 'queued':
-        case 'starting': return 'QUEUED';
-        default: return 'DRAFT';
-      }
+    // Transform TEGGraphResponse to TEGGraph (component types)
+    return {
+      graph_id: tegData.graph_id,
+      project_id: tegData.project_id,
+      created_at: tegData.created_at,
+      updated_at: tegData.updated_at,
+      active_baseline_node_id: tegData.active_baseline_node_id,
+      nodes: tegData.nodes.map((node) => ({
+        node_id: node.node_id,
+        project_id: tegData.project_id,
+        type: node.type,
+        status: node.status,
+        title: node.title,
+        summary: node.summary,
+        created_at: node.created_at,
+        updated_at: node.updated_at,
+        parent_node_id: node.parent_node_id,
+        payload: node.payload,
+        links: node.links,
+        position: node.position,
+      })),
+      edges: tegData.edges.map((edge) => ({
+        edge_id: edge.edge_id,
+        project_id: tegData.project_id,
+        from_node_id: edge.from_node_id,
+        to_node_id: edge.to_node_id,
+        relation: edge.relation,
+      })),
     };
+  }, [tegData]);
 
-    // Create baseline node
-    if (baselineRun) {
-      const totalTicks = baselineRun.timing?.total_ticks || 0;
-      nodes.push({
-        node_id: `baseline-${baselineRun.run_id}`,
-        project_id: projectId,
-        type: 'OUTCOME_VERIFIED',
-        status: mapStatus(baselineRun.status),
-        title: 'Baseline Outcome',
-        summary: `Baseline simulation${totalTicks ? ` with ${totalTicks} ticks` : ''}`,
-        created_at: baselineRun.created_at || new Date().toISOString(),
-        parent_node_id: null,
-        payload: {
-          // Note: actual probability will come from full run results in Task 2
-          primary_outcome_probability: 0.5,
-          run_id: baselineRun.run_id,
+  // Handle refresh - refetch TEG data
+  const handleRefresh = useCallback(() => {
+    refetchTEG();
+  }, [refetchTEG]);
+
+  // Handle expand - call LLM to generate draft scenarios (Task 4)
+  const handleExpand = useCallback((nodeId: string) => {
+    // Show a toast that expansion is starting
+    toast({
+      title: 'Generating scenarios...',
+      description: 'Using AI to create scenario variations.',
+    });
+
+    // Call the expand mutation
+    expandMutation.mutate(
+      {
+        nodeId,
+        sourceNodeId: nodeId,
+        numScenarios: 3, // Generate 3 scenarios by default
+        includeOpposite: true, // Include an opposite scenario
+      },
+      {
+        onSuccess: (data) => {
+          toast({
+            title: 'Scenarios generated!',
+            description: `Created ${data.created_nodes.length} draft scenarios.`,
+          });
+          // Refetch TEG to show new nodes
+          refetchTEG();
         },
-        links: {
-          run_ids: [baselineRun.run_id],
+        onError: (error) => {
+          toast({
+            title: 'Expansion failed',
+            description: error.message || 'Failed to generate scenarios.',
+            variant: 'destructive',
+          });
         },
-      });
+      }
+    );
+  }, [expandMutation, toast, refetchTEG]);
 
-      // Create branch nodes
-      branchRuns.forEach((run, index) => {
-        const branchNodeId = `branch-${run.run_id}`;
-        nodes.push({
-          node_id: branchNodeId,
-          project_id: projectId,
-          type: 'OUTCOME_VERIFIED',
-          status: mapStatus(run.status),
-          title: `Branch ${index + 1}`,
-          summary: 'Branch simulation',
-          created_at: run.created_at || new Date().toISOString(),
-          parent_node_id: `baseline-${baselineRun.run_id}`,
-          payload: {
-            primary_outcome_probability: 0.5,
-            actual_delta: 0,
-            run_id: run.run_id,
-          },
-          links: {
-            run_ids: [run.run_id],
-          },
-        });
+  // Handle run - execute a draft scenario (Task 5)
+  const handleRun = useCallback((nodeId: string) => {
+    // Show toast that run is starting
+    toast({
+      title: 'Starting simulation run...',
+      description: 'Executing the draft scenario.',
+    });
 
-        // Create edge from baseline to branch
-        edges.push({
-          edge_id: `edge-baseline-${run.run_id}`,
-          project_id: projectId,
-          from_node_id: `baseline-${baselineRun.run_id}`,
-          to_node_id: branchNodeId,
-          relation: 'FORKS_FROM',
-        });
+    // Call the run mutation
+    runMutation.mutate(
+      {
+        nodeId,
+        autoCompare: true, // Auto-compare with baseline when done
+      },
+      {
+        onSuccess: (data) => {
+          toast({
+            title: 'Run started!',
+            description: `Simulation run ${data.run_id.slice(0, 8)}... is now running.`,
+          });
+          // Refetch TEG to show updated node statuses
+          refetchTEG();
+          // Navigate to run center to monitor progress
+          router.push(`/p/${projectId}/run-center?run=${data.run_id}`);
+        },
+        onError: (error) => {
+          toast({
+            title: 'Run failed to start',
+            description: error.message || 'Failed to execute the scenario.',
+            variant: 'destructive',
+          });
+        },
+      }
+    );
+  }, [runMutation, toast, refetchTEG, router, projectId]);
+
+  // Auto-sync TEG from runs if graph is empty and no error
+  useEffect(() => {
+    if (!tegLoading && tegData && tegData.nodes.length === 0 && !tegError) {
+      // Trigger sync to populate from existing runs
+      syncMutation.mutate(projectId, {
+        onSuccess: () => {
+          refetchTEG();
+        },
       });
     }
-
-    return {
-      graph_id: `teg-${projectId}`,
-      project_id: projectId,
-      created_at: new Date().toISOString(),
-      active_baseline_node_id: baselineRun ? `baseline-${baselineRun.run_id}` : undefined,
-      nodes,
-      edges,
-    };
-  }, [runs, projectId]);
+  }, [tegLoading, tegData, tegError, projectId, syncMutation, refetchTEG]);
 
   return (
     <div className="h-screen">
       <ThoughtExpansionGraph
         projectId={projectId}
-        graph={mockGraph}
-        loading={runsLoading}
-        onRefresh={() => {
-          // Will trigger refetch in Task 2
-        }}
-        onExpand={(nodeId) => {
-          // Will be implemented in Task 4
-        }}
-        onRun={(nodeId) => {
-          // Will be implemented in Task 5
-        }}
+        graph={graph}
+        loading={tegLoading || syncMutation.isPending || expandMutation.isPending || runMutation.isPending}
+        error={tegError ? new Error(tegError.message || 'Failed to load TEG') : null}
+        onRefresh={handleRefresh}
+        onExpand={handleExpand}
+        onRun={handleRun}
       />
     </div>
   );
