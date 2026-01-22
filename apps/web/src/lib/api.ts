@@ -353,6 +353,8 @@ export interface SpecRun {
   triggered_by_user_id?: string;
   created_at: string;
   updated_at: string;
+  // Task ID from Celery (present when auto_start=true)
+  task_id?: string;
 }
 
 // Run Summary

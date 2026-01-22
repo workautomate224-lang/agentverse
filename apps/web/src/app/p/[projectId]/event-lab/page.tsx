@@ -430,8 +430,9 @@ export default function EventLabPage() {
                 auto_start: true,
               });
 
-              // If auto_start didn't work, manually start the run
-              if (runResult?.run_id && runResult.status !== 'running') {
+              // Only manually start if auto_start didn't submit a task
+              // (task_id presence indicates task was already submitted)
+              if (runResult?.run_id && !runResult.task_id && runResult.status !== 'running') {
                 await startRun.mutateAsync(runResult.run_id);
               }
 
