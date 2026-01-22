@@ -29,6 +29,7 @@ from app.models.teg import (
     TEGNodeStatus as ModelTEGNodeStatus,
     TEGEdgeRelation as ModelTEGEdgeRelation,
 )
+from app.models.blueprint import Blueprint
 from app.schemas.teg import (
     TEGGraphResponse,
     TEGNodeResponse,
@@ -86,12 +87,148 @@ def _edge_to_response(edge: TEGEdge) -> TEGEdgeResponse:
     )
 
 
+async def _get_active_blueprint(
+    db: AsyncSession,
+    project_id: UUID,
+    tenant_id: UUID,
+) -> Optional[Blueprint]:
+    """
+    Get the active blueprint for a project.
+
+    Reference: GOAL_BLUEPRINT_TEG_RESTORE_EXECUTION.md §4.3
+    TEG should reference blueprint for context-aware scenario expansion.
+    """
+    query = select(Blueprint).where(
+        Blueprint.project_id == project_id,
+        Blueprint.tenant_id == tenant_id,
+        Blueprint.is_active == True,
+    )
+    result = await db.execute(query)
+    return result.scalar_one_or_none()
+
+
+def _build_blueprint_context(blueprint: Optional[Blueprint]) -> str:
+    """
+    Build a context string from a Blueprint for LLM prompts.
+
+    This includes:
+    - Goal summary
+    - Domain classification
+    - Primary drivers and uncertainties
+    - Key input slots and their requirements
+    - Scope and horizon information
+
+    Reference: GOAL_BLUEPRINT_TEG_RESTORE_EXECUTION.md §2.3
+    """
+    if not blueprint:
+        return "No blueprint available for this project."
+
+    context_parts = []
+
+    # Goal information
+    if blueprint.goal_summary:
+        context_parts.append(f"**Goal:** {blueprint.goal_summary}")
+    elif blueprint.goal_text:
+        # Truncate if too long
+        goal_text = blueprint.goal_text[:500] + "..." if len(blueprint.goal_text) > 500 else blueprint.goal_text
+        context_parts.append(f"**Goal:** {goal_text}")
+
+    # Domain classification
+    if blueprint.domain_guess:
+        domain_display = blueprint.domain_guess.replace("_", " ").title()
+        context_parts.append(f"**Domain:** {domain_display}")
+
+    # Recommended simulation mode
+    if blueprint.recommended_core:
+        context_parts.append(f"**Simulation Mode:** {blueprint.recommended_core}")
+
+    # Primary drivers
+    if blueprint.primary_drivers:
+        drivers = blueprint.primary_drivers
+        if isinstance(drivers, list):
+            driver_str = ", ".join([d.replace("_", " ").title() if isinstance(d, str) else str(d) for d in drivers])
+            context_parts.append(f"**Key Drivers:** {driver_str}")
+        elif isinstance(drivers, dict):
+            driver_list = drivers.get("drivers", [])
+            if driver_list:
+                driver_str = ", ".join([d.replace("_", " ").title() if isinstance(d, str) else str(d) for d in driver_list])
+                context_parts.append(f"**Key Drivers:** {driver_str}")
+
+    # Scope information
+    if blueprint.scope:
+        scope = blueprint.scope
+        if isinstance(scope, dict):
+            scope_parts = []
+            if scope.get("geography"):
+                scope_parts.append(f"Geography: {scope['geography']}")
+            if scope.get("entity"):
+                scope_parts.append(f"Entity: {scope['entity']}")
+            if scope_parts:
+                context_parts.append(f"**Scope:** {', '.join(scope_parts)}")
+
+    # Horizon
+    if blueprint.horizon:
+        horizon = blueprint.horizon
+        if isinstance(horizon, dict):
+            horizon_parts = []
+            if horizon.get("range"):
+                horizon_parts.append(f"Range: {horizon['range']}")
+            if horizon.get("granularity"):
+                horizon_parts.append(f"Granularity: {horizon['granularity']}")
+            if horizon_parts:
+                context_parts.append(f"**Time Horizon:** {', '.join(horizon_parts)}")
+
+    # Success metrics
+    if blueprint.success_metrics:
+        metrics = blueprint.success_metrics
+        if isinstance(metrics, dict):
+            metric_desc = metrics.get("description") or metrics.get("metric")
+            if metric_desc:
+                context_parts.append(f"**Success Metric:** {metric_desc}")
+        elif isinstance(metrics, str):
+            context_parts.append(f"**Success Metric:** {metrics}")
+
+    # Key input slots (top 3-5)
+    if blueprint.input_slots:
+        slots = blueprint.input_slots
+        if isinstance(slots, list) and slots:
+            # Get required slots first, then recommended
+            required_slots = [s for s in slots if isinstance(s, dict) and s.get("required_level") == "required"][:3]
+            recommended_slots = [s for s in slots if isinstance(s, dict) and s.get("required_level") == "recommended"][:2]
+            key_slots = required_slots + recommended_slots
+            if key_slots:
+                slot_names = [s.get("slot_name", s.get("name", "Unknown")) for s in key_slots]
+                context_parts.append(f"**Key Inputs Required:** {', '.join(slot_names)}")
+
+    # Branching plan (TEG seed rules)
+    if blueprint.branching_plan:
+        plan = blueprint.branching_plan
+        if isinstance(plan, dict):
+            branchable = plan.get("branchable_variables", [])
+            if branchable and isinstance(branchable, list):
+                context_parts.append(f"**Branchable Variables:** {', '.join(branchable[:5])}")
+            event_suggestions = plan.get("event_suggestions", [])
+            if event_suggestions and isinstance(event_suggestions, list):
+                suggestions = [e.get("name", e) if isinstance(e, dict) else str(e) for e in event_suggestions[:3]]
+                context_parts.append(f"**Suggested Events to Explore:** {', '.join(suggestions)}")
+
+    if not context_parts:
+        return "Blueprint exists but has minimal configuration."
+
+    return "\n".join(context_parts)
+
+
 async def _get_or_create_graph(
     db: AsyncSession,
     project_id: UUID,
     tenant_id: UUID,
 ) -> TEGGraph:
-    """Get existing TEG graph or create new one for project."""
+    """
+    Get existing TEG graph or create new one for project.
+
+    Reference: GOAL_BLUEPRINT_TEG_RESTORE_EXECUTION.md §2.3
+    Graph metadata includes blueprint context for root node display.
+    """
     # Try to find existing graph
     query = select(TEGGraph).where(
         TEGGraph.project_id == project_id,
@@ -101,13 +238,40 @@ async def _get_or_create_graph(
     graph = result.scalar_one_or_none()
 
     if graph:
+        # Update graph metadata with latest blueprint info if changed
+        active_blueprint = await _get_active_blueprint(db, project_id, tenant_id)
+        if active_blueprint:
+            current_blueprint_version = graph.metadata_json.get("blueprint_version") if graph.metadata_json else None
+            if current_blueprint_version != active_blueprint.version:
+                # Blueprint has been updated - refresh metadata
+                graph.metadata_json = {
+                    **(graph.metadata_json or {}),
+                    "blueprint_id": str(active_blueprint.id),
+                    "blueprint_version": active_blueprint.version,
+                    "goal_summary": active_blueprint.goal_summary or active_blueprint.goal_text[:200] if active_blueprint.goal_text else None,
+                    "domain_guess": active_blueprint.domain_guess,
+                    "recommended_core": active_blueprint.recommended_core,
+                }
         return graph
 
-    # Create new graph
+    # Load active blueprint for new graph (GOAL_BLUEPRINT_TEG_RESTORE_EXECUTION.md §2.3)
+    active_blueprint = await _get_active_blueprint(db, project_id, tenant_id)
+
+    # Create new graph with blueprint metadata
+    metadata = {}
+    if active_blueprint:
+        metadata = {
+            "blueprint_id": str(active_blueprint.id),
+            "blueprint_version": active_blueprint.version,
+            "goal_summary": active_blueprint.goal_summary or (active_blueprint.goal_text[:200] if active_blueprint.goal_text else None),
+            "domain_guess": active_blueprint.domain_guess,
+            "recommended_core": active_blueprint.recommended_core,
+        }
+
     graph = TEGGraph(
         tenant_id=tenant_id,
         project_id=project_id,
-        metadata_json={},
+        metadata_json=metadata,
     )
     db.add(graph)
     await db.flush()
@@ -329,12 +493,18 @@ async def _sync_from_runs(
     Internal function to sync TEG from existing runs.
 
     Returns dict with nodes_created, edges_created, baseline_node_id.
+
+    Reference: GOAL_BLUEPRINT_TEG_RESTORE_EXECUTION.md §2.3
+    TEG nodes should include blueprint context for auditability.
     """
     from app.models.node import Run, RunStatus
 
     nodes_created = 0
     edges_created = 0
     baseline_node_id = None
+
+    # Load active blueprint for project context (GOAL_BLUEPRINT_TEG_RESTORE_EXECUTION.md §4.3)
+    active_blueprint = await _get_active_blueprint(db, project_id, tenant_id)
 
     # Get existing TEG node IDs to avoid duplicates
     existing_query = select(TEGNode.links).where(
@@ -385,7 +555,8 @@ async def _sync_from_runs(
         if outcome and outcome.metrics_json:
             payload["metrics"] = outcome.metrics_json
 
-        # Create TEG node
+        # Create TEG node with blueprint reference (GOAL_BLUEPRINT_TEG_RESTORE_EXECUTION.md §2.3)
+        # Include blueprint context for root node display and auditability
         teg_node = TEGNode(
             tenant_id=tenant_id,
             graph_id=graph.id,
@@ -399,6 +570,9 @@ async def _sync_from_runs(
                 "run_ids": [str(run.id)],
                 "node_id": str(run.node_id) if run.node_id else None,
                 "run_outcome_id": str(outcome.id) if outcome else None,
+                # Blueprint version reference for auditability
+                "blueprint_id": str(active_blueprint.id) if active_blueprint else None,
+                "blueprint_version": active_blueprint.version if active_blueprint else None,
             },
         )
         db.add(teg_node)
@@ -486,9 +660,12 @@ async def set_baseline_node(
 
 EXPAND_SCENARIO_PROMPT = """You are an AI assistant helping to generate scenario variations for a predictive simulation.
 
-Given a verified simulation outcome, generate {num_scenarios} alternative scenario ideas that explore "what-if" variations.
+Given a verified simulation outcome and project context, generate {num_scenarios} alternative scenario ideas that explore "what-if" variations.
 
 {what_if_context}
+
+**Project Context (from Blueprint):**
+{blueprint_context}
 
 **Baseline Scenario:**
 - Title: {baseline_title}
@@ -496,14 +673,15 @@ Given a verified simulation outcome, generate {num_scenarios} alternative scenar
 - Primary outcome probability: {baseline_probability}
 
 **Instructions:**
-1. Generate {num_scenarios} distinct scenario variations
+1. Generate {num_scenarios} distinct scenario variations that are **relevant to the project's domain and goal**
 2. Each scenario should have:
    - A short, descriptive title (max 50 chars)
    - A 1-2 sentence summary explaining the variation
    - An estimated probability delta from baseline (-1.0 to +1.0)
    - A brief reasoning for the estimate
 3. Scenarios should be realistic variations that could be simulated
-4. Consider factors like: market conditions, consumer behavior changes, competition, timing, pricing, etc.
+4. Focus on the key drivers and uncertainties identified in the blueprint
+5. Consider the project's specific domain, entities, and success metrics
 {opposite_instruction}
 
 **Response Format (JSON array):**
@@ -588,6 +766,17 @@ async def expand_teg_node(
             detail=f"Can only expand nodes with DONE status, got {source_node.status.value}",
         )
 
+    # Load active blueprint for project (GOAL_BLUEPRINT_TEG_RESTORE_EXECUTION.md §4.3)
+    # TEG Expand uses Blueprint context for domain-relevant scenario generation
+    active_blueprint = await _get_active_blueprint(
+        db=db,
+        project_id=source_node.project_id,
+        tenant_id=tenant_ctx.tenant_id,
+    )
+
+    # Build blueprint context for prompt
+    blueprint_context = _build_blueprint_context(active_blueprint)
+
     # Get baseline probability from payload
     baseline_prob = source_node.payload.get("primary_outcome_probability", 0.5) if source_node.payload else 0.5
 
@@ -601,10 +790,11 @@ async def expand_teg_node(
     if request.include_opposite:
         opposite_instruction = "\n5. Include at least one scenario that has an opposite effect (if baseline is positive, include a negative scenario and vice versa)"
 
-    # Format the prompt
+    # Format the prompt with blueprint context
     prompt = EXPAND_SCENARIO_PROMPT.format(
         num_scenarios=request.num_scenarios,
         what_if_context=what_if_context,
+        blueprint_context=blueprint_context,
         baseline_title=source_node.title,
         baseline_summary=source_node.summary or "No summary available",
         baseline_probability=f"{baseline_prob:.2%}",
@@ -683,7 +873,8 @@ async def expand_teg_node(
         else:
             estimated_delta = 0.0
 
-        # Create SCENARIO_DRAFT node
+        # Create SCENARIO_DRAFT node with blueprint version reference (GOAL_BLUEPRINT_TEG_RESTORE_EXECUTION.md §4.3)
+        # Store blueprint_version for auditability - nodes retain their version reference even if blueprint changes
         draft_node = TEGNode(
             tenant_id=tenant_ctx.tenant_id,
             graph_id=source_node.graph_id,
@@ -699,17 +890,23 @@ async def expand_teg_node(
                 "llm_reasoning": reasoning,
                 "what_if_prompt": request.what_if_prompt,
                 "source_probability": baseline_prob,
+                # Blueprint context that was used for generation
+                "blueprint_domain": active_blueprint.domain_guess if active_blueprint else None,
+                "blueprint_goal_summary": active_blueprint.goal_summary if active_blueprint else None,
             },
             links={
                 "source_node_id": str(source_uuid),
                 "llm_call_id": llm_response.call_id,
+                # Blueprint version tracking for auditability
+                "blueprint_id": str(active_blueprint.id) if active_blueprint else None,
+                "blueprint_version": active_blueprint.version if active_blueprint else None,
             },
         )
         db.add(draft_node)
         await db.flush()  # Get the ID
         created_nodes.append(draft_node)
 
-        # Create EXPANDS_TO edge
+        # Create EXPANDS_TO edge with blueprint version reference
         edge = TEGEdge(
             tenant_id=tenant_ctx.tenant_id,
             graph_id=source_node.graph_id,
@@ -719,6 +916,9 @@ async def expand_teg_node(
             metadata_json={
                 "what_if_prompt": request.what_if_prompt,
                 "generation_index": i,
+                # Blueprint version used for this expansion (auditability)
+                "blueprint_id": str(active_blueprint.id) if active_blueprint else None,
+                "blueprint_version": active_blueprint.version if active_blueprint else None,
             },
         )
         db.add(edge)

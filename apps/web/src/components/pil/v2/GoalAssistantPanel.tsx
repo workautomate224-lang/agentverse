@@ -91,7 +91,9 @@ type Stage =
   | 'analyzing'
   | 'clarifying'
   | 'generating_blueprint'
-  | 'preview';
+  | 'preview'
+  | 'manual_goal'           // Fallback: Manual goal spec form
+  | 'manual_blueprint';     // Fallback: Manual blueprint editing
 
 export function GoalAssistantPanel({
   goalText,
@@ -123,6 +125,19 @@ export function GoalAssistantPanel({
 
   // Slice 1D-A: Track if user skipped clarification
   const [userDidSkipClarify, setUserDidSkipClarify] = useState(false);
+
+  // Task 7: Fallback mode state for manual goal spec
+  const [manualGoalSpec, setManualGoalSpec] = useState<{
+    goal_summary: string;
+    domain_guess: string;
+    horizon_guess: string;
+    scope_guess: string;
+  }>({
+    goal_summary: '',
+    domain_guess: 'custom',
+    horizon_guess: '1 year',
+    scope_guess: 'regional',
+  });
 
   // VERTICAL SLICE #1: State persistence
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
@@ -232,6 +247,8 @@ export function GoalAssistantPanel({
       'clarifying': 'clarifying',
       'generating': 'generating_blueprint',
       'preview': 'preview',
+      'manual_goal': 'manual_goal',
+      'manual_blueprint': 'manual_blueprint',
     };
 
     // Restore analysis result (convert from persistence type)
@@ -343,6 +360,8 @@ export function GoalAssistantPanel({
         'clarifying': 'clarifying',
         'generating_blueprint': 'generating',
         'preview': 'preview',
+        'manual_goal': 'manual_goal' as WizardPersistedState['stage'],
+        'manual_blueprint': 'manual_blueprint' as WizardPersistedState['stage'],
       };
 
       const stateToSave: Partial<WizardPersistedState> = {
@@ -573,6 +592,8 @@ export function GoalAssistantPanel({
         'clarifying': 'clarifying',
         'generating': 'generating_blueprint',
         'preview': 'preview',
+        'manual_goal': 'manual_goal',
+        'manual_blueprint': 'manual_blueprint',
       };
       setStage(stageMap[reloadedState.stage] || 'idle');
     }
@@ -582,6 +603,119 @@ export function GoalAssistantPanel({
   const handleAnswerChange = useCallback((questionId: string, value: string | string[]) => {
     setAnswers(prev => ({ ...prev, [questionId]: value }));
   }, []);
+
+  // Task 7: Fallback mode - switch to manual goal spec form
+  const handleSwitchToManualMode = useCallback(() => {
+    setError(null);
+    // Pre-fill with goal text if available
+    setManualGoalSpec(prev => ({
+      ...prev,
+      goal_summary: goalText || prev.goal_summary,
+    }));
+    setStage('manual_goal');
+  }, [goalText]);
+
+  // Task 7: Handle manual goal spec submission - goes directly to minimal blueprint
+  const handleManualGoalSubmit = useCallback(() => {
+    if (!manualGoalSpec.goal_summary.trim()) {
+      setError('Please provide a goal summary');
+      return;
+    }
+
+    // Create a manual analysis result
+    const manualAnalysis: GoalAnalysisResult = {
+      goal_summary: manualGoalSpec.goal_summary,
+      domain_guess: manualGoalSpec.domain_guess as GoalAnalysisResult['domain_guess'],
+      output_type: 'distribution',
+      horizon_guess: manualGoalSpec.horizon_guess,
+      scope_guess: manualGoalSpec.scope_guess,
+      primary_drivers: [],
+      clarifying_questions: [],
+      risk_notes: ['Created via manual fallback mode - LLM unavailable'],
+      processing_time_ms: 0,
+      llm_proof: {
+        goal_analysis: {
+          call_id: `manual-${Date.now()}`,
+          profile_key: 'manual_fallback',
+          model: 'manual',
+          cache_hit: false,
+          input_tokens: 0,
+          output_tokens: 0,
+          cost_usd: 0,
+          timestamp: new Date().toISOString(),
+          provider: 'manual_fallback',
+          fallback_used: true,
+          fallback_attempts: 0,
+        },
+      },
+    };
+
+    setAnalysisResult(manualAnalysis);
+    setStage('manual_blueprint');
+  }, [manualGoalSpec]);
+
+  // Task 7: Create minimal blueprint and proceed
+  const handleCreateMinimalBlueprint = useCallback(() => {
+    if (!analysisResult && !manualGoalSpec.goal_summary) {
+      setError('No goal information available');
+      return;
+    }
+
+    const summary = analysisResult?.goal_summary || manualGoalSpec.goal_summary;
+    const domain = analysisResult?.domain_guess || manualGoalSpec.domain_guess;
+    const horizon = analysisResult?.horizon_guess || manualGoalSpec.horizon_guess;
+    const scope = analysisResult?.scope_guess || manualGoalSpec.scope_guess;
+
+    // Create a minimal blueprint that allows the user to proceed
+    const minimalBlueprint: BlueprintDraft = {
+      project_profile: {
+        goal_text: goalText,
+        goal_summary: summary,
+        domain_guess: domain,
+        output_type: 'distribution',
+        horizon: horizon,
+        scope: scope,
+        success_metrics: ['Prediction accuracy', 'Confidence level'],
+      },
+      strategy: {
+        chosen_core: 'collective',
+        primary_drivers: ['User input'],
+        required_modules: ['base_simulation'],
+      },
+      input_slots: [
+        {
+          slot_id: 'data_input',
+          name: 'Data & Evidence',
+          description: 'Upload relevant data or evidence URLs',
+          required_level: 'recommended',
+        },
+        {
+          slot_id: 'personas',
+          name: 'Personas',
+          description: 'Define key actors in your simulation',
+          required_level: 'optional',
+        },
+        {
+          slot_id: 'rules',
+          name: 'Rules & Assumptions',
+          description: 'Define simulation rules and constraints',
+          required_level: 'optional',
+        },
+      ],
+      section_tasks: {},
+      clarification_answers: answers,
+      generated_at: new Date().toISOString(),
+      processing_time_ms: 0,
+      warnings: [
+        'This is a minimal blueprint created in fallback mode.',
+        'Consider regenerating with AI assistance when service is restored.',
+      ],
+    };
+
+    setBlueprintDraft(minimalBlueprint);
+    setStage('preview');
+    onBlueprintReady(minimalBlueprint);
+  }, [analysisResult, manualGoalSpec, goalText, answers, onBlueprintReady]);
 
   // VERTICAL SLICE #1: Submit clarification answers using background job
   const handleSubmitAnswers = useCallback(async () => {
@@ -696,6 +830,8 @@ export function GoalAssistantPanel({
               jobType="Goal Analysis"
               onCancel={handleCancelJob}
               onRetry={handleRetryJob}
+              onFallback={handleSwitchToManualMode}
+              fallbackLabel="Use Manual Mode"
               isRetrying={retryJobMutation.isPending}
               isCancelling={cancelJobMutation.isPending}
             />
@@ -901,9 +1037,205 @@ export function GoalAssistantPanel({
               jobType="Blueprint Generation"
               onCancel={handleCancelJob}
               onRetry={handleRetryJob}
+              onFallback={handleCreateMinimalBlueprint}
+              fallbackLabel="Use Minimal Blueprint"
               isRetrying={retryJobMutation.isPending}
               isCancelling={cancelJobMutation.isPending}
             />
+            {error && (
+              <div className="flex items-center gap-2 text-red-400 text-xs font-mono">
+                <AlertCircle className="w-3 h-3" />
+                {error}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Task 7: Manual Goal Spec Form (Fallback Mode) */}
+        {stage === 'manual_goal' && (
+          <div className="space-y-4">
+            {/* Fallback Mode Header */}
+            <div className="p-3 bg-amber-500/10 border border-amber-500/30">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertCircle className="w-4 h-4 text-amber-400" />
+                <span className="text-xs font-mono font-bold text-amber-400">MANUAL MODE</span>
+              </div>
+              <p className="text-xs font-mono text-white/60">
+                AI analysis unavailable. Provide basic goal information manually to proceed.
+              </p>
+            </div>
+
+            {/* Manual Form */}
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] font-mono text-white/40 uppercase block mb-1">
+                  Goal Summary *
+                </label>
+                <textarea
+                  value={manualGoalSpec.goal_summary}
+                  onChange={(e) => setManualGoalSpec(prev => ({ ...prev, goal_summary: e.target.value }))}
+                  placeholder="Describe what you want to predict or simulate..."
+                  rows={3}
+                  className="w-full px-3 py-2 bg-black border border-white/10 text-xs font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-cyan-500/50 resize-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-mono text-white/40 uppercase block mb-1">
+                    Domain
+                  </label>
+                  <select
+                    value={manualGoalSpec.domain_guess}
+                    onChange={(e) => setManualGoalSpec(prev => ({ ...prev, domain_guess: e.target.value }))}
+                    className="w-full px-3 py-2 bg-black border border-white/10 text-xs font-mono text-white focus:outline-none focus:border-cyan-500/50"
+                  >
+                    <option value="marketing">Marketing</option>
+                    <option value="political">Political</option>
+                    <option value="finance">Finance</option>
+                    <option value="social">Social</option>
+                    <option value="technology">Technology</option>
+                    <option value="custom">Custom/Other</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-mono text-white/40 uppercase block mb-1">
+                    Time Horizon
+                  </label>
+                  <input
+                    type="text"
+                    value={manualGoalSpec.horizon_guess}
+                    onChange={(e) => setManualGoalSpec(prev => ({ ...prev, horizon_guess: e.target.value }))}
+                    placeholder="e.g., 1 year, 6 months"
+                    className="w-full px-3 py-2 bg-black border border-white/10 text-xs font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-cyan-500/50"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-mono text-white/40 uppercase block mb-1">
+                  Scope
+                </label>
+                <input
+                  type="text"
+                  value={manualGoalSpec.scope_guess}
+                  onChange={(e) => setManualGoalSpec(prev => ({ ...prev, scope_guess: e.target.value }))}
+                  placeholder="e.g., regional, national, global"
+                  className="w-full px-3 py-2 bg-black border border-white/10 text-xs font-mono text-white placeholder:text-white/30 focus:outline-none focus:border-cyan-500/50"
+                />
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-2">
+              <Button
+                onClick={handleManualGoalSubmit}
+                disabled={!manualGoalSpec.goal_summary.trim()}
+                className="flex-1 bg-cyan-500 hover:bg-cyan-600 text-black font-mono text-xs"
+              >
+                <ChevronRight className="w-3 h-3 mr-1" />
+                Continue to Blueprint
+              </Button>
+              <Button
+                onClick={() => setStage('idle')}
+                variant="outline"
+                className="border-white/20 text-white/70 hover:bg-white/10 font-mono text-xs"
+              >
+                Back
+              </Button>
+            </div>
+
+            {error && (
+              <div className="flex items-center gap-2 text-red-400 text-xs font-mono">
+                <AlertCircle className="w-3 h-3" />
+                {error}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Task 7: Manual Blueprint Confirmation (Fallback Mode) */}
+        {stage === 'manual_blueprint' && (
+          <div className="space-y-4">
+            {/* Manual Blueprint Header */}
+            <div className="p-3 bg-amber-500/10 border border-amber-500/30">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertCircle className="w-4 h-4 text-amber-400" />
+                <span className="text-xs font-mono font-bold text-amber-400">MINIMAL BLUEPRINT</span>
+              </div>
+              <p className="text-xs font-mono text-white/60">
+                Create a minimal blueprint to proceed. You can enhance it later when AI is available.
+              </p>
+            </div>
+
+            {/* Goal Summary */}
+            {(analysisResult || manualGoalSpec.goal_summary) && (
+              <div className="p-3 bg-white/5 border border-white/10">
+                <div className="flex items-center gap-2 mb-2">
+                  <Brain className="w-4 h-4 text-cyan-400" />
+                  <span className="text-xs font-mono font-bold text-white">GOAL SUMMARY</span>
+                </div>
+                <p className="text-xs font-mono text-white/70">
+                  {analysisResult?.goal_summary || manualGoalSpec.goal_summary}
+                </p>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  <span className="px-2 py-0.5 bg-white/10 text-[10px] font-mono text-white/60 uppercase">
+                    {analysisResult?.domain_guess || manualGoalSpec.domain_guess}
+                  </span>
+                  <span className="px-2 py-0.5 bg-white/10 text-[10px] font-mono text-white/60">
+                    {analysisResult?.horizon_guess || manualGoalSpec.horizon_guess}
+                  </span>
+                  <span className="px-2 py-0.5 bg-white/10 text-[10px] font-mono text-white/60">
+                    {analysisResult?.scope_guess || manualGoalSpec.scope_guess}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* What You'll Get */}
+            <div className="p-3 bg-white/5 border border-white/10">
+              <span className="text-[10px] font-mono text-white/40 uppercase block mb-2">
+                Minimal Blueprint Includes:
+              </span>
+              <ul className="space-y-1 text-xs font-mono text-white/60">
+                <li className="flex items-center gap-2">
+                  <CheckCircle className="w-3 h-3 text-green-400" />
+                  Basic project profile and goal summary
+                </li>
+                <li className="flex items-center gap-2">
+                  <CheckCircle className="w-3 h-3 text-green-400" />
+                  Default input slots (data, personas, rules)
+                </li>
+                <li className="flex items-center gap-2">
+                  <CheckCircle className="w-3 h-3 text-green-400" />
+                  Standard simulation strategy (collective mode)
+                </li>
+                <li className="flex items-center gap-2">
+                  <AlertCircle className="w-3 h-3 text-amber-400" />
+                  No AI-optimized recommendations (can regenerate later)
+                </li>
+              </ul>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-2">
+              <Button
+                onClick={handleCreateMinimalBlueprint}
+                className="flex-1 bg-cyan-500 hover:bg-cyan-600 text-black font-mono text-xs"
+              >
+                <Sparkles className="w-3 h-3 mr-1" />
+                Create Minimal Blueprint
+              </Button>
+              <Button
+                onClick={() => setStage(analysisResult ? 'clarifying' : 'manual_goal')}
+                variant="outline"
+                className="border-white/20 text-white/70 hover:bg-white/10 font-mono text-xs"
+              >
+                Back
+              </Button>
+            </div>
+
             {error && (
               <div className="flex items-center gap-2 text-red-400 text-xs font-mono">
                 <AlertCircle className="w-3 h-3" />
@@ -940,6 +1272,8 @@ interface JobStatusDisplayProps {
   jobType: string;
   onCancel: () => void;
   onRetry: () => void;
+  onFallback?: () => void;  // Task 7: Fallback mode handler
+  fallbackLabel?: string;    // Task 7: Fallback button label
   isRetrying: boolean;
   isCancelling: boolean;
 }
@@ -949,6 +1283,8 @@ function JobStatusDisplay({
   jobType,
   onCancel,
   onRetry,
+  onFallback,
+  fallbackLabel = 'Use Manual Mode',
   isRetrying,
   isCancelling,
 }: JobStatusDisplayProps) {
@@ -1078,24 +1414,38 @@ function JobStatusDisplay({
           </Button>
         )}
         {isFailed && (
-          <Button
-            onClick={onRetry}
-            disabled={isRetrying}
-            className="bg-cyan-500 hover:bg-cyan-600 text-black font-mono text-[10px]"
-            size="sm"
-          >
-            {isRetrying ? (
-              <>
-                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                Retrying...
-              </>
-            ) : (
-              <>
-                <RefreshCw className="w-3 h-3 mr-1" />
-                Retry
-              </>
+          <>
+            <Button
+              onClick={onRetry}
+              disabled={isRetrying}
+              className="bg-cyan-500 hover:bg-cyan-600 text-black font-mono text-[10px]"
+              size="sm"
+            >
+              {isRetrying ? (
+                <>
+                  <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                  Retrying...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-3 h-3 mr-1" />
+                  Retry
+                </>
+              )}
+            </Button>
+            {/* Task 7: Fallback mode button */}
+            {onFallback && (
+              <Button
+                onClick={onFallback}
+                variant="outline"
+                className="border-amber-500/50 text-amber-400 hover:bg-amber-500/10 font-mono text-[10px]"
+                size="sm"
+              >
+                <FileText className="w-3 h-3 mr-1" />
+                {fallbackLabel}
+              </Button>
             )}
-          </Button>
+          </>
         )}
       </div>
     </div>

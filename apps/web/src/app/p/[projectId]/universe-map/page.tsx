@@ -1970,6 +1970,9 @@ function TEGWrapper() {
   const projectId = params.projectId as string;
   const { toast } = useToast();
 
+  // Track if we've already attempted to sync (prevent infinite loop)
+  const syncAttemptedRef = useRef(false);
+
   // Use the real TEG API hook (Task 2)
   const {
     data: tegData,
@@ -2100,16 +2103,35 @@ function TEGWrapper() {
   }, [runMutation, toast, refetchTEG, router, projectId]);
 
   // Auto-sync TEG from runs if graph is empty and no error
+  // Only attempt sync once per mount to prevent infinite loop
   useEffect(() => {
-    if (!tegLoading && tegData && tegData.nodes.length === 0 && !tegError) {
+    if (
+      !tegLoading &&
+      tegData &&
+      tegData.nodes.length === 0 &&
+      !tegError &&
+      !syncAttemptedRef.current &&
+      !syncMutation.isPending
+    ) {
+      // Mark that we've attempted sync to prevent re-triggering
+      syncAttemptedRef.current = true;
       // Trigger sync to populate from existing runs
       syncMutation.mutate(projectId, {
         onSuccess: () => {
           refetchTEG();
         },
+        onError: () => {
+          // Sync failed, but we've already attempted
+          // The empty state will be shown
+        },
       });
     }
   }, [tegLoading, tegData, tegError, projectId, syncMutation, refetchTEG]);
+
+  // Reset sync attempted flag when project changes
+  useEffect(() => {
+    syncAttemptedRef.current = false;
+  }, [projectId]);
 
   return (
     <div className="h-screen">
