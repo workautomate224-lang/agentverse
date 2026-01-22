@@ -354,7 +354,7 @@ async def _sync_from_runs(
         Run.project_id == project_id,
         Run.tenant_id == tenant_id,
         Run.status == RunStatus.SUCCEEDED,
-    ).order_by(Run.completed_at.desc())
+    ).order_by(Run.updated_at.desc())
 
     runs_result = await db.execute(runs_query)
     runs = runs_result.scalars().all()
